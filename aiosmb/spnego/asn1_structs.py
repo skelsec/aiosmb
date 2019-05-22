@@ -6,7 +6,7 @@
 
 # https://www.rfc-editor.org/rfc/rfc4178.txt
 
-from asn1crypto.core import ObjectIdentifier, Sequence, SequenceOf, Enumerated, GeneralString, OctetString, BitString, Choice
+from asn1crypto.core import ObjectIdentifier, Sequence, SequenceOf, Enumerated, GeneralString, OctetString, BitString, Choice, Any
 import enum
 import os
 
@@ -87,3 +87,32 @@ class NegotiationToken(Choice):
 		('negTokenResp', NegTokenResp, {'explicit': (CONTEXT, 1) } ),
 ]
 
+
+class GSS_SPNEGO(Sequence):
+	class_ = 2
+	tag    = 0
+
+	_fields = [
+		('NegotiationToken', NegotiationToken),
+]
+
+### I have 0 idea where this is tandardized :(
+class GSSType(ObjectIdentifier):
+	_map = { 
+		#'': 'SNMPv2-SMI::enterprises.311.2.2.30',
+		'1.3.6.1.5.5.2': 'SPNEGO',
+	}
+
+class GSSAPI(Sequence):
+	class_ = 1
+	tag    = 0
+
+	_fields = [
+		('type', GSSType, {'optional': False}),
+		('value', Any, {'optional': False}),
+	]
+
+	_oid_pair = ('type', 'value')
+	_oid_specs = {
+		'SPNEGO': NegotiationToken,
+	}

@@ -1,5 +1,7 @@
 import enum
 import asyncio
+import hmac
+import hashlib
 
 from aiosmb.network.network import TCPSocket
 from aiosmb.network.netbios_transport import NetBIOSTransport
@@ -8,8 +10,15 @@ from aiosmb.commons.ntstatus import NTStatus
 from aiosmb.protocol.smb.header import SMBHeader, SMBHeaderFlags2Enum
 from aiosmb.protocol.smb.message import SMBMessage
 from aiosmb.protocol.smb.commands import *
-from aiosmb.protocol.smb2.message import SMB2Message
+from aiosmb.protocol.smb2.message import SMB2Message, SMB2Transform
 from aiosmb.protocol.smb2.commands import *
+from aiosmb.protocol.smb2.headers import *
+from aiosmb.protocol.smb2.command_codes import *
+from aiosmb.utils.guid import *
+
+
+from aiosmb.spnego.spnego import SPNEGO
+from aiosmb.ntlm.auth_handler import NTLMAUTHHandler, Credential, NTLMHandlerSettings
 
 class SMBDialect(enum.Enum):
 	SMB1 = 'NT LM 0.12'
@@ -33,6 +42,7 @@ class SMBTarget:
 class SMBConnectionStatus(enum.Enum):
 	NEGOTIATING = 'NEGOTIATING'
 	SESSIONSETUP = 'SESSIONSETUP'
+	RUNNING = 'RUNNING'
 	
 class SMBConnection:
 	"""
@@ -63,6 +73,7 @@ class SMBConnection:
 		self.ServerGuid = None
 		self.RequireSigning = False
 		self.ServerName = None
+		self.ClientGUID = GUID.random()
 		
 		self.Dialect = 0
 		self.SupportsFileLeasing = False
@@ -77,7 +88,8 @@ class SMBConnection:
 		self.ClientSecurityMode = 0
 		self.ServerSecurityMode = 0
 		
-		self.SessionID = 0
+		self.SessionId = 0
+		self.SessionKey = None
 		
 	async def __handle_smb_in(self):
 		"""
@@ -87,6 +99,8 @@ class SMBConnection:
 		while not self.shutdown_evt.is_set():
 			msg = await self.netbios_transport.in_queue.get()
 			
+			print('__handle_smb_in got new message with Id %s' % msg.header.MessageId)
+			
 			if isinstance(msg, SMB2Transform):
 				#message is encrypted
 				#this point we should decrypt it and only store the decrypted part in the OutstandingResponses table
@@ -94,8 +108,7 @@ class SMBConnection:
 				raise Exception('Encrypted SMBv2 message recieved, but encryption is not yet supported!')
 			
 			self.OutstandingResponses[msg.header.MessageId] = msg
-			if msg.header.MessageId in self.OutstandingResponsesEvent:
-				self.OutstandingResponsesEvent[msg.header.MessageId].set()
+			self.OutstandingResponsesEvent[msg.header.MessageId].set()
 			
 		
 	async def connect(self, target):
@@ -146,8 +159,6 @@ class SMBConnection:
 		print('Message recieved!')
 		print(repr(msg))
 		
-		
-		
 		if isinstance(msg, SMB2Message):
 			self.selected_dialect = msg.command.DialectRevision
 			print('Server selected dialect: %s' % self.selected_dialect)
@@ -158,21 +169,90 @@ class SMBConnection:
 			
 		self.status = SMBConnectionStatus.SESSIONSETUP
 		
-		print('sleeping')
-		await asyncio.sleep(10)
+		"""
+		input('2')
+			
+		### second round, with smb2 only this time
+		command = NEGOTIATE_REQ()
+		command.SecurityMode    = 1  #NegotiateSecurityMode.SMB2_NEGOTIATE_SIGNING_ENABLED
+		command.Capabilities    = 0 #NegotiateCapabilities
+		command.ClientGuid      = self.ClientGUID
+
+		command.Dialects        = [NegotiateDialects.SMB202]
+		
+		header = SMB2Header_SYNC()
+		header.Command  = SMB2Command.NEGOTIATE
+		header.CreditReq = 0
+		header.CreditCharge = 1
+		
+		msg = SMBMessage(header, command)
+		message_id = await self.sendSMB(msg)
+			
+		rply = await self.recvSMB(message_id)
+		print('session got reply!')
+		print(rply)
+		"""
 		
 	async def session_setup(self):
 	
 		command = SESSION_SETUP_REQ()
-		command.Buffer = self.gssapi.authenticate(None)
+		command.Buffer, res = self.gssapi.authenticate(None)
+		#input(command.Buffer)
 	
 		command.Flags = 0
-		command.SecurityMode = 0
+		command.SecurityMode = NegotiateSecurityMode.SMB2_NEGOTIATE_SIGNING_ENABLED
 		command.Capabilities = 0
 		command.Channel      = 0
 		command.PreviousSessionId    = 0
 		
+		header = SMB2Header_SYNC()
+		header.Command  = SMB2Command.SESSION_SETUP
+		header.CreditReq = 0
+		
+		msg = SMBMessage(header, command)
 		message_id = await self.sendSMB(msg)
+		
+		
+		rply = await self.recvSMB(message_id)
+		print('session got reply!')
+		print(rply)
+		
+		#setting the session id for the whole connection
+		self.SessionId = rply.header.SessionId
+		
+		#print('sleeping')
+		#await asyncio.sleep(10)
+		
+		command = SESSION_SETUP_REQ()
+		command.Buffer, res = self.gssapi.authenticate(rply.command.Buffer)
+		#command.Buffer = bytes.fromhex('a18201603082015ca2820158048201544e544c4d53535000030000001800180054000000d800d8006c00000008000800400000000c000c004800000000000000540000001000100044010000358288e05400450053005400760069006300740069006d00c82ea7bdfcdcd5cec3d334b868dd0a5050494b767738656b7b2efd49a006c439fc8d02471bc9b65e01010000000000004dc738e7060bd50150494b767738656b0000000001001200570049004e0032003000310039004100440002000800540045005300540003002600570049004e003200300031003900410044002e0074006500730074002e0063006f00720070000400120074006500730074002e0063006f00720070000500120074006500730074002e0063006f0072007000070008004dc738e7060bd50109001c0063006900660073002f00570049004e0032003000310039004100440000000000000000002553d29cafe2b7af5dbba19142ca0ab0')
+		
+		
+		
+		#input(command.Buffer)
+	
+		command.Flags = 0
+		command.SecurityMode = NegotiateSecurityMode.SMB2_NEGOTIATE_SIGNING_ENABLED
+		command.Capabilities = 0
+		command.Channel      = 0
+		command.PreviousSessionId    = 0
+		
+		header = SMB2Header_SYNC()
+		header.Command  = SMB2Command.SESSION_SETUP
+		header.CreditReq = 127
+		
+		msg = SMBMessage(header, command)
+		message_id = await self.sendSMB(msg)
+		
+		rply = await self.recvSMB(message_id)
+		print('session got reply2!')
+		print(rply)
+		
+		self.SessionKey = self.gssapi.get_session_key()
+		
+		
+		#ADD CHECKS HERE FOR SUCCSESS!
+		self.status = SMBConnectionStatus.RUNNING
 		
 		
 	async def recvSMB(self, message_id = None):
@@ -181,10 +261,7 @@ class SMBConnection:
 		If message_id is None if will pop the first message from the outstandingresponse OR wait for the next available message.
 		"""
 		if message_id not in self.OutstandingResponses:
-			if message_id not in self.OutstandingResponsesEvent:
-				self.OutstandingResponsesEvent[message_id] = asyncio.Event()
-			
-			print('waiting')
+			print('Waiting on messageID : %s' % message_id)
 			await self.OutstandingResponsesEvent[message_id].wait()
 		
 		msg = self.OutstandingResponses.pop(message_id)
@@ -195,6 +272,16 @@ class SMBConnection:
 		return msg
 		
 		
+	def sign_message(self, msg):
+		if self.selected_dialect in [NegotiateDialects.SMB202]:
+			if self.SessionKey:
+				digest = hmac.new(self.SessionKey, msg.to_bytes(), hashlib.sha256).digest()
+				msg.header.Signature = digest[:16]
+				msg.header.Flags = msg.header.Flags ^ SMB2HeaderFlag.SMB2_FLAGS_SIGNED
+		else:
+			raise Exception('ONLY certain dialect supported!')
+		
+		
 	async def sendSMB(self, msg):
 		"""
 		Sends an SMB message to teh remote endpoint.
@@ -202,29 +289,77 @@ class SMBConnection:
 		Returns: MessageId integer
 		"""
 		if self.status == SMBConnectionStatus.NEGOTIATING:
+			#creating an event for outstanding response
+			self.OutstandingResponsesEvent[0] = asyncio.Event()
 			await self.netbios_transport.out_queue.put(msg)
+			self.SequenceWindow += 1
 			return 0
 		
 		if msg.header.Command is not SMB2Command.CANCEL:
-			msg.header.MessageID = self.SequenceWindow
+			msg.header.MessageId = self.SequenceWindow
 			self.SequenceWindow += 1
-		msg.header.SessionID = self.SessionID
 		
-		if self.status != SMBConnectionStatus.NEGOTIATING:
-			msg.header.Credit = 127
+		msg.header.SessionId = self.SessionId
 		
-		message_id = msg.header.MessageID
+		if not msg.header.CreditCharge:
+			msg.header.CreditCharge = 1
 		
-		#signinggoes here
+		if self.status != SMBConnectionStatus.SESSIONSETUP:
+			msg.header.CreditReq = 127
+		
+		message_id = msg.header.MessageId
+		
+		#signing goes here
+		self.sign_message(msg)
+		
 		#encryption goes here
+		
+		#creating an event for outstanding response
+		self.OutstandingResponsesEvent[message_id] = asyncio.Event()
 		
 		await self.netbios_transport.out_queue.put(msg)
 		
+		return message_id
+		
+	async def tree_connect(self, path):
+		"""
+		Path MUST be in "\\server\share" format! Server can be NetBIOS name OR IP4 OR IP6 OR FQDN
+		"""
+		
+		command = TREE_CONNECT_REQ()
+		command.Path = path
+		command.Flags = 0
+		
+		header = SMB2Header_SYNC()
+		header.Command  = SMB2Command.TREE_CONNECT
+		
+		msg = SMBMessage(header, command)
+		message_id = await self.sendSMB(msg)
+		
+		rply = await self.recvSMB(message_id)
+		print('session got reply2!')
+		print(rply)
+		
 			
 async def test(target):
-	connection = SMBConnection(None, [SMBDialect.SMB2_2])
+	#setting up NTLM auth
+	template_name = 'Windows10_15063'
+	credential = Credential()
+	credential.username = 'victim'
+	credential.password = 'Passw0rd!1'
+	credential.domain = 'TEST'
+	
+	settings = NTLMHandlerSettings(credential, mode = 'CLIENT', template_name = template_name)
+	handler = NTLMAUTHHandler(settings)
+	
+	#setting up SPNEGO
+	spneg = SPNEGO()
+	spneg.add_auth_context('NTLMSSP - Microsoft NTLM Security Support Provider', handler)
+	connection = SMBConnection(spneg, [SMBDialect.SMB2_2])
 	await connection.connect(target)
 	await connection.negotiate()
+	await connection.session_setup()
+	await connection.tree_connect('\\\\10.10.10.2\\IPC$')
 			
 if __name__ == '__main__':
 	target = SMBTarget()

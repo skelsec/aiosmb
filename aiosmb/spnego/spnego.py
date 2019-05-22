@@ -19,7 +19,13 @@ class SPNEGO:
 		self.selected_authentication_context = None
 		self.selected_mechtype = None
 		
-	def add_auth_context(name, ctx):
+	def is_signing_required(self):
+		pass
+		
+	def is_encryption_required(self):
+		pass
+		
+	def add_auth_context(self, name, ctx):
 		"""
 		Add an authentication context to the given authentication context name.
 		Valid names are:
@@ -31,26 +37,31 @@ class SPNEGO:
 			
 		Context MUST be already set up!
 		"""
-		self.authentication_contexts[MechType(name)] = ctx
+		self.authentication_contexts[name] = ctx
 		
 	def select_common_athentication_type(self, mech_types):
 		for auth_type_name in self.authentication_contexts:
 			if auth_type_name in mech_types:
+				print(auth_type_name)
 				return auth_type_name, self.authentication_contexts[auth_type_name]
 				
 		return None, None
 		
-	def process_ctx_authenticate(self, token_data):
+	def process_ctx_authenticate(self, token_data, include_negstate = False):
 		result, to_continue = self.selected_authentication_context.authenticate(token_data)
 		
-		response = {}		
-		if to_continue == True:
-			response['negState'] = NegState('accept-incomplete')
-		else:
-			response['negState'] = NegState('accept-completed')
+		response = {}
+		if include_negstate == True:
+			if to_continue == True:
+				response['negState'] = NegState('accept-incomplete')
+			else:
+				response['negState'] = NegState('accept-completed')
 			
 		response['responseToken'] = result
 		return response, to_continue
+		
+	def get_session_key(self):
+		return self.selected_authentication_context.get_session_key()
 	
 	def authenticate(self, token):
 		"""
@@ -76,13 +87,13 @@ class SPNEGO:
 					if neg_token.mechToken is not None:
 						response, to_continue = self.process_ctx_authenticate(neg_token.mechToken)
 						response['supportedMech'] = MechType(self.selected_mechtype)	
-						return NegTokenResp(response), to_continue
+						return NegTokenResp(response).dump(), to_continue
 						
 					else:
 						response = {}
 						response['negState'] = NegState('accept-incomplete')
 						response['supportedMech'] = MechType(self.selected_mechtype)
-						return NegTokenResp(response), True
+						return NegTokenResp(response).dump(), True
 				
 				#multiple mechtypes present, we must select one and send it back to the client
 				else:
@@ -95,7 +106,7 @@ class SPNEGO:
 					response['negState'] = NegState('accept-incomplete')
 					response['supportedMech'] = MechType(self.selected_mechtype)
 							
-					return NegTokenResp(response), True
+					return NegTokenResp(response).dump(), True
 					
 				
 			elif isinstance(neg_token_raw, NegTokenResp):
@@ -103,7 +114,7 @@ class SPNEGO:
 					raise Exception('NegTokenResp got, but no authentication context selected!')
 			
 				response, to_continue = self.process_ctx_authenticate(neg_token.mechToken)
-				return NegTokenResp(response), to_continue
+				return NegTokenResp(response.dump()), to_continue
 				
 		else:
 			if self.selected_mechtype is None:
@@ -115,7 +126,7 @@ class SPNEGO:
 					mechtypes = []
 					for mechname in self.authentication_contexts:
 						selected_name = mechname #only used if there is one!
-						mechtypes.append(mechname)
+						mechtypes.append(MechType(mechname))
 					
 					response = {}
 					response['mechTypes'] = MechTypes(mechtypes)
@@ -126,8 +137,13 @@ class SPNEGO:
 						result, to_continue = self.selected_authentication_context.authenticate(None)
 						response['mechToken'] = result
 					
+					### First message and ONLY the first message goes out with additional wrapping
 					
-					return NegTokenInit2(response), True
+					negtoken = NegotiationToken({'negTokenInit':NegTokenInit2(response)})
+					
+					
+					spnego = GSS_SPNEGO({'NegotiationToken':negtoken})
+					return GSSAPI({'type': GSSType('1.3.6.1.5.5.2'), 'value':negtoken}).dump(), True
 					
 				else:
 					#we have already send the NegTokenInit2, but it contained multiple auth types,
@@ -139,15 +155,18 @@ class SPNEGO:
 						raise Exception('Server send init???')
 						
 					self.selected_authentication_context = self.authentication_contexts[neg_token.mechTypes[0]]
-					self.selected_mechtype = neg_token.mechTypes[0]
+					self.selected_mechtype = neg_token['supportedMech']
 	
-					response, to_continue = self.process_ctx_authenticate(neg_token.mechToken)
-					return NegTokenResp(response), to_continue
+					response, to_continue = self.process_ctx_authenticate(neg_token['responseToken'])
+					return NegTokenResp(response).dump(), to_continue
 					
 			else:
 				#everything is netotiated, but authentication needs more setps
-				response, to_continue = self.process_ctx_authenticate(neg_token.mechToken)
-				return NegTokenResp(response), to_continue
+				neg_token_raw = NegotiationToken.load(token)
+				neg_token = neg_token_raw.native
+				print(neg_token)
+				response, to_continue = self.process_ctx_authenticate(neg_token['responseToken'])
+				return NegotiationToken({'negTokenResp':NegTokenResp(response)}).dump(), to_continue
 	
 	
 test_data = bytes.fromhex('a03e303ca00e300c060a2b06010401823702020aa22a04284e544c4d5353500001000000978208e2000000000000000000000000000000000a00d73a0000000f')

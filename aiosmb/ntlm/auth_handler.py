@@ -14,9 +14,10 @@ from aiosmb.crypto.symmetric import RC4
 
 class Credential:
 	def __init__(self):
-		self.username = ''
+		self.username = None
 		self.domain = ''
-		self.password = ''
+		self.password = None
+		self.workstation = None
 		self.is_guest = False
 		self.nt_hash = None
 		self.lm_hash = None
@@ -103,6 +104,9 @@ class NTLMAUTHHandler:
 			version = self.settings.template.get('version')
 			self.ntlmNegotiate = NTLMNegotiate.construct(self.flags, domainname = domainname, workstationname = workstationname, version = version)			
 
+	def get_session_key(self):
+		return self.RandomSessionKey
+		
 	def setup_crypto(self):
 		if not self.RandomSessionKey:
 			self.RandomSessionKey = os.urandom(16)
@@ -173,13 +177,13 @@ class NTLMAUTHHandler:
 						self.KeyExchangeKey = self.ntlm_credentials.calc_key_exchange_key()						
 						self.setup_crypto()
 						
-						self.ntlmAuthenticate = NTLMAuthenticate.construct(self.flags, lm_response= self.ntlm_credentials.LMResponse, nt_response = self.ntlm_credentials.NTResponse, version = self.ntlmNegotiate.Version)
+						self.ntlmAuthenticate = NTLMAuthenticate.construct(self.flags, lm_response= self.ntlm_credentials.LMResponse, nt_response = self.ntlm_credentials.NTResponse, version = self.ntlmNegotiate.Version, encrypted_session = self.EncryptedRandomSessionKey)
 					else:
 						self.ntlm_credentials = netntlm.construct(self.ntlmChallenge.ServerChallenge, self.settings.credential)
 						
 						self.KeyExchangeKey = self.ntlm_credentials.calc_key_exchange_key(with_lm = self.flags & NegotiateFlags.NEGOTIATE_LM_KEY, non_nt_session_key = self.flags & NegotiateFlags.REQUEST_NON_NT_SESSION_KEY)						
 						self.setup_crypto()
-						self.ntlmAuthenticate = NTLMAuthenticate.construct(self.flags, lm_response= self.ntlm_credentials.LMResponse, nt_response = self.ntlm_credentials.NTResponse, version = self.ntlmNegotiate.Version)
+						self.ntlmAuthenticate = NTLMAuthenticate.construct(self.flags, lm_response= self.ntlm_credentials.LMResponse, nt_response = self.ntlm_credentials.NTResponse, version = self.ntlmNegotiate.Version, encrypted_session = self.EncryptedRandomSessionKey)
 
 							
 							
@@ -197,7 +201,7 @@ class NTLMAUTHHandler:
 						self.KeyExchangeKey = self.ntlm_credentials.calc_key_exchange_key()						
 						self.setup_crypto()
 						
-						self.ntlmAuthenticate = NTLMAuthenticate.construct(self.flags, lm_response= self.ntlm_credentials.LMResponse, nt_response= self.ntlm_credentials.NTResponse, version = self.ntlmNegotiate.Version)
+						self.ntlmAuthenticate = NTLMAuthenticate.construct(self.flags, domainname= self.settings.credential.domain, workstationname= self.settings.credential.workstation, username= self.settings.credential.username, lm_response= self.ntlm_credentials.LMResponse, nt_response= self.ntlm_credentials.NTResponse, version = self.ntlmNegotiate.Version, encrypted_session = self.EncryptedRandomSessionKey)
 						
 				return self.ntlmAuthenticate.to_bytes(), False
 

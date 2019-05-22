@@ -49,7 +49,6 @@ class TCPSocket:
 		try:
 			while not self.disconnected.is_set() or not self.shutdown_evt.is_set():
 				data = await self.out_queue.get()
-				print(data)
 				self.writer.write(data)
 				await self.writer.drain()
 		except Exception as e:

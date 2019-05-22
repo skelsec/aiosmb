@@ -106,7 +106,8 @@ class SESSION_SETUP_REPLY():
 		msg.SessionFlags = SessionFlags(int.from_bytes(buff.read(2), byteorder = 'little'))
 		msg.SecurityBufferOffset = int.from_bytes(buff.read(2), byteorder = 'little')
 		msg.SecurityBufferLength = int.from_bytes(buff.read(2), byteorder = 'little')
-		msg.Buffer= buff.read(msg.SecurityBufferLength)
+		msg.Buffer = buff.read(msg.SecurityBufferLength)
+		return msg
 
 	@staticmethod
 	def construct(data, flags, ppos = None):

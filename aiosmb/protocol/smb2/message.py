@@ -1,9 +1,36 @@
 import enum
 import io
 
-from aiosmb.protocol.smb2.header import *
+from aiosmb.protocol.smb2.headers import *
 from aiosmb.protocol.smb2.commands import *
 from aiosmb.protocol.smb2.command_codes import *
+
+class SMB2Transform:
+	def __init__(self):
+		self.header = None
+		self.data   = None
+	
+	@staticmethod
+	def from_bytes(bbuff):
+		return SMB2Transform.from_buffer(io.BytesIO(bbuff))
+
+	@staticmethod
+	def from_buffer(buff):
+		msg = SMB2Transform()
+		pos = buff.tell()
+		t = buff.read(1)
+		buff.seek(pos,0)
+		if t == 0xFD:
+			#encrypted
+			msg.header = SMB2Header_TRANSFORM.from_buffer(buff)
+		elif t == 0xFD:
+			#encrypted
+			msg.header = SMB2Header_COMPRESSION_TRANSFORM.from_buffer(buff)
+		else:
+			raise Exception('Unknown packet type for SMB2Transform! %s' % t)
+		
+		msg.data = buff.read()
+		return msg
 
 class SMB2Message:
 	def __init__(self):
@@ -63,4 +90,6 @@ class SMB2Message:
 command2object = {
 	'NEGOTIATE_REQ'       : NEGOTIATE_REQ,
 	'NEGOTIATE_REPLY'     : NEGOTIATE_REPLY,
+	'SESSION_SETUP_REQ'     : SESSION_SETUP_REQ,
+	'SESSION_SETUP_REPLY'     : SESSION_SETUP_REPLY,
 }

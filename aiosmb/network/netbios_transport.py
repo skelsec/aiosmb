@@ -44,7 +44,8 @@ class NetBIOSTransport:
 		"""
 		if len(buffer) > 4:
 			if not total_size:
-				total_size = int.from_bytes(buffer[1:4], byteorder='big', signed = False) + 1
+				total_size = int.from_bytes(buffer[1:4], byteorder='big', signed = False) + 4
+				print(total_size)
 			
 			if len(buffer) >= total_size:
 				msg_data = buffer[:total_size][4:]
@@ -57,6 +58,12 @@ class NetBIOSTransport:
 				elif msg_data[0] == 0xFE:
 					#version2
 					msg = SMB2Message.from_bytes(msg_data)
+				elif msg_data[0] == 0xFD:
+					#encrypted transform
+					msg = SMB2Transform.from_bytes(msg_data)
+				elif msg_data[0] == 0xFC:
+					#compressed transform
+					msg = SMB2Transform.from_bytes(msg_data)
 				else:
 					raise Exception('Unknown SMB version!')
 					
@@ -77,6 +84,7 @@ class NetBIOSTransport:
 				#parse
 				buffer += data
 				buffer = await self.parse_buffer(buffer)
+				print(buffer)
 				
 		except Exception as e:
 			traceback.print_exc()

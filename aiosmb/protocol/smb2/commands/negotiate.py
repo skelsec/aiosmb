@@ -4,6 +4,8 @@ import datetime
 import uuid
 
 from aiosmb.utils.ts2dt import *
+from aiosmb.utils.guid import *
+
 
 # https://msdn.microsoft.com/en-us/library/cc246543.aspx
 class NegotiateSecurityMode(enum.IntFlag):
@@ -33,19 +35,43 @@ class NegotiateDialects(enum.Enum):
 # https://msdn.microsoft.com/en-us/library/cc246543.aspx
 class NEGOTIATE_REQ:
 	def __init__(self):
-		self.StructureSize   = None
+		self.StructureSize   = 36
 		self.DialectCount    = None
 		self.SecurityMode    = None
-		self.Reserved        = None
+		self.Reserved        = 0
 		self.Capabilities    = None
 		self.ClientGuid      = None			
-		self.ClientStartTime = None
+		self.ClientStartTime = 0
 		self.NegotiateContextOffset = None
 		self.NegotiateContextCount = None
-		self.Reserved2 = None
+		self.Reserved2 = 0
 
-		self.NegotiateContextList = None
-		self.Dialects        = None	
+		self.NegotiateContextList = []
+		self.Dialects        = []
+		
+	def to_bytes(self):
+		t = self.StructureSize.to_bytes(2, byteorder='little', signed = False)
+		t += len(self.Dialects).to_bytes(2, byteorder='little', signed = False)
+		t += self.SecurityMode.to_bytes(2, byteorder='little', signed = False)
+		t += self.Reserved.to_bytes(2, byteorder='little', signed = False)
+		t += self.Capabilities.to_bytes(4, byteorder='little', signed = False)
+		t += self.ClientGuid.to_bytes()
+		
+		if NegotiateDialects.SMB311 in self.Dialects:
+			raise Exception('NOT IMLEMENTED!!! :(')
+			t += self.NegotiateContextOffset.to_bytes(4, byteorder='little', signed = False)
+			t += len(self.NegotiateContextCount).to_bytes(2, byteorder='little', signed = False)
+			
+			
+		else:
+			t += self.ClientStartTime.to_bytes(8, byteorder='little', signed = False)
+			
+		if self.Dialects == []:
+			raise Exception('At least one dialect MUST be set!')
+		for dialect in self.Dialects:
+			t += dialect.value.to_bytes(2, byteorder='little', signed = False)
+		
+		return t
 
 	@staticmethod
 	def from_buffer(buff):
@@ -57,7 +83,7 @@ class NEGOTIATE_REQ:
 		cmd.SecurityMode = NegotiateSecurityMode(int.from_bytes(buff.read(2), byteorder='little', signed = False))
 		cmd.Reserved = buff.read(2)
 		cmd.Capabilities = NegotiateCapabilities(int.from_bytes(buff.read(4), byteorder='little', signed = False))
-		cmd.ClientGuid = uuid.UUID(bytes=buff.read(16))
+		cmd.ClientGuid = GUID.from_buffer(buff)
 		# skipping the next field because it's interpretation depends on the data after it...
 		pos = buff.tell()
 		buff.seek(8, io.SEEK_CUR)
@@ -84,7 +110,7 @@ class NEGOTIATE_REQ:
 				if m != 0:
 					buff.seek((q+1)*8, io.SEEK_SET)
 		else:
-			cmd.ClientStartTime = wintime2datetime(int.from_bytes(buff.read(8), byteorder = 'little', signed = False))
+			cmd.ClientStartTime = int.from_bytes(buff.read(8), byteorder = 'little', signed = False)
 			buff.seek(pos_buff_end, io.SEEK_SET)
 
 		return cmd
