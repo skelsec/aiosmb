@@ -69,6 +69,12 @@ class FileAttributes(enum.IntFlag):
 	FILE_ATTRIBUTE_INTEGRITY_STREAM = 0x00008000 #A file or directory that is configured with integrity support. For a file, all data streams in the file have integrity support. For a directory, integrity support is the default for newly created files and subdirectories, unless the caller specifies otherwise.<148>
 	FILE_ATTRIBUTE_NO_SCRUB_DATA = 0x00020000 #A file or directory that is configured to be excluded from the data integrity scan. For a directory configured with FILE_ATTRIBUTE_NO_SCRUB_DATA, the default for newly created files and subdirectories is to inherit the FILE_ATTRIBUTE_NO_SCRUB_DATA attribute.<149>
 
+class CreateAction(enum.Enum):
+	FILE_SUPERSEDED = 0x00000000 # An existing file was deleted and a new file was created in its place.
+	FILE_OPENED = 0x00000001 #An existing file was opened.
+	FILE_CREATED = 0x00000002 #A new file was created.
+	FILE_OVERWRITTEN = 0x00000003
+
 # https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-smb2/e8fb45c1-a03d-44ca-b7ae-47385cfd7997
 class CREATE_REQ:
 	def __init__(self):
@@ -85,8 +91,8 @@ class CREATE_REQ:
 		self.CreateOptions        = None
 		self.NameOffset         = None
 		self.NameLength          = None
-		self.CreateContextsOffset = None
-		self.CreateContextsLength = None
+		self.CreateContextsOffset = 0
+		self.CreateContextsLength = 0
 		
 		self.Buffer = None
 		
@@ -97,7 +103,7 @@ class CREATE_REQ:
 	def to_bytes(self):
 		if self.Name:
 			t_name = self.Name.encode('utf-16-le')
-			self.Buffer += t_name
+			self.Buffer = t_name
 			self.NameOffset = 64 + 2 + 1 + 1 + 4 + 8 + 8 + 4 + 4 + 4 + 4 + 4 + 2 + 2 + 4 + 4
 			self.NameLength = len(t_name)
 			
@@ -115,6 +121,7 @@ class CREATE_REQ:
 			else:
 				self.Buffer += t_ctx
 				self.CreateContextsOffset = pos
+			
 		
 		t  = self.StructureSize.to_bytes(2, byteorder='little', signed = False)
 		t += self.SecurityFlags.to_bytes(1, byteorder='little', signed = False)
@@ -189,8 +196,8 @@ class CREATE_REQ:
 class CREATE_REPLY:
 	def __init__(self):
 		self.StructureSize = 89
-		self.OplockLevel = 0
-		self.Flags = None
+		self.OplockLevel = None
+		self.Flags = 0
 		self.CreateAction = None
 		self.CreationTime   = 0
 		self.LastAccessTime    = 0
@@ -199,55 +206,20 @@ class CREATE_REPLY:
 		self.AllocationSize       = None
 		self.EndofFile        = None
 		self.FileAttributes         = None
-		self.Reserved2          = None
+		self.Reserved2          = 0
 		self.FileId           = None
 		self.CreateContextsOffset = None
 		self.CreateContextsLength = None
 		
-		self.Buffer = None
+		self.Buffer = b''
 		
 		#high-level
 		self.CreateContext = None
 
 	def to_bytes(self):
-		if self.Name:
-			t_name = self.Name.encode('utf-16-le')
-			self.Buffer += t_name
-			self.NameOffset = 64 + 2 + 1 + 1 + 4 + 8 + 8 + 4 + 4 + 4 + 4 + 4 + 2 + 2 + 4 + 4
-			self.NameLength = len(t_name)
-			
-		if self.CreateContext:
-			t_ctx = self.CreateContext.to_bytes()
-			self.CreateContextsLength = len(t_ctx)
-			
-			pos = curself.NameOffset + self.NameLength
-			t_m = pos % 8
-			if t_m != 0:
-				pad = b'\x00' * (8 - t_m)
-				self.Buffer += pad
-				self.Buffer +=t_ctx
-				self.CreateContextsOffset = pos + len(pad)
-			else:
-				self.Buffer += t_ctx
-				self.CreateContextsOffset = pos
-		
-		t  = self.StructureSize.to_bytes(2, byteorder='little', signed = False)
-		t += self.SecurityFlags.to_bytes(1, byteorder='little', signed = False)
-		t += self.RequestedOplockLevel.value.to_bytes(1, byteorder='little', signed = False)
-		t += self.ImpersonationLevel.value.to_bytes(4, byteorder='little', signed = False)
-		t += self.SmbCreateFlags.to_bytes(8, byteorder='little', signed = False)
-		t += self.Reserved.to_bytes(8, byteorder='little', signed = False)
-		t += self.DesiredAccess.to_bytes(4, byteorder='little', signed = False)
-		t += self.FileAttributes.to_bytes(4, byteorder='little', signed = False)
-		t += self.ShareAccess.to_bytes(4, byteorder='little', signed = False)
-		t += self.CreateDisposition.value.to_bytes(4, byteorder='little', signed = False)
-		t += self.CreateOptions.to_bytes(4, byteorder='little', signed = False)
-		t += self.NameOffset.to_bytes(2, byteorder='little', signed = False)
-		t += self.NameLength.to_bytes(2, byteorder='little', signed = False)
-		t += self.CreateContextsOffset.to_bytes(4, byteorder='little', signed = False)
-		t += self.CreateContextsLength.to_bytes(4, byteorder='little', signed = False)
-		t += self.Buffer
-		return t
+		# TODO	
+		#return t
+		pass
 
 	@staticmethod
 	def from_bytes(bbuff):
@@ -258,18 +230,19 @@ class CREATE_REPLY:
 		msg = CREATE_REPLY()
 		msg.StructureSize = int.from_bytes(buff.read(2), byteorder='little')
 		assert msg.StructureSize == 89
-		msg.OplockLevel  = int.from_bytes(buff.read(1), byteorder='little')
-		msg.Flags  = OplockLevel(int.from_bytes(buff.read(1), byteorder='little'))
-		msg.CreateAction  = ImpersonationLevel(int.from_bytes(buff.read(4), byteorder = 'little'))
+		msg.OplockLevel  = OplockLevel(int.from_bytes(buff.read(1), byteorder='little'))
+		msg.Flags  = CreateOptions(int.from_bytes(buff.read(1), byteorder='little'))
+		msg.CreateAction  = CreateAction(int.from_bytes(buff.read(4), byteorder = 'little'))
+		
 		msg.CreationTime  = int.from_bytes(buff.read(8), byteorder = 'little')
 		msg.LastAccessTime  = int.from_bytes(buff.read(8), byteorder = 'little')
-		msg.LastWriteTime  = int.from_bytes(buff.read(4), byteorder = 'little')
-		msg.ChangeTime  = FileAttributes(int.from_bytes(buff.read(4), byteorder = 'little'))
-		msg.AllocationSize  = ShareAccess(int.from_bytes(buff.read(4), byteorder = 'little'))
-		msg.EndofFile  = CreateDisposition(int.from_bytes(buff.read(4), byteorder = 'little'))
-		msg.FileAttributes   = CreateOptions(int.from_bytes(buff.read(4), byteorder = 'little'))
-		msg.Reserved2  = int.from_bytes(buff.read(2), byteorder = 'little') #first 8-byte aligned  !!!!!!
-		msg.FileId  = int.from_bytes(buff.read(2), byteorder = 'little')
+		msg.LastWriteTime  = int.from_bytes(buff.read(8), byteorder = 'little')
+		msg.ChangeTime  = int.from_bytes(buff.read(8), byteorder = 'little')
+		msg.AllocationSize  = int.from_bytes(buff.read(8), byteorder = 'little')
+		msg.EndofFile  = int.from_bytes(buff.read(8), byteorder = 'little')
+		msg.FileAttributes   = FileAttributes(int.from_bytes(buff.read(4), byteorder = 'little'))
+		msg.Reserved2  = int.from_bytes(buff.read(4), byteorder = 'little') #first 8-byte aligned  !!!!!!
+		msg.FileId  = int.from_bytes(buff.read(16), byteorder = 'little')
 		msg.CreateContextsOffset = int.from_bytes(buff.read(4), byteorder = 'little') #first 8-byte aligned  !!!!!!
 		msg.CreateContextsLength = int.from_bytes(buff.read(4), byteorder = 'little')
 		

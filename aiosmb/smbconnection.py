@@ -16,6 +16,7 @@ from aiosmb.protocol.smb2.headers import *
 from aiosmb.protocol.smb2.command_codes import *
 from aiosmb.utils.guid import *
 from aiosmb.commons.access_mask import *
+from aiosmb.commons.fileinfoclass import *
 
 
 from aiosmb.spnego.spnego import SPNEGO
@@ -55,6 +56,7 @@ class TreeEntry:
 		self.is_CA = None
 		self.is_scaleout = None
 		self.encrypt = None
+		self.maximal_access = None
 		
 	@staticmethod
 	def from_tree_reply(reply, share_name):
@@ -67,9 +69,30 @@ class TreeEntry:
 		te.is_CA = TreeCapabilities.SMB2_SHARE_CAP_CONTINUOUS_AVAILABILITY in reply.command.Capabilities
 		te.is_scaleout = TreeCapabilities.SMB2_SHARE_CAP_SCALEOUT in reply.command.Capabilities
 		te.encrypt = ShareFlags.SMB2_SHAREFLAG_ENCRYPT_DATA in reply.command.ShareFlags
+		te.maximal_access = reply.command.MaximalAccess 
 		return te
 	
+class FileHandle:
+	def __init__(self):
+		self.file_id = None
+		self.tree_id = None
+		self.oplock_level = None
+		self.is_durable = None
+		self.is_resilient = None
+		self.last_disconnect_time = None
+		self.file_name = None
 	
+	@staticmethod	
+	def from_create_reply(reply, tree_id, file_name, oplock_level):
+		fh = FileHandle()
+		fh.file_id = reply.command.FileId
+		fh.tree_id = tree_id
+		fh.oplock_level = oplock_level
+		fh.is_durable = False
+		fh.is_resilient = False
+		fh.last_disconnect_time = 0
+		fh.file_name = file_name
+		return fh
 	
 class SMBConnection:
 	"""
@@ -97,6 +120,8 @@ class SMBConnection:
 		#two dicts for the same data, but with different lookup key
 		self.TreeConnectTable_id = {}
 		self.TreeConnectTable_share = {}
+		
+		self.FileHandleTable = {}
 		
 		self.SequenceWindow = 0
 		self.MaxTransactSize = 0
@@ -381,10 +406,10 @@ class SMBConnection:
 		self.TreeConnectTable_share[share_name] = te
 		
 		
-		return rply.header.TreeId
+		return te
 		
-	async def create(tree_id, file_path, desired_access, share_mode, create_options, create_disposition, file_attrs, impresonation_level = ImpersonationLevel.Impersonation, oplock_level = OplockLevel.SMB2_OPLOCK_LEVEL_NONE, create_contexts = None):
-		if tree_id not in self.TreeConnectTable:
+	async def create(self, tree_id, file_path, desired_access, share_mode, create_options, create_disposition, file_attrs, impresonation_level = ImpersonationLevel.Impersonation, oplock_level = OplockLevel.SMB2_OPLOCK_LEVEL_NONE, create_contexts = None):
+		if tree_id not in self.TreeConnectTable_id:
 			raise Exception('Unknown Tree ID!')
 		
 		command = CREATE_REQ()
@@ -400,6 +425,7 @@ class SMBConnection:
 		
 		header = SMB2Header_SYNC()
 		header.Command  = SMB2Command.CREATE
+		header.TreeId = tree_id
 		
 		msg = SMBMessage(header, command)
 		message_id = await self.sendSMB(msg)
@@ -407,7 +433,240 @@ class SMBConnection:
 		rply = await self.recvSMB(message_id)
 		print('session got reply2!')
 		print(rply)
+		
+		fh = FileHandle.from_create_reply(rply, tree_id, file_path, oplock_level)
+		self.FileHandleTable[fh.file_id] = fh
+		return rply.command.FileId
 	
+	async def read(self, tree_id, file_id, offset = 0, length = 0):
+		"""
+		Will issue one read command only then waits for reply. To read a whole file you must use a filereader logic! 
+		"""
+		if tree_id not in self.TreeConnectTable_id:
+			raise Exception('Unknown Tree ID!')
+		if file_id not in self.FileHandleTable:
+			raise Exception('Unknown File ID!')
+			
+		command = READ_REQ()
+		command.Length = length
+		command.Offset = offset
+		command.FileId = file_id
+		command.MinimumCount = 0
+		command.RemainingBytes = 0
+		
+		header = SMB2Header_SYNC()
+		header.Command  = SMB2Command.READ
+		header.TreeId = tree_id
+		
+		msg = SMBMessage(header, command)
+		message_id = await self.sendSMB(msg)
+		
+		rply = await self.recvSMB(message_id)
+		print('session got reply2!')
+		print(rply)
+		
+	async def query_info(self, tree_id, file_id, info_type = QueryInfoType.FILE, info_class = FileInfoClass.FileStandardInformation, additional_information = 0, flags = 0, data_in = ''):
+		if tree_id not in self.TreeConnectTable_id:
+			raise Exception('Unknown Tree ID!')
+		if file_id not in self.FileHandleTable:
+			raise Exception('Unknown File ID!')
+			
+		command = QUERY_INFO_REQ()
+		command.InfoType = info_type
+		command.FileInfoClass = info_class
+		command.AdditionalInformation = additional_information
+		command.Flags = flags
+		command.FileId = file_id
+		command.Data = data_in
+		
+		header = SMB2Header_SYNC()
+		header.Command  = SMB2Command.QUERY_INFO
+		header.TreeId = tree_id
+		
+		msg = SMBMessage(header, command)
+		message_id = await self.sendSMB(msg)
+
+		rply = await self.recvSMB(message_id)
+		print('session got reply2!')
+		print(rply)
+		
+	async def query_directory(self, tree_id, file_id, search_pattern = '*', resume_index = 0, information_class = FileInfoClass.FileFullDirectoryInformation, maxBufferSize = None, flags = 0):
+		if tree_id not in self.TreeConnectTable_id:
+			raise Exception('Unknown Tree ID!')
+		if file_id not in self.FileHandleTable:
+			raise Exception('Unknown File ID!')
+			
+		
+		command = QUERY_DIRECTORY_REQ()
+		command.FileInformationClass  = information_class
+		command.Flags = 0
+		if resume_index != 0 :
+			command.Flags |= QueryDirectoryFlag.SMB2_INDEX_SPECIFIED
+		command.FileIndex  = resume_index
+		command.FileId  = file_id
+		command.FileName = search_pattern
+		
+		header = SMB2Header_SYNC()
+		header.Command  = SMB2Command.QUERY_DIRECTORY
+		header.TreeId = tree_id
+		
+		msg = SMBMessage(header, command)
+		message_id = await self.sendSMB(msg)
+
+		rply = await self.recvSMB(message_id)
+		print('session got reply2!')
+		print(rply)
+		
+		if information_class == FileInfoClass.FileFullDirectoryInformation:
+			
+		
+class SMBEndpoint:
+	def __init__(self):
+		self.address = None		
+		self.shares = {}
+		self.connection = None
+		
+	async def list_shares(self):
+		"""
+		Returns a list of SMBShare objects
+		"""
+		raise Exception('Not implemented :(')
+		
+	async def connect_share(self, share):
+		"""
+		Connect to the share and fills connection related info in the SMBShare object
+		"""
+		tree_entry = await connection.tree_connect(share.fullpath)
+		share.tree_id = tree_entry.tree_id
+		share.maximal_access = tree_entry.maximal_access
+		
+		return
+		
+	async def list_share(self, share):
+		"""
+		Lists all files and folders on a share, adds the info to the share object
+		
+		"""
+		if not share.tree_id:
+			await self.connect_share(share)
+		
+		file_path = ''
+		desired_access = FileAccessMask.FILE_READ_DATA
+		share_mode = ShareAccess.FILE_SHARE_READ
+		create_options = CreateOptions.FILE_DIRECTORY_FILE
+		file_attrs = 0
+		create_disposition = CreateDisposition.FILE_OPEN
+		
+		file_id = await connection.create(tree_id, file_path, desired_access, share_mode, create_options, create_disposition, file_attrs)
+		await connection.query_directory(tree_id, file_id)
+		
+	async def list_directory(self, directory):
+		"""
+		Lists all files and folders in the directory
+		directory: SMBDirectory
+		fills the SMBDirectory's data
+		"""
+		pass
+		
+	def get_file(self, file, destination_path):
+		"""
+		Downloads the file to the given destination path
+		file: SMBFile
+		"""
+		pass
+		
+	def get_file_sid(self, file):
+		"""
+		Gets the file's SID and fills the file object's attribute
+		file: SMBFile
+		"""
+		pass
+		
+	def connect_file(self, file):
+		"""
+		Gets a fileID to the destination file. It is needed for SMB operations
+		file: SMBFile
+		"""
+		pass
+		
+	def create_file(self, file):
+		"""
+		Creates a new file on the remote endpoint
+		"""
+		pass
+		
+	def write_file(self, file, offset, data):
+		"""
+		Writes the given data to the given offset to the file
+		file: SMBFile
+		offset: int
+		data: io.BytesIO buffer
+		"""
+		pass
+		
+	async def test(self):
+		share = SMBShare()
+		share.fullpath = '\\\\10.10.10.2\\Users'
+		share.name = 'self.shares'
+		self.shares[share.name] = share
+		
+		await self.connect_share(share)
+		await self.list_directory(share)
+		
+	
+
+class SMBShare:
+	def __init__(self):
+		self.fullpath = None
+		self.name = None
+		self.type = None
+		self.flags = None
+		self.capabilities = None
+		self.maximal_access = None
+		
+		self.files = {}
+		self.subdirs = {}
+		
+class SMBDirectory:
+	def __init__(self):
+		self.parent_dir = None
+		self.file_name = None
+		self.creation_time = None
+		self.last_access_time = None
+		self.last_write_time = None
+		self.change_time = None
+		self.allocation_size = None
+		self.attributes = None
+		self.file_id = None
+		self.sid = None
+		
+		self.files = {}
+		self.subdirs = {}
+		
+class SMBFile:
+	def __init__(self):
+		self.parent_dir = None
+		self.file_name = None
+		self.file_size = None
+		self.creation_time = None
+		self.last_access_time = None
+		self.last_write_time = None
+		self.change_time = None
+		self.allocation_size = None
+		self.attributes = None
+		self.file_id = None
+		self.sid = None
+"""
+class SMBFileOps:
+	def __init__(self):
+		self.connection = None
+		
+	def list_directory(self, path, recursive = False):
+	
+	
+	def get_file_dacl(self, path):
+
+"""	
 		
 			
 async def test(target):
@@ -428,16 +687,33 @@ async def test(target):
 	await connection.connect(target)
 	await connection.negotiate()
 	await connection.session_setup()
-	tree_id = await connection.tree_connect('\\\\10.10.10.2\\Users')
-	file_path = 'Administrator\\Desktop\\smb_test\\testfile.txt'
+	tree_entry = await connection.tree_connect('\\\\10.10.10.2\\Users')
+	tree_id = tree_entry.tree_id
+	file_path = 'Administrator\\Desktop\\smb_test\\testfile1.txt'
 	
 	desired_access = FileAccessMask.FILE_READ_DATA
 	share_mode = ShareAccess.FILE_SHARE_READ
 	create_options = CreateOptions.FILE_NON_DIRECTORY_FILE
-	file_attrs = FileAttributes.FILE_ATTRIBUTE_NORMAL
+	file_attrs = 0
 	create_disposition = CreateDisposition.FILE_OPEN
 	
-	await connection.create(tree_id, file_path, desired_access, share_mode, create_options, create_disposition, file_attrs)
+	file_id = await connection.create(tree_id, file_path, desired_access, share_mode, create_options, create_disposition, file_attrs)
+	
+	await connection.query_info(tree_id, file_id)
+	await connection.read(tree_id, file_id, offset = 0, length = 20)
+	
+	tree_entry = await connection.tree_connect('\\\\10.10.10.2\\Users')
+	tree_id = tree_entry.tree_id
+	file_path = 'Administrator\\Desktop\\smb_test\\'
+	
+	desired_access = FileAccessMask.FILE_READ_DATA
+	share_mode = ShareAccess.FILE_SHARE_READ
+	create_options = CreateOptions.FILE_DIRECTORY_FILE
+	file_attrs = 0
+	create_disposition = CreateDisposition.FILE_OPEN
+	
+	file_id = await connection.create(tree_id, file_path, desired_access, share_mode, create_options, create_disposition, file_attrs)
+	await connection.query_directory(tree_id, file_id)
 			
 if __name__ == '__main__':
 	target = SMBTarget()
