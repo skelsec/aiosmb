@@ -564,7 +564,33 @@ class SMBEndpoint:
 		create_disposition = CreateDisposition.FILE_OPEN
 		
 		file_id = await connection.create(tree_id, file_path, desired_access, share_mode, create_options, create_disposition, file_attrs)
-		info = await connection.query_directory(tree_id, file_id)
+		fileinfos = await connection.query_directory(share.tree_id, file_id)
+		for info in fileinfos:
+			if info.FileAttributes & FileAttributes.FILE_ATTRIBUTE_DIRECTORY:
+				directory = SMBDirectory()
+				directory.fullpath = '%s\\%s' % (share.fullpath, info.FileName)
+				directory.name = info.FileName
+				directory.creation_time = info.CreationTime
+				directory.last_access_time = info.LastAccessTime
+				directory.last_write_time = info.LastWriteTime
+				directory.change_time = info.ChangeTime
+				directory.allocation_size = info.AllocationSize
+				directory.attributes = info.FileAttributes
+				share.subdirs[directory.name] = directory
+				
+			else:
+				file = SMBFile()
+				file.parent_dir = None
+				file.fullpath = '%s\\%s' % (share.fullpath, info.FileName)
+				file.name = info.FileName
+				file.size = None
+				file.creation_time = info.CreationTime
+				file.last_access_time = info.LastAccessTime
+				file.last_write_time = info.LastWriteTime
+				file.change_time = info.ChangeTime
+				file.allocation_size = info.AllocationSize
+				file.attributes = info.FileAttributes		
+				share.files[file.name] = file
 		
 	async def list_directory(self, directory):
 		"""
@@ -635,8 +661,9 @@ class SMBShare:
 		
 class SMBDirectory:
 	def __init__(self):
+		self.fullpath = None
 		self.parent_dir = None
-		self.file_name = None
+		self.name = None
 		self.creation_time = None
 		self.last_access_time = None
 		self.last_write_time = None
@@ -652,8 +679,9 @@ class SMBDirectory:
 class SMBFile:
 	def __init__(self):
 		self.parent_dir = None
-		self.file_name = None
-		self.file_size = None
+		self.fullpath = None
+		self.name = None
+		self.size = None
 		self.creation_time = None
 		self.last_access_time = None
 		self.last_write_time = None
