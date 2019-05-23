@@ -15,6 +15,7 @@ from aiosmb.protocol.smb2.commands import *
 from aiosmb.protocol.smb2.headers import *
 from aiosmb.protocol.smb2.command_codes import *
 from aiosmb.utils.guid import *
+from aiosmb.commons.access_mask import *
 
 
 from aiosmb.spnego.spnego import SPNEGO
@@ -44,6 +45,32 @@ class SMBConnectionStatus(enum.Enum):
 	SESSIONSETUP = 'SESSIONSETUP'
 	RUNNING = 'RUNNING'
 	
+class TreeEntry:
+	def __init__(self):
+		self.share_name = None
+		self.tree_id = None
+		self.session_id = None
+		self.number_of_users = None
+		self.is_DFS = None
+		self.is_CA = None
+		self.is_scaleout = None
+		self.encrypt = None
+		
+	@staticmethod
+	def from_tree_reply(reply, share_name):
+		te = TreeEntry()
+		te.share_name = share_name
+		te.tree_id = reply.header.TreeId
+		te.session_id = reply.header.SessionId
+		te.number_of_users = 1
+		te.is_DFS = TreeCapabilities.SMB2_SHARE_CAP_DFS in reply.command.Capabilities
+		te.is_CA = TreeCapabilities.SMB2_SHARE_CAP_CONTINUOUS_AVAILABILITY in reply.command.Capabilities
+		te.is_scaleout = TreeCapabilities.SMB2_SHARE_CAP_SCALEOUT in reply.command.Capabilities
+		te.encrypt = ShareFlags.SMB2_SHAREFLAG_ENCRYPT_DATA in reply.command.ShareFlags
+		return te
+	
+	
+	
 class SMBConnection:
 	"""
 	Connection class for network connectivity and SMB messages management (sending/recieveing/singing/encrypting).
@@ -66,6 +93,11 @@ class SMBConnection:
 		self.OutstandingResponsesEvent = {}
 		self.OutstandingRequests = {}
 		self.OutstandingResponses = {}
+		
+		#two dicts for the same data, but with different lookup key
+		self.TreeConnectTable_id = {}
+		self.TreeConnectTable_share = {}
+		
 		self.SequenceWindow = 0
 		self.MaxTransactSize = 0
 		self.MaxReadSize = 0
@@ -275,9 +307,13 @@ class SMBConnection:
 	def sign_message(self, msg):
 		if self.selected_dialect in [NegotiateDialects.SMB202]:
 			if self.SessionKey:
+				msg.header.Flags = msg.header.Flags ^ SMB2HeaderFlag.SMB2_FLAGS_SIGNED ##maybe move this flag settings to sendsmb since singing is determined there?
+				print('Singing with key: %s' % repr(self.SessionKey))
+				print('Singing data: %s' % repr(msg.to_bytes()))
 				digest = hmac.new(self.SessionKey, msg.to_bytes(), hashlib.sha256).digest()
+				print('Digest: %s' % repr(digest[:16].hex()))
 				msg.header.Signature = digest[:16]
-				msg.header.Flags = msg.header.Flags ^ SMB2HeaderFlag.SMB2_FLAGS_SIGNED
+				
 		else:
 			raise Exception('ONLY certain dialect supported!')
 		
@@ -321,13 +357,13 @@ class SMBConnection:
 		
 		return message_id
 		
-	async def tree_connect(self, path):
+	async def tree_connect(self, share_name):
 		"""
-		Path MUST be in "\\server\share" format! Server can be NetBIOS name OR IP4 OR IP6 OR FQDN
+		share_name MUST be in "\\server\share" format! Server can be NetBIOS name OR IP4 OR IP6 OR FQDN
 		"""
 		
 		command = TREE_CONNECT_REQ()
-		command.Path = path
+		command.Path = share_name
 		command.Flags = 0
 		
 		header = SMB2Header_SYNC()
@@ -340,10 +376,43 @@ class SMBConnection:
 		print('session got reply2!')
 		print(rply)
 		
+		te = TreeEntry.from_tree_reply(rply, share_name)
+		self.TreeConnectTable_id[rply.header.TreeId] = te
+		self.TreeConnectTable_share[share_name] = te
+		
+		
+		return rply.header.TreeId
+		
+	async def create(tree_id, file_path, desired_access, share_mode, create_options, create_disposition, file_attrs, impresonation_level = ImpersonationLevel.Impersonation, oplock_level = OplockLevel.SMB2_OPLOCK_LEVEL_NONE, create_contexts = None):
+		if tree_id not in self.TreeConnectTable:
+			raise Exception('Unknown Tree ID!')
+		
+		command = CREATE_REQ()
+		command.RequestedOplockLevel  = oplock_level
+		command.ImpersonationLevel  = impresonation_level
+		command.DesiredAccess    = desired_access
+		command.FileAttributes     = file_attrs
+		command.ShareAccess      = share_mode
+		command.CreateDisposition       = create_disposition
+		command.CreateOptions        = create_options
+		command.Name = file_path
+		command.CreateContext = create_contexts
+		
+		header = SMB2Header_SYNC()
+		header.Command  = SMB2Command.CREATE
+		
+		msg = SMBMessage(header, command)
+		message_id = await self.sendSMB(msg)
+		
+		rply = await self.recvSMB(message_id)
+		print('session got reply2!')
+		print(rply)
+	
+		
 			
 async def test(target):
 	#setting up NTLM auth
-	template_name = 'Windows10_15063'
+	template_name = 'Windows10_15063_knowkey'
 	credential = Credential()
 	credential.username = 'victim'
 	credential.password = 'Passw0rd!1'
@@ -359,7 +428,16 @@ async def test(target):
 	await connection.connect(target)
 	await connection.negotiate()
 	await connection.session_setup()
-	await connection.tree_connect('\\\\10.10.10.2\\IPC$')
+	tree_id = await connection.tree_connect('\\\\10.10.10.2\\Users')
+	file_path = 'Administrator\\Desktop\\smb_test\\testfile.txt'
+	
+	desired_access = FileAccessMask.FILE_READ_DATA
+	share_mode = ShareAccess.FILE_SHARE_READ
+	create_options = CreateOptions.FILE_NON_DIRECTORY_FILE
+	file_attrs = FileAttributes.FILE_ATTRIBUTE_NORMAL
+	create_disposition = CreateDisposition.FILE_OPEN
+	
+	await connection.create(tree_id, file_path, desired_access, share_mode, create_options, create_disposition, file_attrs)
 			
 if __name__ == '__main__':
 	target = SMBTarget()

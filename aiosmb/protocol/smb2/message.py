@@ -85,11 +85,12 @@ class SMB2Message:
 		t += repr(self.command)
 		return t
 		
-		
 
 command2object = {
 	'NEGOTIATE_REQ'       : NEGOTIATE_REQ,
 	'NEGOTIATE_REPLY'     : NEGOTIATE_REPLY,
 	'SESSION_SETUP_REQ'     : SESSION_SETUP_REQ,
 	'SESSION_SETUP_REPLY'     : SESSION_SETUP_REPLY,
+	'TREE_CONNECT_REQ'     : TREE_CONNECT_REQ,
+	'TREE_CONNECT_REPLY'     : TREE_CONNECT_REPLY,
 }
