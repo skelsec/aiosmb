@@ -1,7 +1,7 @@
 import io
 import enum
 
-from aiosmb.commons.fileinfoclass import *
+from aiosmb.fscc.structures.fileinfoclass import *
 	
 class QueryInfoType(enum.Enum):
 	FILE = 0x01 #The file information is requested.

@@ -1,5 +1,6 @@
 import enum
 
+# https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-fscc/4718fc40-e539-4014-8e33-b675af74e3e1
 class FileInfoClass(enum.Enum):
 	FileAccessInformation = 8 #Query
 	FileAlignmentInformation = 17 #Query

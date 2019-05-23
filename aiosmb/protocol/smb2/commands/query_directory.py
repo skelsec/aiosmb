@@ -1,7 +1,7 @@
 import io
 import enum
 
-from aiosmb.commons.fileinfoclass import *
+from aiosmb.fscc.structures.fileinfoclass import *
 
 class QueryDirectoryFlag(enum.IntFlag):
 	SMB2_RESTART_SCANS = 0x01 #The server MUST restart the enumeration from the beginning as specified in section 3.3.5.18.
@@ -110,7 +110,7 @@ class QUERY_DIRECTORY_REPLY:
 		
 		if msg.OutputBufferLength > 0:
 			buff.seek(msg.OutputBufferOffset, io.SEEK_SET)
-			msg.Buffer= buff.read(msg.OutputBufferLength)
+			msg.Data= buff.read(msg.OutputBufferLength)
 
 		return msg
 
@@ -119,5 +119,5 @@ class QUERY_DIRECTORY_REPLY:
 		t += 'StructureSize: %s\r\n' % self.StructureSize
 		t += 'OutputBufferOffset: %s\r\n' % self.OutputBufferOffset
 		t += 'OutputBufferLength: %s\r\n' % self.OutputBufferLength
-		t += 'Buffer: %s\r\n' % self.Buffer
+		t += 'Data: %s\r\n' % self.Data
 		return t

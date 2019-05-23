@@ -16,7 +16,9 @@ from aiosmb.protocol.smb2.headers import *
 from aiosmb.protocol.smb2.command_codes import *
 from aiosmb.utils.guid import *
 from aiosmb.commons.access_mask import *
-from aiosmb.commons.fileinfoclass import *
+from aiosmb.fscc.structures.fileinfoclass import *
+from aiosmb.fscc.structures.FileFullDirectoryInformation import *
+from aiosmb.fscc.FileAttributes import FileAttributes
 
 
 from aiosmb.spnego.spnego import SPNEGO
@@ -518,6 +520,10 @@ class SMBConnection:
 		print(rply)
 		
 		if information_class == FileInfoClass.FileFullDirectoryInformation:
+			return FileFullDirectoryInformationList.from_bytes(rply.command.Data)
+			
+		else:
+			return rply.command.Data
 			
 		
 class SMBEndpoint:
@@ -558,7 +564,7 @@ class SMBEndpoint:
 		create_disposition = CreateDisposition.FILE_OPEN
 		
 		file_id = await connection.create(tree_id, file_path, desired_access, share_mode, create_options, create_disposition, file_attrs)
-		await connection.query_directory(tree_id, file_id)
+		info = await connection.query_directory(tree_id, file_id)
 		
 	async def list_directory(self, directory):
 		"""
@@ -713,7 +719,8 @@ async def test(target):
 	create_disposition = CreateDisposition.FILE_OPEN
 	
 	file_id = await connection.create(tree_id, file_path, desired_access, share_mode, create_options, create_disposition, file_attrs)
-	await connection.query_directory(tree_id, file_id)
+	info = await connection.query_directory(tree_id, file_id)
+	print(str(info))
 			
 if __name__ == '__main__':
 	target = SMBTarget()
