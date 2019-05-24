@@ -265,9 +265,8 @@ class SMBConnection:
 		maxiter = 5
 		while status == NTStatus.MORE_PROCESSING_REQUIRED and maxiter > 0:
 			command = SESSION_SETUP_REQ()
-			command.Buffer, res = self.gssapi.authenticate(authdata)
+			command.Buffer, res  = await self.gssapi.authenticate(authdata)
 			#input(command.Buffer)
-		
 			command.Flags = 0
 			command.SecurityMode = NegotiateSecurityMode.SMB2_NEGOTIATE_SIGNING_ENABLED
 			command.Capabilities = 0

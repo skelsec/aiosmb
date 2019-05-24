@@ -118,7 +118,7 @@ class NTLMAUTHHandler:
 		
 		#if self.flags & 
 
-	def authenticate(self, authData):
+	async def authenticate(self, authData):
 		if self.mode == 'SERVER':
 			if self.ntlmNegotiate is None:
 				###parse client NTLMNegotiate message
