@@ -12,7 +12,7 @@ class SMB2Header_SYNC():
 		self.ProtocolId    = b'\xFESMB'
 		self.StructureSize = 64
 		self.CreditCharge  = None
-		self.Status        = NTStatus.STATUS_SUCCESS
+		self.Status        = NTStatus.SUCCESS
 		self.Command       = None
 		self.CreditReq     = None
 		self.Flags         = 0

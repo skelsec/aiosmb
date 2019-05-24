@@ -85,7 +85,7 @@ class CREATE_REQ:
 		self.CreateContext = None
 
 	def to_bytes(self):
-		if self.Name:
+		if self.Name is not None:
 			t_name = self.Name.encode('utf-16-le')
 			self.Buffer = t_name
 			self.NameOffset = 64 + 2 + 1 + 1 + 4 + 8 + 8 + 4 + 4 + 4 + 4 + 4 + 2 + 2 + 4 + 4
@@ -123,6 +123,7 @@ class CREATE_REQ:
 		t += self.CreateContextsOffset.to_bytes(4, byteorder='little', signed = False)
 		t += self.CreateContextsLength.to_bytes(4, byteorder='little', signed = False)
 		t += self.Buffer
+		t += b'\x00'
 		return t
 
 	@staticmethod

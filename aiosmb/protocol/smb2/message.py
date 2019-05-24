@@ -33,9 +33,9 @@ class SMB2Transform:
 		return msg
 
 class SMB2Message:
-	def __init__(self):
-		self.header    = None
-		self.command   = None
+	def __init__(self,header = None,command = None ):
+		self.header    = header
+		self.command   = command
 
 	@staticmethod
 	def from_bytes(bbuff):

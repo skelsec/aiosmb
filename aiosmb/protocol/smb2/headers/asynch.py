@@ -46,7 +46,7 @@ class SMB2Header_ASYNC:
 	def construct(cmd, flags, msgid, Credit = 0, NextCommand=0, CreditCharge = 0, 
 					Signature=b'\x00'*16,
 					AsyncId=b'\x00'*8, SessionId = b'\x00'*8, 
-					status = NTStatus.STATUS_SUCCESS):
+					status = NTStatus.SUCCESS):
 		hdr = SMB2Header_ASYNC()
 		hdr.ProtocolId = b'\xFESMB'
 		hdr.StructureSize = 64

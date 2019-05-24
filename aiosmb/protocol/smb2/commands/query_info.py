@@ -132,7 +132,7 @@ class QUERY_INFO_REPLY:
 
 		if msg.OutputBufferLength > 0:
 			buff.seek(msg.OutputBufferOffset, io.SEEK_SET)
-			msg.Buffer= buff.read(msg.OutputBufferLength)
+			msg.Data = buff.read(msg.OutputBufferLength)
 
 		return msg
 

@@ -4,7 +4,8 @@ import datetime
 import uuid
 
 from aiosmb.utils.ts2dt import *
-from aiosmb.utils.guid import *
+from aiosmb.protocol.common import NegotiateDialects
+from aiosmb.dtyp.constrcuted_security.guid import *
 
 
 # https://msdn.microsoft.com/en-us/library/cc246543.aspx
@@ -22,14 +23,6 @@ class NegotiateCapabilities(enum.IntFlag):
 	SMB2_GLOBAL_CAP_PERSISTENT_HANDLES = 0x00000010 #When set, indicates that the client supports persistent handles.
 	SMB2_GLOBAL_CAP_DIRECTORY_LEASING = 0x00000020 #When set, indicates that the client supports directory leasing.
 	SMB2_GLOBAL_CAP_ENCRYPTION = 0x00000040 #When set, indicates that the client supports encryption.
-
-
-class NegotiateDialects(enum.Enum):
-	SMB202 = 0x0202 #SMB 2.0.2 dialect revision number.
-	SMB210 = 0x0210 #SMB 2.1 dialect revision number.<10>
-	SMB300 = 0x0300 #SMB 3.0 dialect revision number. <11>
-	SMB302 = 0x0302 #SMB 3.0.2 dialect revision number.<12>
-	SMB311 = 0x0311 #SMB 3.1.1 dialect revision number.<13>
 
 
 # https://msdn.microsoft.com/en-us/library/cc246543.aspx
