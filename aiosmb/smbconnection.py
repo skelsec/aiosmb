@@ -26,6 +26,7 @@ from aiosmb.dtyp.constrcuted_security.security_descriptor import SECURITY_DESCRI
 
 from aiosmb.spnego.spnego import SPNEGO
 from aiosmb.ntlm.auth_handler import NTLMAUTHHandler, Credential, NTLMHandlerSettings
+from aiosmb.kerberos.kerberos import SMBKerberos
 
 class SMBTarget:
 	def __init__(self):
@@ -636,13 +637,43 @@ async def test_high(target):
 	
 	await end.test()
 	
+async def test_kerberos(target):
+	settings = {
+		'mode' : 'CLIENT',
+		'connection_string' : 'TEST/victim/pass:Passw0rd!1@10.10.10.2',
+		'target_string': 'cifs/WIN2019AD@TEST.CORP',
+		'dc_ip' : '10.10.10.2',
+	}
+	
+	handler = SMBKerberos(settings)
+	
+	#setting up SPNEGO
+	spneg = SPNEGO()
+	spneg.add_auth_context('MS KRB5 - Microsoft Kerberos 5', handler)
+	connection = SMBConnection(spneg, [NegotiateDialects.SMB210])
+	await connection.connect(target)
+	await connection.negotiate()
+	await connection.session_setup()
+	tree_entry = await connection.tree_connect('\\\\10.10.10.2\\Users')
+	tree_id = tree_entry.tree_id
+	file_path = 'Administrator\\Desktop\\smb_test\\testfile1.txt'
+	
+	desired_access = FileAccessMask.FILE_READ_DATA
+	share_mode = ShareAccess.FILE_SHARE_READ
+	create_options = CreateOptions.FILE_NON_DIRECTORY_FILE
+	file_attrs = 0
+	create_disposition = CreateDisposition.FILE_OPEN
+	
+	file_id = await connection.create(tree_id, file_path, desired_access, share_mode, create_options, create_disposition, file_attrs)
+	
 			
 if __name__ == '__main__':
 	target = SMBTarget()
 	target.ip = '10.10.10.2'
 	target.port = 445
 
-	asyncio.run(test(target))
+	#asyncio.run(test(target))
+	asyncio.run(test_kerberos(target))
 	#asyncio.run(test_high(target))
 	
 	
