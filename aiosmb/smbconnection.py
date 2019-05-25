@@ -104,24 +104,24 @@ class FileHandle:
 		fh.last_disconnect_time = 0
 		fh.file_name = file_name
 		return fh
-	
+
 class SMBConnection:
 	"""
 	Connection class for network connectivity and SMB messages management (sending/recieveing/singing/encrypting).
-	
-	
 	"""
-	def __init__(self, gssapi,dialects, shutdown_evt = asyncio.Event()):
+	def __init__(self, gssapi, target, dialects = [NegotiateDialects.SMB202], shutdown_evt = asyncio.Event()):
 		self.gssapi = gssapi
 		self.shutdown_evt = shutdown_evt
+		
+		self.target = target
 		
 		#######DONT CHANGE THIS
 		self.supported_dialects = [NegotiateDialects.WILDCARD, NegotiateDialects.SMB202, NegotiateDialects.SMB210]
 		#######
 		
 		self.settings = None
-		self.network_transport = None #this class is used by the netbios transport class, keeping it here also
-		self.netbios_transport = None
+		self.network_transport = None 
+		self.netbios_transport = None #this class is used by the netbios transport class, keeping it here also maybe you like to go in raw
 		self.dialects = dialects #list of SMBDialect
 		
 		self.selected_dialect = None
@@ -166,6 +166,12 @@ class SMBConnection:
 		self.SessionId = 0
 		self.SessionKey = None
 		
+	async def __aenter__(self):
+		return self
+		
+	async def __aexit__(self, exc_type, exc, traceback):
+		await self.terminate()
+		
 	def get_extra_info(self):
 		return self.gssapi.get_extra_info()
 		
@@ -188,14 +194,24 @@ class SMBConnection:
 			self.OutstandingResponses[msg.header.MessageId] = msg
 			self.OutstandingResponsesEvent[msg.header.MessageId].set()
 			
+	async def login(self):
+		"""
+		This is the normal starting function.
+		Performs establishment of the TCP connection, then the negotiation and finally the session setup.
+		If this function returns without an exception, then I'm happy.
+		Also it means that you have a working and active session to the server.
+		"""
+		await self.connect()
+		await self.negotiate()
+		await self.session_setup()
 		
-	async def connect(self, target):
+	async def connect(self):
 		"""
 		Establishes socket connection to the remote endpoint. Also starts the internal reading procedures.
 		"""
 		self.network_transport = TCPSocket(shutdown_evt = self.shutdown_evt)
 		
-		res = await asyncio.gather(*[self.network_transport.connect(target)], return_exceptions=True)
+		res = await asyncio.gather(*[self.network_transport.connect(self.target)], return_exceptions=True)
 		if isinstance(res[0], Exception):
 			raise res[0]
 		
@@ -208,6 +224,11 @@ class SMBConnection:
 		asyncio.ensure_future(self.__handle_smb_in())
 		
 	async def disconnect(self):
+		"""
+		Teras down the socket connecting as well as the reading cycle.
+		Doesn't do any cleanup! 
+		For proper cleanup call the terminate function.
+		"""
 		await self.netbios_transport.stop()
 		await self.network_transport.disconnect()
 		
@@ -624,12 +645,12 @@ class SMBConnection:
 		else:
 			raise Exception('query_directory reply: %s' % rply.header.Status)
 			
-	async def close(self, tree_id, file_id):
+	async def close(self, tree_id, file_id, flags = CloseFlag.NONE):
 		"""
 		Closes the file/directory/pipe/whatever based on file_id. It will automatically remove all traces of the file handle.
 		"""
 		command = CLOSE_REQ()
-		command.Flags = None
+		command.Flags = flags
 		command.FileId = file_id
 		
 		header = SMB2Header_SYNC()
@@ -685,7 +706,7 @@ class SMBConnection:
 		message_id = await self.sendSMB(msg)
 		rply = await self.recvSMB(message_id)
 		
-	async def tree_diconnect(self, tree_id):
+	async def tree_disconnect(self, tree_id):
 		"""
 		Disconnects from tree, removes all file entries associated to the tree
 		"""
@@ -701,9 +722,10 @@ class SMBConnection:
 		
 		if rply.header.Status == NTStatus.SUCCESS:
 			del_fiel_ids = []
-			share_name = TreeConnectTable_id[tree_id].share_name
-			for te in self.TreeConnectTable_id[tree_id]:
-				del_fiel_ids.append(te.file_id)
+			share_name = self.TreeConnectTable_id[tree_id].share_name
+			for fe in self.FileHandleTable:
+				if fe.tree_id == tree_id:
+					del_fiel_ids.append(fe.file_id)
 			
 			for file_id in del_fiel_ids:
 				del self.FileHandleTable[file_id]
@@ -729,17 +751,19 @@ class SMBConnection:
 		Use this function to properly terminate the SBM connection.
 		Terminates the connection. Closes all tree handles, logs off and disconnects the TCP connection.
 		"""
-		for tree_id in list(self.TreeConnectTable_id.keys()):
+		if self.status == SMBConnectionStatus.RUNNING:
+			#only doing the proper disconnection if the connection was already running
+			for tree_id in list(self.TreeConnectTable_id.keys()):
+				try:
+					await self.tree_diconnect(tree_id)
+				except:
+					pass
+					
+			#logging off
 			try:
-				await self.tree_diconnect(tree_id)
+				await self.logoff()
 			except:
 				pass
-				
-		#logging off
-		try:
-			await self.logoff()
-		except:
-			pass
 			
 		#terminating TCP connection
 		try:
@@ -966,34 +990,25 @@ async def filereader_test(target):
 	#setting up SPNEGO
 	spneg = SPNEGO()
 	spneg.add_auth_context('NTLMSSP - Microsoft NTLM Security Support Provider', handler)
-	connection = SMBConnection(spneg, [NegotiateDialects.SMB210])
-	await connection.connect(target)
-	await connection.negotiate()
-	await connection.session_setup()
-	
-	reader = SMBFileReader(connection)
-	await reader.open('\\\\10.10.10.2\\Users\\Administrator\\Desktop\\smb_test\\testfile1.txt')
-	data = await reader.read()
-	print(data)
-	await reader.seek(0,0)
-	data = await reader.read()
-	print(data)
-	await reader.seek(10,0)
-	data = await reader.read()
-	print(data)
-	await reader.seek(10,0)
-	data = await reader.read(5)
-	print(data)
-	await reader.seek(-10,2)
-	data = await reader.read(5)
-	print(data)
-	
-	reader = SMBFileReader(connection)
-	await reader.open('\\\\10.10.10.2\\Users\\Administrator\\Desktop\\smb_test\\memory_vaaaaa.dmp')
-	with open('test_bigfile.raw', 'wb') as f:
-		while data != b'':
-			data = await reader.read(50*1024)
-			f.write(data)
+	async with SMBConnection(spneg, target) as connection: 
+		await connection.login()
+		
+		async with SMBFileReader(connection) as reader:
+			await reader.open('\\\\10.10.10.2\\Users\\Administrator\\Desktop\\smb_test\\testfile1.txt')
+			data = await reader.read()
+			print(data)
+			await reader.seek(0,0)
+			data = await reader.read()
+			print(data)
+			await reader.seek(10,0)
+			data = await reader.read()
+			print(data)
+			await reader.seek(10,0)
+			data = await reader.read(5)
+			print(data)
+			await reader.seek(-10,2)
+			data = await reader.read(5)
+			print(data)
 	
 	
 			

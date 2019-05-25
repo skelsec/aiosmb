@@ -1,7 +1,10 @@
 import io
 import enum
 
+from aiosmb.fscc.FileAttributes import *
+
 class CloseFlag(enum.IntFlag):
+	NONE = 0
 	SMB2_CLOSE_FLAG_POSTQUERY_ATTRIB = 0x0001 #If set, the server MUST set the attribute fields in the response, as specified in section 2.2.16, to valid values. If not set, the client MUST NOT use the values that are returned in the response.
 
 # https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-smb2/f84053b0-bcb2-4f85-9717-536dae2b02bd
@@ -16,7 +19,7 @@ class CLOSE_REQ:
 		t  = self.StructureSize.to_bytes(2, byteorder='little', signed = False)
 		t += self.Flags.value.to_bytes(2, byteorder='little', signed = False)
 		t += self.Reserved.to_bytes(4, byteorder='little', signed = False)
-		t += self.FileId.value.to_bytes(16, byteorder='little', signed = False)
+		t += self.FileId.to_bytes(16, byteorder='little', signed = False)
 		return t
 
 	@staticmethod
@@ -76,7 +79,7 @@ class CLOSE_REPLY:
 	def from_buffer(buff):
 		msg = CLOSE_REPLY()
 		msg.StructureSize   = int.from_bytes(buff.read(2), byteorder='little')
-		assert msg.StructureSize == 4
+		assert msg.StructureSize == 60
 		msg.Flags  = CloseFlag(int.from_bytes(buff.read(2), byteorder='little'))
 		msg.Reserved  = int.from_bytes(buff.read(4), byteorder='little')
 		msg.CreationTime  = int.from_bytes(buff.read(8), byteorder='little')

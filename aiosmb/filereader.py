@@ -12,6 +12,12 @@ class SMBFileReader:
 		
 		self.position = 0
 		
+	async def __aenter__(self):
+		return self
+		
+	async def __aexit__(self, exc_type, exc, traceback):
+		await self.close()
+		
 	async def __connect_share(self, share):
 		"""
 		Connect to the share and fills connection related info in the SMBShare object

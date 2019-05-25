@@ -6,7 +6,7 @@ from aiosmb.protocol.smb2.commands.read import READ_REQ, READ_REPLY, Channel, Re
 from aiosmb.protocol.smb2.commands.query_info import QUERY_INFO_REPLY, QUERY_INFO_REQ, EaInformation, SecurityInfo, QueryInfoType
 from aiosmb.protocol.smb2.commands.query_directory import QUERY_DIRECTORY_REPLY, QUERY_DIRECTORY_REQ, QueryDirectoryFlag
 from aiosmb.protocol.smb2.commands.tree_disconnect import TREE_DISCONNECT_REQ, TREE_DISCONNECT_REPLY
-from aiosmb.protocol.smb2.commands.close import CLOSE_REQ, CLOSE_REPLY
+from aiosmb.protocol.smb2.commands.close import CLOSE_REQ, CLOSE_REPLY, CloseFlag
 from aiosmb.protocol.smb2.commands.flush import FLUSH_REQ, FLUSH_REPLY
 from aiosmb.protocol.smb2.commands.echo import ECHO_REQ, ECHO_REPLY
 from aiosmb.protocol.smb2.commands.cancel import CANCEL_REQ
@@ -22,7 +22,7 @@ __all__ = ['NEGOTIATE_REQ', 'NEGOTIATE_REPLY', 'SESSION_SETUP_REQ','SESSION_SETU
 			'ReadFlag', 'QUERY_INFO_REPLY', 'QUERY_INFO_REQ', 'EaInformation', 'SecurityInfo', 'QueryInfoType',
 			'QUERY_DIRECTORY_REPLY', 'QUERY_DIRECTORY_REQ', 'QueryDirectoryFlag','TREE_DISCONNECT_REQ','TREE_DISCONNECT_REPLY',
 			'CLOSE_REQ','CLOSE_REPLY','FLUSH_REQ','FLUSH_REPLY','ECHO_REQ','ECHO_REPLY','CANCEL_REQ','LOGOFF_REQ',
-			'LOGOFF_REPLY','ERROR_REPLY']
+			'LOGOFF_REPLY','ERROR_REPLY', 'CloseFlag']
 			
 			
 			
