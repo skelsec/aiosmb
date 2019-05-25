@@ -60,6 +60,11 @@ class SPNEGO:
 		response['responseToken'] = result
 		return response, to_continue
 		
+	def get_extra_info(self):
+		if hasattr(self.selected_authentication_context, 'get_extra_info'):
+			return self.selected_authentication_context.get_extra_info()
+		return None
+	
 	def get_session_key(self):
 		return self.selected_authentication_context.get_session_key()
 	
@@ -164,29 +169,30 @@ class SPNEGO:
 				#everything is netotiated, but authentication needs more setps
 				neg_token_raw = NegotiationToken.load(token)
 				neg_token = neg_token_raw.native
-				print(neg_token)
 				response, to_continue = await self.process_ctx_authenticate(neg_token['responseToken'])
 				return NegotiationToken({'negTokenResp':NegTokenResp(response)}).dump(), to_continue
 	
-	
-test_data = bytes.fromhex('a03e303ca00e300c060a2b06010401823702020aa22a04284e544c4d5353500001000000978208e2000000000000000000000000000000000a00d73a0000000f')
-neg_token = NegotiationToken.load(test_data)
-print(neg_token.native)
+def test():
+	test_data = bytes.fromhex('a03e303ca00e300c060a2b06010401823702020aa22a04284e544c4d5353500001000000978208e2000000000000000000000000000000000a00d73a0000000f')
+	neg_token = NegotiationToken.load(test_data)
+	print(neg_token.native)
 
 
-test_data_2 = bytes.fromhex('a181ce3081cba0030a0101a10c060a2b06010401823702020aa281b50481b24e544c4d53535000020000000800080038000000158289e2a7314a557bdb11bf000000000000000072007200400000000a0063450000000f540045005300540002000800540045005300540001001200570049004e003200300031003900410044000400120074006500730074002e0063006f007200700003002600570049004e003200300031003900410044002e0074006500730074002e0063006f007200700007000800aec600bfc5fdd40100000000')
-neg_token = NegotiationToken.load(test_data_2)
-print(neg_token.native)
+	test_data_2 = bytes.fromhex('a181ce3081cba0030a0101a10c060a2b06010401823702020aa281b50481b24e544c4d53535000020000000800080038000000158289e2a7314a557bdb11bf000000000000000072007200400000000a0063450000000f540045005300540002000800540045005300540001001200570049004e003200300031003900410044000400120074006500730074002e0063006f007200700003002600570049004e003200300031003900410044002e0074006500730074002e0063006f007200700007000800aec600bfc5fdd40100000000')
+	neg_token = NegotiationToken.load(test_data_2)
+	print(neg_token.native)
 
-test_data_3 = bytes.fromhex('a11b3019a0030a0100a3120410010000006b65125a00bb9ab400000000')
-neg_token = NegotiationToken.load(test_data_3)
-print(neg_token.native)
+	test_data_3 = bytes.fromhex('a11b3019a0030a0100a3120410010000006b65125a00bb9ab400000000')
+	neg_token = NegotiationToken.load(test_data_3)
+	print(neg_token.native)
 
-mt = MechType('NTLMSSP - Microsoft NTLM Security Support Provider')
-print(mt)
+	mt = MechType('NTLMSSP - Microsoft NTLM Security Support Provider')
+	print(mt)
 
-print(MechType.map('1.3.6.1.4.1.311.2.2.10'))
-print(MechType.unmap('1.3.6.1.4.1.311.2.2.10'))
+	print(MechType.map('1.3.6.1.4.1.311.2.2.10'))
+	print(MechType.unmap('1.3.6.1.4.1.311.2.2.10'))
 
-#spnego_test = SPNEGO()
-#spnego_test.authenticate(test_data_2)
+	#spnego_test = SPNEGO()
+	#spnego_test.authenticate(test_data_2)
+if __name__ == '__main__':
+	test()

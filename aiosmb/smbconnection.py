@@ -26,10 +26,12 @@ from aiosmb.fscc.FileAttributes import FileAttributes
 
 from aiosmb.dtyp.constrcuted_security.security_descriptor import SECURITY_DESCRIPTOR
 
-
 from aiosmb.spnego.spnego import SPNEGO
 from aiosmb.ntlm.auth_handler import NTLMAUTHHandler, Credential, NTLMHandlerSettings
 from aiosmb.kerberos.kerberos import SMBKerberos
+
+from aiosmb.commons.smbcontainer import *
+from aiosmb.filereader import SMBFileReader
 
 if platform.system().upper() == 'WINDOWS':
 	from aiosmb.kerberos.kerberos_sspi import SMBKerberosSSPI
@@ -163,6 +165,9 @@ class SMBConnection:
 		
 		self.SessionId = 0
 		self.SessionKey = None
+		
+	def get_extra_info(self):
+		return self.gssapi.get_extra_info()
 		
 	async def __handle_smb_in(self):
 		"""
@@ -441,7 +446,7 @@ class SMBConnection:
 		else:
 			raise SMBGenericException()
 		
-	async def create(self, tree_id, file_path, desired_access, share_mode, create_options, create_disposition, file_attrs, impresonation_level = ImpersonationLevel.Impersonation, oplock_level = OplockLevel.SMB2_OPLOCK_LEVEL_NONE, create_contexts = None):
+	async def create(self, tree_id, file_path, desired_access, share_mode, create_options, create_disposition, file_attrs, impresonation_level = ImpersonationLevel.Impersonation, oplock_level = OplockLevel.SMB2_OPLOCK_LEVEL_NONE, create_contexts = None, return_reply = False):
 		if tree_id not in self.TreeConnectTable_id:
 			raise Exception('Unknown Tree ID!')
 		
@@ -468,6 +473,9 @@ class SMBConnection:
 		if rply.header.Status == NTStatus.SUCCESS:
 			fh = FileHandle.from_create_reply(rply, tree_id, file_path, oplock_level)
 			self.FileHandleTable[fh.file_id] = fh
+			
+			if return_reply == True:
+				return rply.command.FileId, rply.command
 			return rply.command.FileId
 		
 		elif rply.header.Status == NTStatus.ACCESS_DENIED:
@@ -910,6 +918,7 @@ async def connection_test(target):
 	await connection.connect(target)
 	await connection.negotiate()
 	await connection.session_setup()
+	input(connection.get_extra_info())
 	tree_entry = await connection.tree_connect('\\\\10.10.10.2\\Users')
 	tree_id = tree_entry.tree_id
 	file_path = 'Administrator\\Desktop\\smb_test\\testfile1.txt'
@@ -943,6 +952,49 @@ async def connection_test(target):
 	await connection.terminate()
 	print(str(info))
 	
+async def filereader_test(target):
+	#setting up NTLM auth
+	template_name = 'Windows10_15063_knowkey'
+	credential = Credential()
+	credential.username = 'victim'
+	credential.password = 'Passw0rd!1'
+	credential.domain = 'TEST'
+	
+	settings = NTLMHandlerSettings(credential, mode = 'CLIENT', template_name = template_name)
+	handler = NTLMAUTHHandler(settings)
+	
+	#setting up SPNEGO
+	spneg = SPNEGO()
+	spneg.add_auth_context('NTLMSSP - Microsoft NTLM Security Support Provider', handler)
+	connection = SMBConnection(spneg, [NegotiateDialects.SMB210])
+	await connection.connect(target)
+	await connection.negotiate()
+	await connection.session_setup()
+	
+	reader = SMBFileReader(connection)
+	await reader.open('\\\\10.10.10.2\\Users\\Administrator\\Desktop\\smb_test\\testfile1.txt')
+	data = await reader.read()
+	print(data)
+	await reader.seek(0,0)
+	data = await reader.read()
+	print(data)
+	await reader.seek(10,0)
+	data = await reader.read()
+	print(data)
+	await reader.seek(10,0)
+	data = await reader.read(5)
+	print(data)
+	await reader.seek(-10,2)
+	data = await reader.read(5)
+	print(data)
+	
+	reader = SMBFileReader(connection)
+	await reader.open('\\\\10.10.10.2\\Users\\Administrator\\Desktop\\smb_test\\memory_vaaaaa.dmp')
+	with open('test_bigfile.raw', 'wb') as f:
+		while data != b'':
+			data = await reader.read(50*1024)
+			f.write(data)
+	
 	
 			
 if __name__ == '__main__':
@@ -958,7 +1010,8 @@ if __name__ == '__main__':
 	#asyncio.run(test_kerberos(target))
 	#asyncio.run(test_sspi_kerberos(target))
 	#asyncio.run(test_sspi_ntlm(target))
-	asyncio.run(connection_test(target))
+	#asyncio.run(connection_test(target))
 	#asyncio.run(test_high(target))
+	asyncio.run(filereader_test(target))
 	
 	

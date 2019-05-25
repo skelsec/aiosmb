@@ -10,7 +10,7 @@ from aiosmb.ntlm.messages.authenticate import NTLMAuthenticate
 from aiosmb.ntlm.creds_calc import *
 from aiosmb.crypto.symmetric import RC4
 
-
+from aiosmb.dtyp.structures.filetime import FILETIME
 
 class Credential:
 	def __init__(self):
@@ -22,6 +22,54 @@ class Credential:
 		self.nt_hash = None
 		self.lm_hash = None
 		
+class NTLMServerInfo:
+	def __init__(self):
+		self.domainname = None
+		self.computername = None
+		self.dnscomputername = None
+		self.dnsdomainname = None
+		self.local_time = None
+		self.dnsforestname = None
+		self.os_major_version = None
+		self.os_minor_version = None
+		self.os_build = None
+		self.os_guess = None
+	
+	@staticmethod
+	def from_challenge(challenge):
+		si = NTLMServerInfo()
+		ti = challenge.TargetInfo
+		for k in ti:
+			if k == AVPAIRType.MsvAvNbDomainName:
+				si.domainname = ti[k]
+			elif k == AVPAIRType.MsvAvNbComputerName:
+				si.computername = ti[k]
+			elif k == AVPAIRType.MsvAvDnsDomainName:
+				si.dnsdomainname = ti[k]
+			elif k == AVPAIRType.MsvAvDnsComputerName:
+				si.dnscomputername = ti[k]
+			elif k == AVPAIRType.MsvAvDnsTreeName:
+				si.dnsforestname = ti[k]
+			elif k == AVPAIRType.MsvAvTimestamp:
+				if isinstance(ti[k], bytes):
+					si.local_time = FILETIME.from_bytes(ti[k]).datetime
+				elif isinstance(ti[k], dateime):
+					si.local_time = ti[k]
+		
+		if challenge.Version is not None:
+			si.os_major_version = challenge.Version.ProductMajorVersion
+			si.os_minor_version = challenge.Version.ProductMinorVersion
+			si.os_build = challenge.Version.ProductBuild
+			si.os_guess = challenge.Version.WindowsProduct
+				
+		return si
+		
+	def __str__(self):
+		t = '=== Server Info ====\r\n'
+		for k in self.__dict__:
+			t += '%s: %s\r\n' % (k, self.__dict__[k]) 
+			
+		return t
 		
 class NTLMHandlerSettings:
 	def __init__(self, credential, mode = 'CLIENT', template_name = None, ntlm_downgrade = False, custom_template = None):
@@ -77,6 +125,7 @@ class NTLMAUTHHandler:
 		self.iteration_cnt = 0
 		self.ntlm_credentials = None
 		self.timestamp = None #used in unittest only!
+		self.extra_info = None
 		self.setup()
 
 	def setup(self):
@@ -104,6 +153,10 @@ class NTLMAUTHHandler:
 			version = self.settings.template.get('version')
 			self.ntlmNegotiate = NTLMNegotiate.construct(self.flags, domainname = domainname, workstationname = workstationname, version = version)			
 
+	def get_extra_info(self):
+		self.extra_info = NTLMServerInfo.from_challenge(self.ntlmChallenge)
+		return self.extra_info
+		
 	def get_session_key(self):
 		return self.RandomSessionKey
 		
