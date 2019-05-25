@@ -8,7 +8,7 @@ class CloseFlag(enum.IntFlag):
 class CLOSE_REQ:
 	def __init__(self):
 		self.StructureSize = 24
-		self.Flags = None
+		self.Flags = 0
 		self.Reserved = 0
 		self.FileId = None
 		
