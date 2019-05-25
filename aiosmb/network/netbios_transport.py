@@ -1,7 +1,7 @@
 import asyncio
 import io
-import traceback
 
+from aiosmb import logger
 from aiosmb.protocol.smb.message import *
 from aiosmb.protocol.smb2.message import *
 
@@ -45,7 +45,6 @@ class NetBIOSTransport:
 		if len(buffer) > 4:
 			if not total_size:
 				total_size = int.from_bytes(buffer[1:4], byteorder='big', signed = False) + 4
-				print(total_size)
 			
 			if len(buffer) >= total_size:
 				msg_data = buffer[:total_size][4:]
@@ -84,10 +83,12 @@ class NetBIOSTransport:
 				#parse
 				buffer += data
 				buffer = await self.parse_buffer(buffer)
-				print(buffer)
-				
+		except asyncio.CancelledError:
+			#the SMB connection is terminating
+			return
+			
 		except Exception as e:
-			traceback.print_exc()
+			logger.exception('NetBIOSTransport handle_incoming')
 			await self.stop()
 		
 	async def handle_outgoing(self):
@@ -103,7 +104,12 @@ class NetBIOSTransport:
 				data += len(smb_msg_data).to_bytes(3, byteorder='big', signed = False)
 				data += smb_msg_data
 				await self.socket_out_queue.put(data)
+		
+		except asyncio.CancelledError:
+			#the SMB connection is terminating
+			return
+		
 		except Exception as e:
-			traceback.print_exc()
+			logger.exception('NetBIOSTransport handle_outgoing')
 			await self.stop()
 			

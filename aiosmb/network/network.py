@@ -1,4 +1,8 @@
+import enum
 import asyncio
+
+from aiosmb import logger
+from aiosmb.exceptions import *
 
 class TCPSocket:
 	"""
@@ -37,10 +41,16 @@ class TCPSocket:
 		try:
 			while not self.disconnected.is_set() or not self.shutdown_evt.is_set():
 				data = await self.reader.read(4096)
-				await self.in_queue.put(data)				
-		except Exception as e:
+				await self.in_queue.put(data)
+		
+		except asyncio.CancelledError:
+			#the SMB connection is terminating
+			return
+			
+		except Exception as e:	
+			logger.exception('[TCPSocket] handle_incoming %s' % str(e))
 			await self.disconnect()
-			print('[TCPSocket] %s' % e)
+			
 		
 	async def handle_outgoing(self):
 		"""
@@ -51,20 +61,42 @@ class TCPSocket:
 				data = await self.out_queue.get()
 				self.writer.write(data)
 				await self.writer.drain()
+		except asyncio.CancelledError:
+			#the SMB connection is terminating
+			return
+			
 		except Exception as e:
+			logger.exception('[TCPSocket] handle_outgoing %s' % str(e))
 			await self.disconnect()
-			print('[TCPSocket] %s' % e)
+			
 		
 	async def connect(self, settings):
 		"""
 		Main function to be called, connects to the target specified in settings, and starts reading/writing.
 		"""
+
+		self.settings = settings
+		
+		con = asyncio.open_connection(self.settings.get_ip(), self.settings.get_port())
+		
 		try:
-			self.settings = settings
-			self.reader, self.writer = await asyncio.open_connection(self.settings.get_ip(), self.settings.get_port())
-			asyncio.ensure_future(self.handle_incoming())
-			asyncio.ensure_future(self.handle_outgoing())
-			return			
+			self.reader, self.writer = await asyncio.wait_for(con, int(self.settings.timeout))
+		except asyncio.TimeoutError:
+			logger.debug('[TCPSocket] Connection timeout')
+			raise SMBConnectionTimeoutException() 
+		except ConnectionRefusedError:
+			logger.debug('[TCPSocket] Connection refused')
+			raise SMBConnectionRefusedException()
+		except asyncio.CancelledError:
+			#the SMB connection is terminating
+			return
 		except Exception as e:
-			await self.disconnect()
-			print('[TCPSocket] %s' % e)
+			logger.exception('[TCPSocket] connect generic exception')
+			raise e
+		
+		asyncio.ensure_future(self.handle_incoming())
+		asyncio.ensure_future(self.handle_outgoing())
+		return
+
+			
+			

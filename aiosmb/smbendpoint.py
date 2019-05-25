@@ -185,6 +185,9 @@ class SMBEndpoint:
 		"""
 		pass
 		
+	async def quit(self):
+		self.connection.terminate()
+		
 	async def enumerate_directory(self, directory):
 		await self.list_directory(directory)
 		

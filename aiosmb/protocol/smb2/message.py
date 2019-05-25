@@ -1,6 +1,7 @@
 import enum
 import io
 
+from aiosmb.commons.ntstatus import NTStatus
 from aiosmb.protocol.smb2.headers import *
 from aiosmb.protocol.smb2.commands import *
 from aiosmb.protocol.smb2.command_codes import *
@@ -48,6 +49,17 @@ class SMB2Message:
 			msg.header = SMB2Header_ASYNC.from_buffer(buff)
 		else:
 			msg.header = SMB2Header_SYNC.from_buffer(buff)
+			
+		# maybe it's an error...
+		# not sure this is the best way to check fot he error message
+		if msg.header.Status != NTStatus.SUCCESS and SMB2HeaderFlag.SMB2_FLAGS_SERVER_TO_REDIR in msg.header.Flags:
+			if not (msg.header.Status == NTStatus.MORE_PROCESSING_REQUIRED and msg.header.Command.name == 'SESSION_SETUP'):
+				pos = buff.tell()
+				structure_size = int.from_bytes(buff.read(2), byteorder='little')
+				buff.seek(pos, 0)
+				if structure_size == 9:
+					msg.command = ERROR_REPLY.from_buffer(buff)
+					return msg
 
 		classname = msg.header.Command.name
 		try:
@@ -103,4 +115,9 @@ command2object = {
 	'QUERY_DIRECTORY_REPLY' : QUERY_DIRECTORY_REPLY,
 	'TREE_DISCONNECT_REPLY' : TREE_DISCONNECT_REPLY,
 	'TREE_DISCONNECT_REQ' : TREE_DISCONNECT_REQ,
+	'ECHO_REQ' : ECHO_REQ,
+	'ECHO_REPLY' : ECHO_REPLY,
+	'LOGOFF_REQ'   : LOGOFF_REQ,
+	'LOGOFF_REPLY' : LOGOFF_REPLY,
+	'ERROR_REPLY' : ERROR_REPLY,
 }
