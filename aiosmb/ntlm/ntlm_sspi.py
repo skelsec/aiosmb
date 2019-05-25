@@ -4,15 +4,10 @@
 # 
 from winsspi.sspi import NTLMSMBSSPI
 
-settings = {
-	'mode' : 'CLIENT',
-	'client' : None,
-}
-
 class SMBNTLMSSPI:
 	def __init__(self, settings):
 		self.settings = settings
-		self.mode = 'CLIENT'
+		self.mode = None #'CLIENT'
 		self.sspi = NTLMSMBSSPI()
 		self.client = None
 		self.target = None
@@ -20,11 +15,9 @@ class SMBNTLMSSPI:
 		self.setup()
 		
 	def setup(self):
-		if 'mode' in self.settings:
-			self.mode = self.settings['mode'].upper()
-		
-		if 'client' in self.settings:
-			self.mode = self.settings['client']
+		self.mode = self.settings.mode.upper()
+		self.client = self.settings.client
+		self.password = self.settings.password
 	
 	def get_session_key(self):
 		return self.sspi.get_session_key()

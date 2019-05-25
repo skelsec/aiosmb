@@ -26,31 +26,11 @@ from aiosmb.fscc.FileAttributes import FileAttributes
 
 from aiosmb.dtyp.constrcuted_security.security_descriptor import SECURITY_DESCRIPTOR
 
-from aiosmb.spnego.spnego import SPNEGO
-from aiosmb.ntlm.auth_handler import NTLMAUTHHandler, Credential, NTLMHandlerSettings
-from aiosmb.kerberos.kerberos import SMBKerberos
-
 from aiosmb.commons.smbcontainer import *
+from aiosmb.commons.smbtarget import *
 from aiosmb.filereader import SMBFileReader
 
-if platform.system().upper() == 'WINDOWS':
-	from aiosmb.kerberos.kerberos_sspi import SMBKerberosSSPI
-	from aiosmb.ntlm.ntlm_sspi import SMBNTLMSSPI
-	
 
-class SMBTarget:
-	def __init__(self):
-		self.ip = None
-		self.port = None
-		self.hostname = None
-		self.timeout = 1
-		
-		
-	def get_ip(self):
-		return self.ip
-	
-	def get_port(self):
-		return self.port
 
 class SMBConnectionStatus(enum.Enum):
 	NEGOTIATING = 'NEGOTIATING'

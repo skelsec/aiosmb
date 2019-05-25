@@ -4,11 +4,7 @@
 # 
 from winsspi.sspi import KerberosSMBSSPI
 
-settings = {
-	'mode' : 'CLIENT',
-	'client' : None,
-	'target' : None,
-}
+# SMBKerberosSSPICredential:
 
 class SMBKerberosSSPI:
 	def __init__(self, settings):
@@ -21,16 +17,11 @@ class SMBKerberosSSPI:
 		self.setup()
 		
 	def setup(self):
-		if 'mode' in self.settings:
-			self.mode = self.settings['mode'].upper()
+		self.mode = self.settings.mode
+		self.client = self.settings.client
+		self.target = self.settings.target
 		
-		if 'client' in self.settings:
-			self.mode = self.settings['client']
-			
-		if 'target' in self.settings:
-			self.target = self.settings['target']
-		else:
-			raise Exception('Target keyword must be specified in Kerberos!')
+		input(self.target)
 	
 	def get_session_key(self):
 		return self.ksspi.get_session_key()

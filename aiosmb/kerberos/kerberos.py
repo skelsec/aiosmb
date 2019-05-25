@@ -6,15 +6,7 @@
 from minikerberos.common import *
 from minikerberos.aiocommunication import *
 
-settings = {
-	'mode' : 'CLIENT',
-	'connection_string' : '',
-	'target_string': '',
-	'dc_ip' : '',
-	'connection' : None,
-	'target' : None,
-
-}
+# SMBKerberosCredential
 
 class SMBKerberos:
 	def __init__(self, settings):
@@ -30,26 +22,11 @@ class SMBKerberos:
 		self.setup()
 		
 	def setup(self):
-		self.mode = self.settings['mode']
-		if 'connection_string' in self.settings:
-			self.ccred = KerberosCredential.from_connection_string( self.settings['connection_string'])
-		elif 'connection' in self.settings:
-			#the object is passed in settings
-			self.ccred = self.settings['connection']
-		else:
-			raise Exception('Either connection or connection_string MUST be specified in kerberos settings!')
-			
-		if 'target_string' in self.settings:
-			self.target = KerberosTarget.from_target_string( self.settings['target_string'])
-		elif 'target' in self.settings:
-			self.target =self.settings['target']
-		else:
-			raise Exception('Either target or target_string MUST be specified in kerberos settings')
-			
-		if 'dc_ip' in self.settings:
-			self.ksoc = KerberosSocketAIO(self.settings['dc_ip'])
-		else:
-			raise Exception('DC IP MUST be specified in kerberos settings')
+		self.mode = self.settings.mode
+		self.ccred = self.settings.ccred
+		self.ksoc = self.settings.ksoc
+		self.target = self.settings.target
+		
 		
 		self.kc = KerbrosCommAIO(self.ccred, self.ksoc)
 		

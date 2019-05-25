@@ -1,5 +1,8 @@
 
 import os
+
+from aiosmb.commons.smbcredential import SMBNTLMCredential
+from aiosmb.commons.serverinfo import NTLMServerInfo
 from aiosmb.ntlm.templates.server import NTLMServerTemplates
 from aiosmb.ntlm.templates.client import NTLMClientTemplates
 from aiosmb.ntlm.structures.negotiate_flags import NegotiateFlags
@@ -11,75 +14,17 @@ from aiosmb.ntlm.creds_calc import *
 from aiosmb.crypto.symmetric import RC4
 
 from aiosmb.dtyp.structures.filetime import FILETIME
+		
 
-class Credential:
-	def __init__(self):
-		self.username = None
-		self.domain = ''
-		self.password = None
-		self.workstation = None
-		self.is_guest = False
-		self.nt_hash = None
-		self.lm_hash = None
-		
-class NTLMServerInfo:
-	def __init__(self):
-		self.domainname = None
-		self.computername = None
-		self.dnscomputername = None
-		self.dnsdomainname = None
-		self.local_time = None
-		self.dnsforestname = None
-		self.os_major_version = None
-		self.os_minor_version = None
-		self.os_build = None
-		self.os_guess = None
-	
-	@staticmethod
-	def from_challenge(challenge):
-		si = NTLMServerInfo()
-		ti = challenge.TargetInfo
-		for k in ti:
-			if k == AVPAIRType.MsvAvNbDomainName:
-				si.domainname = ti[k]
-			elif k == AVPAIRType.MsvAvNbComputerName:
-				si.computername = ti[k]
-			elif k == AVPAIRType.MsvAvDnsDomainName:
-				si.dnsdomainname = ti[k]
-			elif k == AVPAIRType.MsvAvDnsComputerName:
-				si.dnscomputername = ti[k]
-			elif k == AVPAIRType.MsvAvDnsTreeName:
-				si.dnsforestname = ti[k]
-			elif k == AVPAIRType.MsvAvTimestamp:
-				if isinstance(ti[k], bytes):
-					si.local_time = FILETIME.from_bytes(ti[k]).datetime
-				elif isinstance(ti[k], dateime):
-					si.local_time = ti[k]
-		
-		if challenge.Version is not None:
-			si.os_major_version = challenge.Version.ProductMajorVersion
-			si.os_minor_version = challenge.Version.ProductMinorVersion
-			si.os_build = challenge.Version.ProductBuild
-			si.os_guess = challenge.Version.WindowsProduct
-				
-		return si
-		
-	def __str__(self):
-		t = '=== Server Info ====\r\n'
-		for k in self.__dict__:
-			t += '%s: %s\r\n' % (k, self.__dict__[k]) 
-			
-		return t
-		
 class NTLMHandlerSettings:
-	def __init__(self, credential, mode = 'CLIENT', template_name = None, ntlm_downgrade = False, custom_template = None):
+	def __init__(self, credential, mode = 'CLIENT', template_name = 'Windows10_15063', custom_template = None):
 		self.credential = credential
 		self.mode = mode
 		self.template_name = template_name
-		self.ntlm_downgrade = ntlm_downgrade
 		self.custom_template = custom_template #for custom templates, must be dict
 		
 		self.template = None
+		self.ntlm_downgrade = False
 		
 		self.construct_message_template()
 		
@@ -100,6 +45,8 @@ class NTLMHandlerSettings:
 			else:
 				if self.template_name in NTLMClientTemplates:
 					self.template = NTLMClientTemplates[self.template_name]
+					if 'ntlm_downgrade' in self.template:
+						self.ntlm_downgrade = self.template['ntlm_downgrade']
 				else:
 					raise Exception('No NTLM server template found with name %s' % self.template_name)
 		
