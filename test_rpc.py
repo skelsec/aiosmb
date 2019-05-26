@@ -25,9 +25,9 @@ async def filereader_test(connection_string, filename):
 	async with SMBConnection(spneg, target) as connection: 
 		await connection.login()
 		
-		t = SMBDRSUAPI(connection)
-		await t.connect()
-		return
+		#t = SMBDRSUAPI(connection)
+		#await t.connect()
+		#return
 		tmpFileName = os.urandom(4).hex() + '.tmp'
 		rreg = SMBRemoteRegistryService(connection)
 		await rreg.save_hive('SAM', tmpFileName)
