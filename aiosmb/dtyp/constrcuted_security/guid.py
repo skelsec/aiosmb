@@ -1,4 +1,6 @@
 import os
+import io
+
 # https://docs.microsoft.com/en-us/previous-versions/aa373931(v%3Dvs.80)
 # Dear Microsoft ppl, pls fuck youselves...
 class GUID:
@@ -7,6 +9,10 @@ class GUID:
 		self.Data2 = None
 		self.Data3 = None
 		self.Data4 = None
+		
+	@staticmethod
+	def from_bytes(data):
+		return GUID.from_buffer(io.BytesIO(data))
 		
 	@staticmethod
 	def from_buffer(buff):

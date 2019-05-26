@@ -11,6 +11,7 @@ class SMBFileReader:
 		self.share = None
 		
 		self.position = 0
+		self.is_pipe = False
 		
 	async def __aenter__(self):
 		return self
@@ -35,6 +36,10 @@ class SMBFileReader:
 		If less data is returned than requested it will do more reads until the requested size is reached.
 		Do not call this directly as it could go in an infinite loop 
 		"""
+		if self.is_pipe == True:
+			data, remaining = await self.connection.read(self.share.tree_id, self.file.file_id, offset = offset, length = size)
+			return data
+		
 		buffer = b''
 		while len(buffer) <= size:
 			data, remaining = await self.connection.read(self.share.tree_id, self.file.file_id, offset = offset, length = size)
@@ -42,8 +47,23 @@ class SMBFileReader:
 			
 		return buffer[:size]
 		
+	async def __write(self, data, offset = 0):
+		remaining = len(data)
+		total_bytes_written = 0
+		
+		while remaining != 0:
+			bytes_written = await self.connection.write(self.share.tree_id, self.file.file_id, data[offset:len(data)], offset = offset)
+			total_bytes_written += bytes_written
+			remaining -= bytes_written
+			offset += bytes_written
+		
+		return total_bytes_written
+		
 	async def open(self, filename, mode = 'r'):
 		self.mode = mode
+		if 'p' in self.mode:
+			self.is_pipe = True
+		
 		if isinstance(filename, str):
 			#then it's a string path, we need to create an SMBFile
 			if filename.startswith('\\\\') != True:
@@ -75,7 +95,10 @@ class SMBFileReader:
 		await self.__connect_share(self.share)
 		
 		#then connect to file
-		if mode == 'r':
+		if 'r' in mode and 'w' in mode:
+			raise ValueError('must have exactly one of read/write mode')
+			
+		if 'r' in mode:
 			desired_access = FileAccessMask.FILE_READ_DATA | FileAccessMask.FILE_READ_ATTRIBUTES
 			share_mode = ShareAccess.FILE_SHARE_READ
 			create_options = CreateOptions.FILE_NON_DIRECTORY_FILE | CreateOptions.FILE_SYNCHRONOUS_IO_NONALERT 
@@ -85,9 +108,18 @@ class SMBFileReader:
 			self.file.file_id, smb_reply = await self.connection.create(self.share.tree_id, self.fullpath, desired_access, share_mode, create_options, create_disposition, file_attrs, return_reply = True)
 			self.file.size = smb_reply.EndofFile
 			
+		elif 'w' in mode:
+			desired_access = FileAccessMask.GENERIC_READ | FileAccessMask.GENERIC_WRITE
+			share_mode = ShareAccess.FILE_SHARE_READ | ShareAccess.FILE_SHARE_WRITE
+			create_options = CreateOptions.FILE_NON_DIRECTORY_FILE | CreateOptions.FILE_SYNCHRONOUS_IO_NONALERT 
+			file_attrs = 0
+			create_disposition = CreateDisposition.FILE_OPEN
+			
+			self.file.file_id, smb_reply = await self.connection.create(self.share.tree_id, self.fullpath, desired_access, share_mode, create_options, create_disposition, file_attrs, return_reply = True)
+			self.file.size = smb_reply.EndofFile
 			
 		else:
-			raise Exception('ONLY read is supported at the moment!')
+			raise Exception('ONLY read and write is supported at the moment!')
 			
 		#if we don't know the actual file fize, we need to ask the server
 		
@@ -119,7 +151,8 @@ class SMBFileReader:
 			
 		elif size == -1:
 			data = await self.__read(self.file.size - self.position, self.position)
-			self.position += len(data)
+			if self.is_pipe == False:
+				self.position += len(data)
 			return data
 			
 		elif size > 0:
@@ -131,12 +164,14 @@ class SMBFileReader:
 			
 			
 	async def write(self, data):
-		raise Exception('ONLY read is supported at the moment!')
+		count = await self.__write(data, self.position)
+		if self.is_pipe == False:
+			self.position += count
 		
 	async def flush(self):
 		if self.file is None:
 			return
-		if self.mode == 'r':
+		if 'r' in self.mode:
 			return
 		else:
 			await self.connection.flush(self.share.tree_id, self.file.file_id)

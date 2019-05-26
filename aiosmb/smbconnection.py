@@ -264,6 +264,12 @@ class SMBConnection:
 				self.signing_required = NegotiateSecurityMode.SMB2_NEGOTIATE_SIGNING_REQUIRED in rply.command.SecurityMode
 				logger.log(1, 'Server selected dialect: %s' % self.selected_dialect)
 				
+				self.MaxTransactSize = min(0x100000, rply.command.MaxTransactSize)
+				self.MaxReadSize = min(0x100000, rply.command.MaxReadSize)
+				self.MaxWriteSize = min(0x100000, rply.command.MaxWriteSize)
+				self.ServerGuid = rply.command.ServerGuid
+				self.SupportsMultiChannel = NegotiateCapabilities.MULTI_CHANNEL in rply.command.Capabilities
+				
 			else:
 				logger.error('Server choose SMB v1 which is not supported currently')
 				raise SMBUnsupportedSMBVersion()
@@ -501,16 +507,24 @@ class SMBConnection:
 		if file_id not in self.FileHandleTable:
 			raise Exception('Unknown File ID!')
 			
+		header = SMB2Header_SYNC()
+		header.Command  = SMB2Command.READ
+		header.TreeId = tree_id
+		
+		if length < self.MaxReadSize:
+			length = self.MaxReadSize
+		
+		if self.selected_dialect != NegotiateDialects.SMB202 and self.SupportsMultiCredit == True:
+			header.CreditCharge = ( 1 + (length - 1) // 65536)
+		else: 
+			length = min(65536,length)
+			
 		command = READ_REQ()
 		command.Length = length
 		command.Offset = offset
 		command.FileId = file_id
 		command.MinimumCount = 0
 		command.RemainingBytes = 0
-		
-		header = SMB2Header_SYNC()
-		header.Command  = SMB2Command.READ
-		header.TreeId = tree_id
 		
 		msg = SMBMessage(header, command)
 		message_id = await self.sendSMB(msg)
@@ -523,6 +537,49 @@ class SMBConnection:
 		elif rply.header.Status == NTStatus.END_OF_FILE:
 			return b'', 0
 			
+		else:
+			raise SMBGenericException()
+			
+			
+	async def write(self, tree_id, file_id, data, offset = 0):
+		"""
+		This function will send one packet only! The data size can be larger than what one packet allows, but it will be truncated
+		to the maximum. 
+		Also, there is no guarantee that the actual sent data will be fully written to the remote file! This will be indicated in the returned value.
+		Use a high-level function to get a full write.
+		
+		"""
+		if tree_id not in self.TreeConnectTable_id:
+			raise Exception('Unknown Tree ID!')
+		if file_id not in self.FileHandleTable:
+			raise Exception('Unknown File ID!')
+			
+		header = SMB2Header_SYNC()
+		header.Command  = SMB2Command.WRITE
+		header.TreeId = tree_id
+			
+		if len(data) > self.MaxWriteSize:
+			data = data[:self.MaxWriteSize]
+			
+		if self.selected_dialect != NegotiateDialects.SMB202 and self.SupportsMultiCredit == True:
+			header.CreditCharge = ( 1 + (len(data) - 1) // 65536)
+		else: 
+			data = data[:min(65536,len(data))]
+		
+		command = WRITE_REQ()
+		command.Length = len(data)
+		command.Offset = offset
+		command.FileId = file_id
+		command.Data = data
+		
+		msg = SMBMessage(header, command)
+		message_id = await self.sendSMB(msg)
+		
+		rply = await self.recvSMB(message_id)
+		
+		if rply.header.Status == NTStatus.SUCCESS:
+			return rply.command.Count
+		
 		else:
 			raise SMBGenericException()
 		

@@ -16,13 +16,13 @@ class NegotiateSecurityMode(enum.IntFlag):
 
 # https://msdn.microsoft.com/en-us/library/cc246543.aspx
 class NegotiateCapabilities(enum.IntFlag):
-	SMB2_GLOBAL_CAP_DFS = 0x00000001 #When set, indicates that the client supports the Distributed File System (DFS).
-	SMB2_GLOBAL_CAP_LEASING = 0x00000002 #When set, indicates that the client supports leasing.
-	SMB2_GLOBAL_CAP_LARGE_MTU = 0x00000004 #When set, indicates that the client supports multi-credit operations.
-	SMB2_GLOBAL_CAP_MULTI_CHANNEL = 0x00000008 #When set, indicates that the client supports establishing multiple channels for a single session.
-	SMB2_GLOBAL_CAP_PERSISTENT_HANDLES = 0x00000010 #When set, indicates that the client supports persistent handles.
-	SMB2_GLOBAL_CAP_DIRECTORY_LEASING = 0x00000020 #When set, indicates that the client supports directory leasing.
-	SMB2_GLOBAL_CAP_ENCRYPTION = 0x00000040 #When set, indicates that the client supports encryption.
+	DFS = 0x00000001 #When set, indicates that the client supports the Distributed File System (DFS).
+	LEASING = 0x00000002 #When set, indicates that the client supports leasing.
+	LARGE_MTU = 0x00000004 #When set, indicates that the client supports multi-credit operations.
+	MULTI_CHANNEL = 0x00000008 #When set, indicates that the client supports establishing multiple channels for a single session.
+	PERSISTENT_HANDLES = 0x00000010 #When set, indicates that the client supports persistent handles.
+	DIRECTORY_LEASING = 0x00000020 #When set, indicates that the client supports directory leasing.
+	ENCRYPTION = 0x00000040 #When set, indicates that the client supports encryption.
 
 
 # https://msdn.microsoft.com/en-us/library/cc246543.aspx
@@ -293,7 +293,7 @@ class NEGOTIATE_REPLY:
 		msg.SecurityMode    = NegotiateSecurityMode(int.from_bytes(buff.read(2), byteorder='little', signed = False))
 		msg.DialectRevision = NegotiateDialects(int.from_bytes(buff.read(2), byteorder='little', signed = False))
 		msg.NegotiateContextCount  = int.from_bytes(buff.read(2), byteorder='little', signed = False)
-		msg.ServerGuid      = uuid.UUID(bytes_le=buff.read(16))
+		msg.ServerGuid      = GUID.from_bytes(buff.read(16))
 		msg.Capabilities    = NegotiateCapabilities(int.from_bytes(buff.read(4), byteorder='little', signed = False))
 		msg.MaxTransactSize = int.from_bytes(buff.read(4), byteorder='little', signed = False)
 		msg.MaxReadSize     = int.from_bytes(buff.read(4), byteorder='little', signed = False)
