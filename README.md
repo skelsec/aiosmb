@@ -22,7 +22,23 @@ A lot of bugs and weird crashes. That aside, I believe I can bring this project 
 # Connection string
 This section describes the connection string format that will be used with this library's examples.
 I have been thinking on what would be the ideal format for the connection tring that would be both somewhat user firendly and allow to leverage all capabilities of the authentication and came up with the following.  
+  
+`<domain>/<user>/<auth_type>/<secret_type>:<secret>@<target_ip_or_hostname>/<dc_ip>`  
+  
+`auth_type` can be one of the following:
+- `ntlm`
+- `kerberos`
+- `sspi-ntlm`
+- `sspi-kerberos`
+  
+`secret_type` can be one of the following:
+- `password`
+- `nt`
+- `aes`
+- `rc4`
+- `ccache`
 
+### Example
 The following parameters are used (the user victim is trying to log in to the domain controller):
 Username: `victim`  
 Domain: `TEST`  
