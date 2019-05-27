@@ -21,6 +21,12 @@ class SMBNTLMSSPI:
 	
 	def get_session_key(self):
 		return self.sspi.get_session_key()
+		
+	async def encrypt(self, data, message_no):
+		return self.sspi.encrypt(data, message_no)
+		
+	async def decrypt(self, data, message_no):
+		return self.sspi.decrypt(data, message_no)
 	
 	async def authenticate(self, authData = None):
 		if self.mode == 'CLIENT':

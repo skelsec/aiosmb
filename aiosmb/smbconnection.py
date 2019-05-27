@@ -3,6 +3,7 @@ import asyncio
 import hmac
 import hashlib
 import platform
+import copy
 
 from aiosmb import logger
 from aiosmb.exceptions import *
@@ -91,6 +92,7 @@ class SMBConnection:
 	"""
 	def __init__(self, gssapi, target, dialects = [NegotiateDialects.SMB202], shutdown_evt = asyncio.Event()):
 		self.gssapi = gssapi
+		self.original_gssapi = copy.deepcopy(gssapi) #preserving a copy of the original
 		self.shutdown_evt = shutdown_evt
 		
 		self.target = target
@@ -979,7 +981,7 @@ async def connection_test(target):
 	await connection.connect(target)
 	await connection.negotiate()
 	await connection.session_setup()
-	input(connection.get_extra_info())
+	#input(connection.get_extra_info())
 	tree_entry = await connection.tree_connect('\\\\10.10.10.2\\Users')
 	tree_id = tree_entry.tree_id
 	file_path = 'Administrator\\Desktop\\smb_test\\testfile1.txt'

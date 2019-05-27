@@ -13,11 +13,11 @@ preftable = {
 available_modules = ['pure']
 
 if importlib.util.find_spec("cryptography") is not None:
-	print('Found cryptography package!')
+	#print('Found cryptography package!')
 	available_modules.append("cryptography")
 
 elif importlib.util.find_spec("pyCrypto") is not None:
-	print('Found cryptography package!')
+	#print('Found cryptography package!')
 	available_modules.append("pyCrypto")
 
 
@@ -40,7 +40,7 @@ def getPreferredCipher(cipherName):
 		raise Exception('Could not find any modules to load cipher %s' % cipherName)
 
 
-	print('Preferred module selected for cipher %s is %s' % (cipherName, selected_module))
+	#print('Preferred module selected for cipher %s is %s' % (cipherName, selected_module))
 	moduleName = 'aiosmb.crypto.%s' % cipherName
 	objectName = selected_module + cipherName
 	return import_from(moduleName , objectName)

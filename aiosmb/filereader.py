@@ -71,8 +71,6 @@ class SMBFileReader:
 			
 			server_name, t , file_path = filename[2:].split('\\',2)
 			share_name = '\\\\' + server_name + '\\' + t
-			input(share_name)
-			input(file_path)
 			self.share = SMBShare()
 			self.share.fullpath = share_name
 			self.file = SMBFile()

@@ -34,14 +34,18 @@ class NTLMAuthenticate:
 		
 	@staticmethod
 	def construct(flags, domainname= None, workstationname= None, username= None, encrypted_session= None, lm_response= None, nt_response= None, version = None, mic = b'\x00'*16):
-		payload_pos = 8+4+8+8+8+8+8+8+4+16
+		auth = NTLMAuthenticate()
+		auth.Payload = b''
+		
+		payload_pos = 8+4+8+8+8+8+8+8+4
 		if flags & NegotiateFlags.NEGOTIATE_VERSION:
 			if not version:
 				raise Exception('NEGOTIATE_VERSION set but no Version supplied!')
-			payload_pos += 8
-		
-		auth = NTLMAuthenticate()
-		auth.Payload = b''
+				
+			auth.Version = version
+			auth.MIC = mic
+			payload_pos += 8 + 16
+			
 		if lm_response:
 			data =  lm_response.to_bytes()
 			auth.Payload += data
@@ -97,10 +101,7 @@ class NTLMAuthenticate:
 		else:
 			auth.EncryptedRandomSessionKeyFields  = Fields(0,0)
 				
-		auth.NegotiateFlags = flags
-		auth.Version = version
-		auth.MIC = mic
-		
+		auth.NegotiateFlags = flags		
 		return auth
 		
 	def to_bytes(self):
@@ -117,8 +118,7 @@ class NTLMAuthenticate:
 		t += self.NegotiateFlags.to_bytes(4, byteorder = 'little', signed = False)
 		if self.Version:
 			t += self.Version.to_bytes()
-		
-		t += self.MIC
+			t += self.MIC		
 		t += self.Payload
 		return t
 		

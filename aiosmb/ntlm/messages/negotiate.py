@@ -68,15 +68,18 @@ class NTLMNegotiate:
 		
 	@staticmethod
 	def construct(flags, domainname = None, workstationname = None, version = None):
+		nego = NTLMNegotiate()
+		nego.NegotiateFlags = flags
+		nego.Payload = b''
+		
 		payload_pos = 32
 		if flags & NegotiateFlags.NEGOTIATE_VERSION:
 			if not version:
 				raise Exception('NEGOTIATE_VERSION set but no Version supplied!')
 			payload_pos += 8
+			nego.Version = version
 		
-		nego = NTLMNegotiate()
-		nego.NegotiateFlags = flags
-		nego.Payload = b''
+		
 		
 		if nego.NegotiateFlags & NegotiateFlags.NEGOTIATE_OEM_DOMAIN_SUPPLIED and domainname:
 			data =  domainname.encode('utf-16le')
@@ -97,8 +100,6 @@ class NTLMNegotiate:
 			
 		else:
 			nego.WorkstationFields  = Fields(0,0)
-		
-		nego.Version = version
 		
 		return nego
 		

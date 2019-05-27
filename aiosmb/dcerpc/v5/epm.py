@@ -26,7 +26,7 @@ from aiosmb import logger as LOG
 from aiosmb.dcerpc.v5.uuid import uuidtup_to_bin, bin_to_string
 from aiosmb.dcerpc.v5.transport.factory import DCERPCTransportFactory
 from aiosmb.dcerpc.v5.ndr import NDRCALL, NDRSTRUCT, NDRPOINTER, NDRUniConformantVaryingArray, NDRUniVaryingArray, \
-    NDRUniConformantArray
+	NDRUniConformantArray
 from aiosmb.dcerpc.v5.dtypes import UUID, LPBYTE, PUUID, ULONG, USHORT
 from aiosmb.dcerpc.v5.structure import Structure
 from aiosmb.dcerpc.v5.ndr import NULL
@@ -35,18 +35,18 @@ from aiosmb.dcerpc.v5.rpcrt import DCERPCException
 MSRPC_UUID_PORTMAP = uuidtup_to_bin(('E1AF8308-5D1F-11C9-91A4-08002B14A0FA', '3.0'))
 
 class DCERPCSessionError(DCERPCException):
-    error_messages = {}
-    def __init__(self, error_string=None, error_code=None, packet=None):
-        DCERPCException.__init__(self, error_string, error_code, packet)
-        self.error_code = packet['status']
+	error_messages = {}
+	def __init__(self, error_string=None, error_code=None, packet=None):
+		DCERPCException.__init__(self, error_string, error_code, packet)
+		self.error_code = packet['status']
 
-    def __str__( self ):
-        key = self.error_code
-        if key in self.error_messages:
-            error_msg_short = self.error_messages[key]
-            return 'EPM SessionError: code: 0x%x - %s ' % (self.error_code, error_msg_short)
-        else:
-            return 'EPM SessionError: unknown error code: %s' % (str(self.error_code))
+	def __str__( self ):
+		key = self.error_code
+		if key in self.error_messages:
+			error_msg_short = self.error_messages[key]
+			return 'EPM SessionError: code: 0x%x - %s ' % (self.error_code, error_msg_short)
+		else:
+			return 'EPM SessionError: unknown error code: %s' % (str(self.error_code))
 
 ################################################################################
 # CONSTANTS
@@ -882,17 +882,17 @@ KNOWN_PROTOCOLS = {
 }
 
 # Inquire Type
-RPC_C_EP_ALL_ELTS     = 0x0
+RPC_C_EP_ALL_ELTS	 = 0x0
 RPC_C_EP_MATCH_BY_IF  = 0x1
 RPC_C_EP_MATH_BY_OBJ  = 0x2
 RPC_C_EP_MATH_BY_BOTH = 0x1
 
 # Vers Option
-RPC_C_VERS_ALL        = 0x1
+RPC_C_VERS_ALL		= 0x1
 RPC_C_VERS_COMPATIBLE = 0x2
-RPC_C_VERS_EXACT      = 0x3
+RPC_C_VERS_EXACT	  = 0x3
 RPC_C_VERS_MARJOR_ONLY= 0x4
-RPC_C_VERS_UPTO       = 0x5
+RPC_C_VERS_UPTO	   = 0x5
 
 # Search 
 RPC_NO_MORE_ELEMENTS  = 0x16c9a0d6 
@@ -940,7 +940,7 @@ FLOOR_HTTP_IDENTIFIER  = 0x1f
 #   |<-   tower floor left hand side   ->|<-  tower floor right hand side  ->|
 #   +------------+-----------------------+------------+----------------------+
 #   |  LHS byte  |  protocol identifier  |  RHS byte  |  related or address  |
-#   |   count    |        data           |   count    |        data          |
+#   |   count	|		data		   |   count	|		data		  |
 #   +------------+-----------------------+------------+----------------------+
 # The LHS (Left Hand Side) of the floor contains protocol identifier information.
 # Protocol identifier values and construction rules are defined in Appendix I.
@@ -954,97 +954,97 @@ FLOOR_HTTP_IDENTIFIER  = 0x1f
 
 # Standard Floor Assignments
 class EPMFloor(Structure):
-    structure = (
-        ('LHSByteCount','<H=0'),
-        ('_ProtocolData','_-ProtocolData','self["LHSByteCount"]'),
-        ('ProtocolData',':'),
-        ('RHSByteCount','<H=0'),
-        ('_RelatedData','_-RelatedData','self["RHSByteCount"]'),
-        ('RelatedData',':'),
-    ) 
+	structure = (
+		('LHSByteCount','<H=0'),
+		('_ProtocolData','_-ProtocolData','self["LHSByteCount"]'),
+		('ProtocolData',':'),
+		('RHSByteCount','<H=0'),
+		('_RelatedData','_-RelatedData','self["RHSByteCount"]'),
+		('RelatedData',':'),
+	) 
 
 class EPMRPCInterface(EPMFloor):
-    structure = (
-        ('LHSByteCount','<H=19'),
-        ('InterfaceIdent','B=0x0d'),
-        ('InterfaceUUID','16s=""'),
-        ('MajorVersion','<H=0'),
-        ('RHSByteCount','<H=2'),
-        ('MinorVersion','<H=0'),
-    )
-    def __init__(self, data = None):
-        EPMFloor.__init__(self, data)
+	structure = (
+		('LHSByteCount','<H=19'),
+		('InterfaceIdent','B=0x0d'),
+		('InterfaceUUID','16s=""'),
+		('MajorVersion','<H=0'),
+		('RHSByteCount','<H=2'),
+		('MinorVersion','<H=0'),
+	)
+	def __init__(self, data = None):
+		EPMFloor.__init__(self, data)
 
-    def __str__(self):
-        aUuid = bin_to_string(self["InterfaceUUID"])
-        return "%s v%d.%d" % (aUuid,self["MajorVersion"],self["MinorVersion"])
+	def __str__(self):
+		aUuid = bin_to_string(self["InterfaceUUID"])
+		return "%s v%d.%d" % (aUuid,self["MajorVersion"],self["MinorVersion"])
 
-    def __len__(self):
-       return 25
+	def __len__(self):
+	   return 25
 
 class EPMRPCDataRepresentation(EPMFloor):
-    structure = (
-        ('LHSByteCount','<H=19'),
-        ('DrepIdentifier','B=0x0d'),
-        ('DataRepUuid','16s=""'),
-        ('MajorVersion','<H=0'),
-        ('RHSByteCount','<H=2'),
-        ('MinorVersion','<H=0'),
-    )
-    def __init__(self, data = None):
-        EPMFloor.__init__(self, data)
+	structure = (
+		('LHSByteCount','<H=19'),
+		('DrepIdentifier','B=0x0d'),
+		('DataRepUuid','16s=""'),
+		('MajorVersion','<H=0'),
+		('RHSByteCount','<H=2'),
+		('MinorVersion','<H=0'),
+	)
+	def __init__(self, data = None):
+		EPMFloor.__init__(self, data)
 
-    def __str__(self):
-        aUuid = bin_to_string(self["DataRepUuid"])
-        return "%s v%d.%d" % (aUuid,self["MajorVersion"],self["MinorVersion"])
+	def __str__(self):
+		aUuid = bin_to_string(self["DataRepUuid"])
+		return "%s v%d.%d" % (aUuid,self["MajorVersion"],self["MinorVersion"])
 
-    def __len__(self):
-       return 25
+	def __len__(self):
+	   return 25
 
 class EPMProtocolIdentifier(EPMFloor):
-    structure = (
-        ('LHSByteCount','<H=1'),
-        ('ProtIdentifier','B=0'),
-        ('RHSByteCount','<H=2'),
-        ('MinorVersion','<H=0'),
-    )
-    def __init__(self, data = None):
-        EPMFloor.__init__(self, data)
+	structure = (
+		('LHSByteCount','<H=1'),
+		('ProtIdentifier','B=0'),
+		('RHSByteCount','<H=2'),
+		('MinorVersion','<H=0'),
+	)
+	def __init__(self, data = None):
+		EPMFloor.__init__(self, data)
 
-    def __len__(self):
-       return 6
+	def __len__(self):
+	   return 6
 
 class EPMPipeName(EPMFloor):
-    structure = (
-        ('LHSByteCount','<H=1'),
-        ('PipeIdentifier','B=15'),
-        ('RHSByteCount','<H=len(PipeName)'),
-        ('PipeName',':'),
-    )
+	structure = (
+		('LHSByteCount','<H=1'),
+		('PipeIdentifier','B=15'),
+		('RHSByteCount','<H=len(PipeName)'),
+		('PipeName',':'),
+	)
 
 class EPMHostName(EPMFloor):
-    structure = (
-        ('LHSByteCount','<H=1'),
-        ('HostNameIdentifier','B=17'),
-        ('RHSByteCount','<H=len(HostName)'),
-        ('HostName',':'),
-    )
+	structure = (
+		('LHSByteCount','<H=1'),
+		('HostNameIdentifier','B=17'),
+		('RHSByteCount','<H=len(HostName)'),
+		('HostName',':'),
+	)
 
 class EPMHostAddr(EPMFloor):
-    structure = (
-        ('LHSByteCount','<H=1'),
-        ('HostAddressId','B=9'),
-        ('RHSByteCount','<H=len(Ip4addr)'),
-        ('Ip4addr','4s=""'),
-    )
+	structure = (
+		('LHSByteCount','<H=1'),
+		('HostAddressId','B=9'),
+		('RHSByteCount','<H=len(Ip4addr)'),
+		('Ip4addr','4s=""'),
+	)
 
 class EPMPortAddr(EPMFloor):
-    structure = (
-        ('LHSByteCount','<H=1'),
-        ('PortIdentifier','B=7'),
-        ('RHSByteCount','<H=2'),
-        ('IpPort','>H=0'),
-    )
+	structure = (
+		('LHSByteCount','<H=1'),
+		('PortIdentifier','B=7'),
+		('RHSByteCount','<H=2'),
+		('IpPort','>H=0'),
+	)
 
 EPMFloors = [ 
 EPMRPCInterface,
@@ -1056,90 +1056,90 @@ EPMFloor
 ]
 
 class EPMTower(Structure):
-    structure = (
-        ('NumberOfFloors','<H'),
-        ('Floors',':'),
-    )
-    def fromString(self,data):
-        Structure.fromString(self,data)
-        floors = self['Floors']
-        fList = []
-        for f in range(self['NumberOfFloors']):
-            floor = EPMFloors[f](floors)
-            floors = floors[len(floor):]
-            fList.append(floor) 
-        self['Floors'] = fList
+	structure = (
+		('NumberOfFloors','<H'),
+		('Floors',':'),
+	)
+	def fromString(self,data):
+		Structure.fromString(self,data)
+		floors = self['Floors']
+		fList = []
+		for f in range(self['NumberOfFloors']):
+			floor = EPMFloors[f](floors)
+			floors = floors[len(floor):]
+			fList.append(floor) 
+		self['Floors'] = fList
 
-    #def __len__(self):
-    #   ll = 0
-    #   for i in self['Floors']:
-    #       ll += len(i) 
-    #   ll += 10
-    #   ll += (4-ll%4) & 3
-    #   return ll
+	#def __len__(self):
+	#   ll = 0
+	#   for i in self['Floors']:
+	#	   ll += len(i) 
+	#   ll += 10
+	#   ll += (4-ll%4) & 3
+	#   return ll
 
 class RPC_IF_ID(NDRSTRUCT):
-    structure = (
-        ('Uuid', UUID ),
-        ('VersMajor', USHORT),
-        ('VersMinor', USHORT),
-    )
+	structure = (
+		('Uuid', UUID ),
+		('VersMajor', USHORT),
+		('VersMinor', USHORT),
+	)
 
 class PRPC_IF_ID(NDRPOINTER):
-    referent = (
-        ('Data', RPC_IF_ID),
-    )
+	referent = (
+		('Data', RPC_IF_ID),
+	)
 
 class ept_lookup_handle_t(NDRSTRUCT):
-    structure =  (
-        ('context_handle_attributes',ULONG),
-        ('context_handle_uuid',UUID),
-    )
-    def __init__(self, data = None,isNDR64 = False):
-        NDRSTRUCT.__init__(self, data, isNDR64)
-        self['context_handle_uuid'] = b'\x00'*20
+	structure =  (
+		('context_handle_attributes',ULONG),
+		('context_handle_uuid',UUID),
+	)
+	def __init__(self, data = None,isNDR64 = False):
+		NDRSTRUCT.__init__(self, data, isNDR64)
+		self['context_handle_uuid'] = b'\x00'*20
 
 class twr_t(NDRSTRUCT):
-    structure = (
-        ('tower_length', ULONG),
-        ('tower_octet_string', NDRUniConformantArray),
-    )
+	structure = (
+		('tower_length', ULONG),
+		('tower_octet_string', NDRUniConformantArray),
+	)
 
 class twr_p_t(NDRPOINTER):
-    referent = (
-        ('Data', twr_t),
-    )
+	referent = (
+		('Data', twr_t),
+	)
 
 class octet_string_t(NDRSTRUCT):
-    structure = (
-        ('count', USHORT),
-        ('value', LPBYTE),
-    )
+	structure = (
+		('count', USHORT),
+		('value', LPBYTE),
+	)
 
 class prot_and_addr_t(NDRSTRUCT):
-    structure = (
-        ('protocol_id', octet_string_t),
-        ('address', octet_string_t),
-    )
+	structure = (
+		('protocol_id', octet_string_t),
+		('address', octet_string_t),
+	)
 
 class protocol_tower_t(NDRSTRUCT):
-    structure = (
-        ('count', USHORT),
-        ('floors', prot_and_addr_t ),
-    )
+	structure = (
+		('count', USHORT),
+		('floors', prot_and_addr_t ),
+	)
 
 class ept_entry_t(NDRSTRUCT):
-    structure = (
-        ('object',UUID),
-        ('tower',twr_p_t),
-        ('annotation', NDRUniVaryingArray),
-    )
+	structure = (
+		('object',UUID),
+		('tower',twr_p_t),
+		('annotation', NDRUniVaryingArray),
+	)
 
 class ept_entry_t_array(NDRUniConformantVaryingArray):
-    item = ept_entry_t
+	item = ept_entry_t
 
 class twr_p_t_array(NDRUniConformantVaryingArray):
-    item = twr_p_t
+	item = twr_p_t
 
 error_status = ULONG
 
@@ -1148,220 +1148,226 @@ error_status = ULONG
 ################################################################################
 
 class ept_lookup(NDRCALL):
-    opnum = 2
-    structure = (
-        ('inquiry_type',ULONG),
-        ('object',PUUID),
-        ('Ifid',PRPC_IF_ID),
-        ('vers_option',ULONG),
-        ('entry_handle',ept_lookup_handle_t),
-        ('max_ents',ULONG),
-    )
+	opnum = 2
+	structure = (
+		('inquiry_type',ULONG),
+		('object',PUUID),
+		('Ifid',PRPC_IF_ID),
+		('vers_option',ULONG),
+		('entry_handle',ept_lookup_handle_t),
+		('max_ents',ULONG),
+	)
 
 class ept_lookupResponse(NDRCALL):
-    structure = (
-        ('entry_handle',ept_lookup_handle_t),
-        ('num_ents',ULONG),
-        ('entries',ept_entry_t_array),
-        ('status',error_status),
-    )
+	structure = (
+		('entry_handle',ept_lookup_handle_t),
+		('num_ents',ULONG),
+		('entries',ept_entry_t_array),
+		('status',error_status),
+	)
 
 class ept_map(NDRCALL):
-    opnum = 3
-    structure = (
-        ('obj',PUUID),
-        ('map_tower',twr_p_t),
-        ('entry_handle',ept_lookup_handle_t),
-        ('max_towers',ULONG),
-    )
+	opnum = 3
+	structure = (
+		('obj',PUUID),
+		('map_tower',twr_p_t),
+		('entry_handle',ept_lookup_handle_t),
+		('max_towers',ULONG),
+	)
 
 class ept_mapResponse(NDRCALL):
-    structure = (
-        ('entry_handle',ept_lookup_handle_t),
-        ('num_towers',ULONG),
-        ('ITowers',twr_p_t_array),
-        ('status',error_status),
-    )
+	structure = (
+		('entry_handle',ept_lookup_handle_t),
+		('num_towers',ULONG),
+		('ITowers',twr_p_t_array),
+		('status',error_status),
+	)
 
 
 ################################################################################
 # HELPER FUNCTIONS
 ################################################################################
 
-async def hept_lookup(destHost, inquiry_type = RPC_C_EP_ALL_ELTS, objectUUID = NULL, ifId = NULL, vers_option = RPC_C_VERS_ALL,  entry_handle = ept_lookup_handle_t(), max_ents = 499, dce = None):
-    if dce is None:
-        stringBinding = r'ncacn_ip_tcp:%s[135]' % destHost
-        rpctransport = DCERPCTransportFactory(stringBinding)
-        dce = rpctransport.get_dce_rpc()
-        await dce.connect()
-        disconnect = True
-    else:
-        disconnect = False
+# SkelSec:
+# extended the API call to add connection which will hold the target and authentication!!!
+async def hept_lookup(connection, inquiry_type = RPC_C_EP_ALL_ELTS, objectUUID = NULL, ifId = NULL, vers_option = RPC_C_VERS_ALL,  entry_handle = ept_lookup_handle_t(), max_ents = 499, dce = None):
+	destHost = connection.target.get_hostname_or_ip()	
+	if dce is None:
+		stringBinding = r'ncacn_ip_tcp:%s[135]' % destHost
+		rpctransport = DCERPCTransportFactory(stringBinding, connection)
+		dce = rpctransport.get_dce_rpc()
+		await dce.connect()
+		disconnect = True
+	else:
+		disconnect = False
 
-    await dce.bind(MSRPC_UUID_PORTMAP)
-    request = ept_lookup()
-    request['inquiry_type'] = inquiry_type
-    request['object'] = objectUUID
-    if ifId != NULL:
-        request['Ifid']['Uuid'] = ifId[:16]
-        request['Ifid']['VersMajor'] = ifId[16:][:2]
-        request['Ifid']['VersMinor'] = ifId[18:]
-    else:
-        request['Ifid'] = ifId
-    request['vers_option'] = vers_option
-    request['entry_handle'] = entry_handle
-    request['max_ents'] = max_ents
-      
-    resp = await dce.request(request)
+	await dce.bind(MSRPC_UUID_PORTMAP)
+	request = ept_lookup()
+	request['inquiry_type'] = inquiry_type
+	request['object'] = objectUUID
+	if ifId != NULL:
+		request['Ifid']['Uuid'] = ifId[:16]
+		request['Ifid']['VersMajor'] = ifId[16:][:2]
+		request['Ifid']['VersMinor'] = ifId[18:]
+	else:
+		request['Ifid'] = ifId
+	request['vers_option'] = vers_option
+	request['entry_handle'] = entry_handle
+	request['max_ents'] = max_ents
+	  
+	resp = await dce.request(request)
 
-    entries = []
-    for i in range(resp['num_ents']):
-        tmpEntry = {}
-        entry = resp['entries'][i]
-        tmpEntry['object'] = entry['object'] 
-        tmpEntry['annotation'] = b''.join(entry['annotation'])
-        tmpEntry['tower'] = EPMTower(b''.join(entry['tower']['tower_octet_string']))
-        entries.append(tmpEntry)
+	entries = []
+	for i in range(resp['num_ents']):
+		tmpEntry = {}
+		entry = resp['entries'][i]
+		tmpEntry['object'] = entry['object'] 
+		tmpEntry['annotation'] = b''.join(entry['annotation'])
+		tmpEntry['tower'] = EPMTower(b''.join(entry['tower']['tower_octet_string']))
+		entries.append(tmpEntry)
 
-    if disconnect is True:
-        await dce.disconnect()
+	if disconnect is True:
+		await dce.disconnect()
 
-    return entries
+	return entries
 
-async def hept_map(destHost, remoteIf, dataRepresentation = uuidtup_to_bin(('8a885d04-1ceb-11c9-9fe8-08002b104860', '2.0')), protocol = 'ncacn_np', dce=None):
+# SkelSec:
+# extended the API call to add connection which will hold the target and authentication!!!
 
-    if dce is None:
-        stringBinding = r'ncacn_ip_tcp:%s[135]' % destHost
-        rpctransport = DCERPCTransportFactory(stringBinding)
-        dce = rpctransport.get_dce_rpc()
-        await dce.connect()
-        disconnect = True
-    else:
-        disconnect = False
+async def hept_map(connection, remoteIf, dataRepresentation = uuidtup_to_bin(('8a885d04-1ceb-11c9-9fe8-08002b104860', '2.0')), protocol = 'ncacn_np', dce=None):
+	destHost = connection.target.get_hostname_or_ip()
+	if dce is None:
+		stringBinding = r'ncacn_ip_tcp:%s[135]' % destHost
+		rpctransport = DCERPCTransportFactory(stringBinding, connection)
+		dce = rpctransport.get_dce_rpc()
+		await dce.connect()
+		disconnect = True
+	else:
+		disconnect = False
 
 
-    await dce.bind(MSRPC_UUID_PORTMAP)
+	await dce.bind(MSRPC_UUID_PORTMAP)
 
-    tower = EPMTower()
-    interface = EPMRPCInterface()
+	tower = EPMTower()
+	interface = EPMRPCInterface()
 
-    interface['InterfaceUUID'] = remoteIf[:16]
-    interface['MajorVersion'] = unpack('<H', remoteIf[16:][:2])[0]
-    interface['MinorVersion'] = unpack('<H', remoteIf[18:])[0]
+	interface['InterfaceUUID'] = remoteIf[:16]
+	interface['MajorVersion'] = unpack('<H', remoteIf[16:][:2])[0]
+	interface['MinorVersion'] = unpack('<H', remoteIf[18:])[0]
 
-    dataRep = EPMRPCDataRepresentation()
-    dataRep['DataRepUuid'] = dataRepresentation[:16]
-    dataRep['MajorVersion'] = unpack('<H', dataRepresentation[16:][:2])[0]
-    dataRep['MinorVersion'] = unpack('<H', dataRepresentation[18:])[0]
+	dataRep = EPMRPCDataRepresentation()
+	dataRep['DataRepUuid'] = dataRepresentation[:16]
+	dataRep['MajorVersion'] = unpack('<H', dataRepresentation[16:][:2])[0]
+	dataRep['MinorVersion'] = unpack('<H', dataRepresentation[18:])[0]
 
-    protId = EPMProtocolIdentifier()
-    protId['ProtIdentifier'] = FLOOR_RPCV5_IDENTIFIER
+	protId = EPMProtocolIdentifier()
+	protId['ProtIdentifier'] = FLOOR_RPCV5_IDENTIFIER
 
-    if protocol == 'ncacn_np':
-        pipeName = EPMPipeName()
-        pipeName['PipeName'] = b'\x00'
+	if protocol == 'ncacn_np':
+		pipeName = EPMPipeName()
+		pipeName['PipeName'] = b'\x00'
 
-        hostName = EPMHostName()
-        hostName['HostName'] = b('%s\x00' % destHost)
-        transportData = pipeName.getData() + hostName.getData()
+		hostName = EPMHostName()
+		hostName['HostName'] = b('%s\x00' % destHost)
+		transportData = pipeName.getData() + hostName.getData()
 
-    elif protocol == 'ncacn_ip_tcp':
-        portAddr = EPMPortAddr()
-        portAddr['IpPort'] = 0
+	elif protocol == 'ncacn_ip_tcp':
+		portAddr = EPMPortAddr()
+		portAddr['IpPort'] = 0
 
-        hostAddr = EPMHostAddr()
-        import socket
-        hostAddr['Ip4addr'] = socket.inet_aton('0.0.0.0')
-        transportData = portAddr.getData() + hostAddr.getData()
-    elif protocol == 'ncacn_http':
-        portAddr = EPMPortAddr()
-        portAddr['PortIdentifier'] = FLOOR_HTTP_IDENTIFIER
-        portAddr['IpPort'] = 0
+		hostAddr = EPMHostAddr()
+		import socket
+		hostAddr['Ip4addr'] = socket.inet_aton('0.0.0.0')
+		transportData = portAddr.getData() + hostAddr.getData()
+	elif protocol == 'ncacn_http':
+		portAddr = EPMPortAddr()
+		portAddr['PortIdentifier'] = FLOOR_HTTP_IDENTIFIER
+		portAddr['IpPort'] = 0
 
-        hostAddr = EPMHostAddr()
-        import socket
-        hostAddr['Ip4addr'] = socket.inet_aton('0.0.0.0')
-        transportData = portAddr.getData() + hostAddr.getData()
+		hostAddr = EPMHostAddr()
+		import socket
+		hostAddr['Ip4addr'] = socket.inet_aton('0.0.0.0')
+		transportData = portAddr.getData() + hostAddr.getData()
 
-    else:
-        LOG.error('%s not support for hetp_map()' % protocol)
-        if disconnect is True:
-            await dce.disconnect()
-        return None
+	else:
+		LOG.error('%s not support for hetp_map()' % protocol)
+		if disconnect is True:
+			await dce.disconnect()
+		return None
 
-    tower['NumberOfFloors'] = 5
-    tower['Floors'] = interface.getData() + dataRep.getData() + protId.getData() + transportData
+	tower['NumberOfFloors'] = 5
+	tower['Floors'] = interface.getData() + dataRep.getData() + protId.getData() + transportData
 
-    request = ept_map()
-    request['max_towers'] = 1
-    request['map_tower']['tower_length'] = len(tower)
-    request['map_tower']['tower_octet_string'] = tower.getData()
+	request = ept_map()
+	request['max_towers'] = 1
+	request['map_tower']['tower_length'] = len(tower)
+	request['map_tower']['tower_octet_string'] = tower.getData()
 
-    # Under Windows 2003 the Referent IDs cannot be random
-    # they must have the following specific values
-    # otherwise we get a rpc_x_bad_stub_data exception
-    request.fields['obj'].fields['ReferentID'] = 1
-    request.fields['map_tower'].fields['ReferentID'] = 2
+	# Under Windows 2003 the Referent IDs cannot be random
+	# they must have the following specific values
+	# otherwise we get a rpc_x_bad_stub_data exception
+	request.fields['obj'].fields['ReferentID'] = 1
+	request.fields['map_tower'].fields['ReferentID'] = 2
 
-    resp = await dce.request(request)
+	resp = await dce.request(request)
 
-    tower = EPMTower(b''.join(resp['ITowers'][0]['Data']['tower_octet_string']))
-    # Now let's parse the result and return an stringBinding
-    result = None
-    if protocol == 'ncacn_np':
-        # Pipe Name should be the 4th floor
-        pipeName = EPMPipeName(tower['Floors'][3].getData())
-        result = 'ncacn_np:%s[%s]' % (destHost, pipeName['PipeName'].decode('utf-8')[:-1])
-    elif protocol == 'ncacn_ip_tcp':
-        # Port Number should be the 4th floor
-        portAddr = EPMPortAddr(tower['Floors'][3].getData())
-        result = 'ncacn_ip_tcp:%s[%s]' % (destHost, portAddr['IpPort'])
-    elif protocol == 'ncacn_http':
-        # Port Number should be the 4th floor
-        portAddr = EPMPortAddr(tower['Floors'][3].getData())
-        result = 'ncacn_http:%s[%s]' % (destHost, portAddr['IpPort'])
-    if disconnect is True:
-        await dce.disconnect()
-    return result
+	tower = EPMTower(b''.join(resp['ITowers'][0]['Data']['tower_octet_string']))
+	# Now let's parse the result and return an stringBinding
+	result = None
+	if protocol == 'ncacn_np':
+		# Pipe Name should be the 4th floor
+		pipeName = EPMPipeName(tower['Floors'][3].getData())
+		result = 'ncacn_np:%s[%s]' % (destHost, pipeName['PipeName'].decode('utf-8')[:-1])
+	elif protocol == 'ncacn_ip_tcp':
+		# Port Number should be the 4th floor
+		portAddr = EPMPortAddr(tower['Floors'][3].getData())
+		result = 'ncacn_ip_tcp:%s[%s]' % (destHost, portAddr['IpPort'])
+	elif protocol == 'ncacn_http':
+		# Port Number should be the 4th floor
+		portAddr = EPMPortAddr(tower['Floors'][3].getData())
+		result = 'ncacn_http:%s[%s]' % (destHost, portAddr['IpPort'])
+	if disconnect is True:
+		await dce.disconnect()
+	return result
 
 def PrintStringBinding(floors, serverAddr = '0.0.0.0'):
-    tmp_address = ''
-    for floor in floors[3:]:
-        if floor['ProtocolData'] == b'\x07':
-            tmp_address = 'ncacn_ip_tcp:%%s[%d]' % unpack('!H',floor['RelatedData'])
-        elif floor['ProtocolData'] == b'\x08':
-            tmp_address = 'ncadg_ip_udp:%%s[%d]' % unpack('!H',floor['RelatedData'])
-        elif floor['ProtocolData'] == b'\x09':
-            tmp_address2 = socket.inet_ntoa(floor['RelatedData'])
-            # If the address were 0.0.0.0 it would have to be replaced by the remote host's IP.
-            if tmp_address2 == '0.0.0.0':
-                tmp_address2 = serverAddr
-            if tmp_address != '':
-                return tmp_address % tmp_address2
-            else:
-                return 'IP: %s' % tmp_address2
-        elif floor['ProtocolData'] == b'\x0c':
-            tmp_address = 'ncacn_spx:~%%s[%d]' % unpack('!H',floor['RelatedData'])
-        elif floor['ProtocolData'] == b'\x0d':
-            n = len(floor['RelatedData'])
-            tmp_address2 = ('%02X' * n) % unpack("%dB" % n, floor['RelatedData'])
+	tmp_address = ''
+	for floor in floors[3:]:
+		if floor['ProtocolData'] == b'\x07':
+			tmp_address = 'ncacn_ip_tcp:%%s[%d]' % unpack('!H',floor['RelatedData'])
+		elif floor['ProtocolData'] == b'\x08':
+			tmp_address = 'ncadg_ip_udp:%%s[%d]' % unpack('!H',floor['RelatedData'])
+		elif floor['ProtocolData'] == b'\x09':
+			tmp_address2 = socket.inet_ntoa(floor['RelatedData'])
+			# If the address were 0.0.0.0 it would have to be replaced by the remote host's IP.
+			if tmp_address2 == '0.0.0.0':
+				tmp_address2 = serverAddr
+			if tmp_address != '':
+				return tmp_address % tmp_address2
+			else:
+				return 'IP: %s' % tmp_address2
+		elif floor['ProtocolData'] == b'\x0c':
+			tmp_address = 'ncacn_spx:~%%s[%d]' % unpack('!H',floor['RelatedData'])
+		elif floor['ProtocolData'] == b'\x0d':
+			n = len(floor['RelatedData'])
+			tmp_address2 = ('%02X' * n) % unpack("%dB" % n, floor['RelatedData'])
 
-            if tmp_address != '':
-                return tmp_address % tmp_address2
-            else:
-                return 'SPX: %s' % tmp_address2
-        elif floor['ProtocolData'] == b'\x0e':
-            tmp_address = 'ncadg_ipx:~%%s[%d]' % unpack('!H',floor['RelatedData'])
-        elif floor['ProtocolData'] == b'\x0f':
-            tmp_address = 'ncacn_np:%%s[%s]' % floor['RelatedData'][:len(floor['RelatedData'])-1].decode('utf-8')
-        elif floor['ProtocolData'] == b'\x10':
-            return 'ncalrpc:[%s]' % floor['RelatedData'][:len(floor['RelatedData'])-1].decode('utf-8')
-        elif floor['ProtocolData'] == b'\x01' or floor['ProtocolData'] == b'\x11':
-            if tmp_address != '':
-                return tmp_address % floor['RelatedData'][:len(floor['RelatedData'])-1].decode('utf-8')
-            else:
-                return 'NetBIOS: %s' % floor['RelatedData'].decode('utf-8')
-        elif floor['ProtocolData'] == b'\x1f':
-            tmp_address = 'ncacn_http:%%s[%d]' % unpack('!H',floor['RelatedData'])
-        else:
-            return 'unknown_proto_0x%x:[0]' % ord(floor['ProtocolData'] )
+			if tmp_address != '':
+				return tmp_address % tmp_address2
+			else:
+				return 'SPX: %s' % tmp_address2
+		elif floor['ProtocolData'] == b'\x0e':
+			tmp_address = 'ncadg_ipx:~%%s[%d]' % unpack('!H',floor['RelatedData'])
+		elif floor['ProtocolData'] == b'\x0f':
+			tmp_address = 'ncacn_np:%%s[%s]' % floor['RelatedData'][:len(floor['RelatedData'])-1].decode('utf-8')
+		elif floor['ProtocolData'] == b'\x10':
+			return 'ncalrpc:[%s]' % floor['RelatedData'][:len(floor['RelatedData'])-1].decode('utf-8')
+		elif floor['ProtocolData'] == b'\x01' or floor['ProtocolData'] == b'\x11':
+			if tmp_address != '':
+				return tmp_address % floor['RelatedData'][:len(floor['RelatedData'])-1].decode('utf-8')
+			else:
+				return 'NetBIOS: %s' % floor['RelatedData'].decode('utf-8')
+		elif floor['ProtocolData'] == b'\x1f':
+			tmp_address = 'ncacn_http:%%s[%d]' % unpack('!H',floor['RelatedData'])
+		else:
+			return 'unknown_proto_0x%x:[0]' % ord(floor['ProtocolData'] )

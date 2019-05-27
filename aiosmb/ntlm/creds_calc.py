@@ -184,7 +184,7 @@ class netntlm_ess:
 		if not self.credentials.nt_hash:
 			nt_hash = NTOWFv1(self.credentials.password)
 		else:
-			nt_hash = self.credentials.nt_hash
+			nt_hash = bytes.fromhex(self.credentials.nt_hash)
 		
 		hm = hmac_md5(self.SessionBaseKey)
 		hm.update(self.ServerChallenge)
@@ -202,8 +202,8 @@ class netntlm_ess:
 			nt_hash = NTOWFv1(credentials.password)
 			lm_hash = LMOWFv1(credentials.password)
 		else:
-			nt_hash = credentials.nt_hash
-			lm_hash = credentials.lm_hash
+			nt_hash = bytes.fromhex(credentials.nt_hash)
+			lm_hash = bytes.fromhex(credentials.lm_hash) if credentials.lm_hash else None
 		
 		
 		ntlm_creds.LMResponse = LMResponse()
@@ -315,8 +315,8 @@ class netntlm:
 			nt_hash = NTOWFv1(credentials.password)
 			lm_hash = LMOWFv1(credentials.password)
 		else:
-			nt_hash = credentials.nt_hash
-			lm_hash = credentials.lm_hash
+			nt_hash = bytes.fromhex(credentials.nt_hash)
+			lm_hash = bytes.fromhex(credentials.lm_hash) if credentials.lm_hash else None
 		
 		ntlm_creds.NTResponse = NTLMv1Response()
 		ntlm_creds.NTResponse.Response = DESL(nt_hash, server_challenge)
@@ -407,7 +407,7 @@ class netntlmv2:
 		if credentials.password:
 			nt_hash_v2 = NTOWFv2(credentials.password, credentials.username, credentials.domain)
 		else:
-			nt_hash_v2 = NTOWFv2(None, credentials.username, credentials.domain, credentials.nt_hash)
+			nt_hash_v2 = NTOWFv2(None, credentials.username, credentials.domain, bytes.fromhex(credentials.nt_hash))
 		
 		if not timestamp:
 			timestamp = datetime.datetime.utcnow()

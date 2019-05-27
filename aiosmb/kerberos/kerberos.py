@@ -34,9 +34,9 @@ class SMBKerberos:
 	def get_session_key(self):
 		return self.session_key.contents
 	
-	async def authenticate(self, authData):
+	async def authenticate(self, authData, flags = None, seq_number = 0):
 		tgt = await self.kc.get_TGT()
 		tgs, encpart, self.session_key = await self.kc.get_TGS(self.target)
-		apreq = self.kc.construct_apreq(tgs, encpart, self.session_key)
+		apreq = self.kc.construct_apreq(tgs, encpart, self.session_key, flags = flags, seq_number = seq_number)
 		
 		return apreq, False

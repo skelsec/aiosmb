@@ -22,6 +22,7 @@ import socket
 import sys
 from binascii import unhexlify
 #from Cryptodome.Cipher import ARC4
+from aiosmb.crypto.symmetric import RC4
 
 from aiosmb import logger as LOG
 
@@ -33,6 +34,7 @@ from aiosmb.dcerpc.v5.uuid import uuidtup_to_bin, generate, stringver_to_bin, bi
 from aiosmb.dcerpc.v5.dtypes import UCHAR, ULONG, USHORT
 from aiosmb.dcerpc.v5.ndr import NDRSTRUCT
 from aiosmb.dcerpc.v5 import hresult_errors
+from minikerberos.gssapi import *
 
 
 # MS/RPC Constants
@@ -891,7 +893,8 @@ class DCERPC_v5(DCERPC):
 	def __init__(self, transport):
 		DCERPC.__init__(self, transport)
 		self.__auth_level = RPC_C_AUTHN_LEVEL_NONE
-		self.__auth_type = RPC_C_AUTHN_WINNT
+		# SkelSec: Testing other auth types   self.__auth_type = RPC_C_AUTHN_WINNT
+		self.__auth_type = RPC_C_AUTHN_GSS_NEGOTIATE
 		self.__auth_type_callback = None
 		# Flags of the authenticated session. We will need them throughout the connection
 		self.__auth_flags = 0
@@ -997,23 +1000,55 @@ class DCERPC_v5(DCERPC):
 		if alter:
 			packet['type'] = MSRPC_ALTERCTX
 
+		input('Bind auth type: %s' % self.__auth_type)
+		input('Bind auth level: %s' % self.__auth_level)
 		if self.__auth_level != RPC_C_AUTHN_LEVEL_NONE:
 			if (self.__username is None) or (self.__password is None):
-				self.__username, self.__password, self.__domain, self.__lmhash, self.__nthash, self.__aesKey, self.__TGT, self.__TGS = self._transport.get_credentials()
+				#self.__username, self.__password, self.__domain, self.__lmhash, self.__nthash, self.__aesKey, self.__TGT, self.__TGS = self._transport.get_credentials()
+				credentials = self._transport.get_credentials()
+				
 
 			if self.__auth_type == RPC_C_AUTHN_WINNT:
-				auth = ntlm.getNTLMSSPType1('', '', signingRequired=True,
-											use_ntlmv2=self._transport.doesSupportNTLMv2())
+				
+				#auth = ntlm.getNTLMSSPType1('', '', signingRequired=True,
+				#							use_ntlmv2=self._transport.doesSupportNTLMv2())
+				
+				print('RPC - NTLM auth 1')
+				self._transport.get_ntlm_ctx()
+				self._transport._ntlm_ctx.set_sign()
+				self._transport._ntlm_ctx.set_seal()
+				self._transport._ntlm_ctx.set_version(False)
+				self._transport._ntlm_ctx.flags = 0xe00882b7
+				
+				
+				auth, res = await self._transport._ntlm_ctx.authenticate(None)
+			
 			elif self.__auth_type == RPC_C_AUTHN_NETLOGON:
-				from impacket.dcerpc.v5 import nrpc
-				auth = nrpc.getSSPType1(self.__username[:-1], self.__domain, signingRequired=True)
+				input('RPC_C_AUTHN_NETLOGON Not implemented!')
+				raise Exception('Not implemented!')
+				#TODO: implement this
+				#from impacket.dcerpc.v5 import nrpc
+				#auth = nrpc.getSSPType1(self.__username[:-1], self.__domain, signingRequired=True)
+			
 			elif self.__auth_type == RPC_C_AUTHN_GSS_NEGOTIATE:
-				self.__cipher, self.__sessionKey, auth = kerberosv5.getKerberosType1(self.__username, self.__password,
-																					 self.__domain, self.__lmhash,
-																					 self.__nthash, self.__aesKey,
-																					 self.__TGT, self.__TGS,
-																					 self._transport.getRemoteName(),
-																					 self._transport.get_kdcHost())
+				input('RPC_C_AUTHN_GSS_NEGOTIATE start!')
+				self._transport.get_spnego()
+				auth, res  = await self._transport._spnego_ctx.authenticate(None, flags =   GSSAPIFlags.GSS_C_CONF_FLAG |\
+																							GSSAPIFlags.GSS_C_INTEG_FLAG | \
+																							GSSAPIFlags.GSS_C_SEQUENCE_FLAG | \
+																							GSSAPIFlags.GSS_C_REPLAY_FLAG | \
+																							GSSAPIFlags.GSS_C_MUTUAL_FLAG | \
+																							GSSAPIFlags.GSS_C_DCE_STYLE,
+																					seq_number = 0)
+				print(auth)
+				#auth, res  = await self._transport._kerberos_ctx.authenticate(None)
+				
+				#self.__cipher, self.__sessionKey, auth = kerberosv5.getKerberosType1(self.__username, self.__password,
+				#																	 self.__domain, self.__lmhash,
+				#																	 self.__nthash, self.__aesKey,
+				#																	 self.__TGT, self.__TGS,
+				#																	 self._transport.getRemoteName(),
+				#																	 self._transport.get_kdcHost())
 			else:
 				raise DCERPCException('Unsupported auth_type 0x%x' % self.__auth_type)
 
@@ -1076,43 +1111,73 @@ class DCERPC_v5(DCERPC):
 		# The received transmit size becomes the client's receive size, and the received receive size becomes the client's transmit size.
 		self.__max_xmit_size = bindResp['max_rfrag']
 
+		input(self.__auth_type)
 		if self.__auth_level != RPC_C_AUTHN_LEVEL_NONE:
 			if self.__auth_type == RPC_C_AUTHN_WINNT:
-				response, self.__sessionKey = ntlm.getNTLMSSPType3(auth, bindResp['auth_data'], self.__username,
-																   self.__password, self.__domain, self.__lmhash,
-																   self.__nthash,
-																   use_ntlmv2=self._transport.doesSupportNTLMv2())
-				self.__flags = response['flags']
+				self._transport._ntlm_ctx.flags = 0xe0888235
+				response, res = await self._transport._ntlm_ctx.authenticate(bindResp['auth_data'])
+				#response, self.__sessionKey = ntlm.getNTLMSSPType3(auth, bindResp['auth_data'], self.__username,
+				#												   self.__password, self.__domain, self.__lmhash,
+				#												   self.__nthash,
+				#												   use_ntlmv2=self._transport.doesSupportNTLMv2())
+				#self.__flags = response['flags']
 			elif self.__auth_type == RPC_C_AUTHN_NETLOGON:
 				response = None
 			elif self.__auth_type == RPC_C_AUTHN_GSS_NEGOTIATE:
-				self.__cipher, self.__sessionKey, response = kerberosv5.getKerberosType3(self.__cipher,
-																						 self.__sessionKey,
-																						 bindResp['auth_data'])
+				response, res  = await self._transport._spnego_ctx.authenticate(bindResp['auth_data'])
+				
+				# probably need to add feature to minikerberos for this, check code!
+				
+				
+				#raise Exception('Not implemented!')
+				
+				#self.__cipher, self.__sessionKey, response = kerberosv5.getKerberosType3(self.__cipher,
+				#																		 self.__sessionKey,
+				#																		 bindResp['auth_data'])
 
 			self.__sequence = 0
 
 			if self.__auth_level in (RPC_C_AUTHN_LEVEL_CONNECT, RPC_C_AUTHN_LEVEL_PKT_INTEGRITY, RPC_C_AUTHN_LEVEL_PKT_PRIVACY):
 				if self.__auth_type == RPC_C_AUTHN_WINNT:
-					if self.__flags & ntlm.NTLMSSP_NEGOTIATE_EXTENDED_SESSIONSECURITY:
-						self.__clientSigningKey = ntlm.SIGNKEY(self.__flags, self.__sessionKey)
-						self.__serverSigningKey = ntlm.SIGNKEY(self.__flags, self.__sessionKey,b"Server")
-						self.__clientSealingKey = ntlm.SEALKEY(self.__flags, self.__sessionKey)
-						self.__serverSealingKey = ntlm.SEALKEY(self.__flags, self.__sessionKey,b"Server")
-						# Preparing the keys handle states
-						cipher3 = ARC4.new(self.__clientSealingKey)
+					if self._transport._ntlm_ctx.is_extended_security() == True:
+						self.__clientSigningKey = self._transport._ntlm_ctx.get_signkey() 
+						self.__serverSigningKey = self._transport._ntlm_ctx.get_signkey('Server')
+						self.__clientSealingKey = self._transport._ntlm_ctx.get_sealkey() 
+						self.__serverSealingKey = self._transport._ntlm_ctx.get_sealkey('Server')
+						cipher3 = RC4(self.__clientSealingKey)
 						self.__clientSealingHandle = cipher3.encrypt
-						cipher4 = ARC4.new(self.__serverSealingKey)
+						cipher4 = RC4(self.__serverSealingKey)
 						self.__serverSealingHandle = cipher4.encrypt
+						
 					else:
 						# Same key for everything
-						self.__clientSigningKey = self.__sessionKey
-						self.__serverSigningKey = self.__sessionKey
-						self.__clientSealingKey = self.__sessionKey
-						self.__serverSealingKey = self.__sessionKey
-						cipher = ARC4.new(self.__clientSigningKey)
+						self.__clientSigningKey = self._transport._ntlm_ctx.get_session_key()
+						self.__serverSigningKey = self._transport._ntlm_ctx.get_session_key()
+						self.__clientSealingKey = self._transport._ntlm_ctx.get_session_key()
+						self.__serverSealingKey = self._transport._ntlm_ctx.get_session_key()
+						cipher = RC4(self.__clientSigningKey)
 						self.__clientSealingHandle = cipher.encrypt
 						self.__serverSealingHandle = cipher.encrypt
+					
+					#if self.__flags & ntlm.NTLMSSP_NEGOTIATE_EXTENDED_SESSIONSECURITY:
+					#	self.__clientSigningKey = ntlm.SIGNKEY(self.__flags, self.__sessionKey)
+					#	self.__serverSigningKey = ntlm.SIGNKEY(self.__flags, self.__sessionKey,b"Server")
+					#	self.__clientSealingKey = ntlm.SEALKEY(self.__flags, self.__sessionKey)
+					#	self.__serverSealingKey = ntlm.SEALKEY(self.__flags, self.__sessionKey,b"Server")
+					#	# Preparing the keys handle states
+					#	cipher3 = ARC4.new(self.__clientSealingKey)
+					#	self.__clientSealingHandle = cipher3.encrypt
+					#	cipher4 = ARC4.new(self.__serverSealingKey)
+					#	self.__serverSealingHandle = cipher4.encrypt
+					#else:
+					#	# Same key for everything
+					#	self.__clientSigningKey = self.__sessionKey
+					#	self.__serverSigningKey = self.__sessionKey
+					#	self.__clientSealingKey = self.__sessionKey
+					#	self.__serverSealingKey = self.__sessionKey
+					#	cipher = ARC4.new(self.__clientSigningKey)
+					#	self.__clientSealingHandle = cipher.encrypt
+					#	self.__serverSealingHandle = cipher.encrypt
 				elif self.__auth_type == RPC_C_AUTHN_NETLOGON:
 					if self.__auth_level == RPC_C_AUTHN_LEVEL_PKT_INTEGRITY:
 						self.__confounder = b''
@@ -1125,14 +1190,15 @@ class DCERPC_v5(DCERPC):
 			sec_trailer['auth_ctx_id'] = self._ctx + 79231 
 
 			if response is not None:
-				if self.__auth_type == RPC_C_AUTHN_GSS_NEGOTIATE:
+				#if self.__auth_type == RPC_C_AUTHN_GSS_NEGOTIATE:
+				if False:
 					alter_ctx = MSRPCHeader()
 					alter_ctx['type'] = MSRPC_ALTERCTX
 					alter_ctx['pduData'] = bind.getData()
 					alter_ctx['sec_trailer'] = sec_trailer
 					alter_ctx['auth_data'] = response
 					await self._transport.send(alter_ctx.get_packet(), forceWriteAndx = 1)
-					self.__gss = gssapi.GSSAPI(self.__cipher)
+					#self.__gss = gssapi.GSSAPI(self.__cipher)
 					self.__sequence = 0
 					await self.recv()
 					self.__sequence = 0
@@ -1143,9 +1209,10 @@ class DCERPC_v5(DCERPC):
 					# ignored on receipt. The pad field MUST be immediately followed by a 
 					# sec_trailer structure whose layout, location, and alignment are as 
 					# specified in section 2.2.2.11
-					auth3['pduData'] = b'	'
+					auth3['pduData'] = b' ' * 4 #SkelSec: I have spent 3 hours to find this bug, that I caused by replacing spaces to tabs :(
 					auth3['sec_trailer'] = sec_trailer
-					auth3['auth_data'] = response.getData()
+					#SkelSec auth3['auth_data'] = response.getData()
+					auth3['auth_data'] = response
 
 					# Use the same call_id
 					self.__callid = resp['call_id']
@@ -1180,31 +1247,50 @@ class DCERPC_v5(DCERPC):
 			plain_data = rpc_packet['pduData']
 			if self.__auth_level == RPC_C_AUTHN_LEVEL_PKT_PRIVACY:
 				if self.__auth_type == RPC_C_AUTHN_WINNT:
-					if self.__flags & ntlm.NTLMSSP_NEGOTIATE_EXTENDED_SESSIONSECURITY:
+					if self._transport._ntlm_ctx.is_extended_security() == True:
+						sealedMessage, signature = self._transport._ntlm_ctx.SEAL(self.__clientSigningKey, 
+														self.__clientSealingKey,
+														rpc_packet.get_packet()[:-16],
+														plain_data,
+														self.__sequence,
+														self.__clientSealingHandle)
+					
+						
 						# When NTLM2 is on, we sign the whole pdu, but encrypt just
 						# the data, not the dcerpc header. Weird..
-						sealedMessage, signature =  ntlm.SEAL(self.__flags, 
-							   self.__clientSigningKey, 
-							   self.__clientSealingKey,  
-							   rpc_packet.get_packet()[:-16], 
-							   plain_data, 
-							   self.__sequence, 
-							   self.__clientSealingHandle)
+						#sealedMessage, signature =  ntlm.SEAL(self.__flags, 
+						#	   self.__clientSigningKey, 
+						#	   self.__clientSealingKey,  
+						#	   rpc_packet.get_packet()[:-16], 
+						#	   plain_data, 
+						#	   self.__sequence, 
+						#	   self.__clientSealingHandle)
 					else:
-						sealedMessage, signature =  ntlm.SEAL(self.__flags, 
-							   self.__clientSigningKey, 
-							   self.__clientSealingKey,  
-							   plain_data, 
-							   plain_data, 
-							   self.__sequence, 
-							   self.__clientSealingHandle)
+						sealedMessage, signature = self._transport._ntlm_ctx.SEAL(self.__clientSigningKey, 
+														self.__clientSealingKey,
+														plain_data,
+														plain_data,
+														self.__sequence,
+														self.__clientSealingHandle)
+					
+						#sealedMessage, signature =  ntlm.SEAL(self.__flags, 
+						#	   self.__clientSigningKey, 
+						#	   self.__clientSealingKey,  
+						#	   plain_data, 
+						#	   plain_data, 
+						#	   self.__sequence, 
+						#	   self.__clientSealingHandle)
 				elif self.__auth_type == RPC_C_AUTHN_NETLOGON:
 					from impacket.dcerpc.v5 import nrpc
 					sealedMessage, signature = nrpc.SEAL(plain_data, self.__confounder, self.__sequence, self.__sessionKey, False)
 				elif self.__auth_type == RPC_C_AUTHN_GSS_NEGOTIATE:
-					sealedMessage, signature = self.__gss.GSS_Wrap(self.__sessionKey, plain_data, self.__sequence)
+					#sealedMessage, signature = self.__gss.GSS_Wrap(self.__sessionKey, plain_data, self.__sequence)
+					sealedMessage = await self._transport._spnego_ctx.encrypt(plain_data, self.__sequence)
+					input('Sealed: %s' % sealedMessage)
 
 				rpc_packet['pduData'] = sealedMessage
+				print(sealedMessage)
+				print(self.__auth_level)
 			elif self.__auth_level == RPC_C_AUTHN_LEVEL_PKT_INTEGRITY: 
 				if self.__auth_type == RPC_C_AUTHN_WINNT:
 					if self.__flags & ntlm.NTLMSSP_NEGOTIATE_EXTENDED_SESSIONSECURITY:
@@ -1348,27 +1434,43 @@ class DCERPC_v5(DCERPC):
 				auth_data = answer[-auth_len:]
 				sec_trailer = SEC_TRAILER(data = auth_data)
 				answer = answer[:-auth_len]
-
+				print('AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAa')
 				if sec_trailer['auth_level'] == RPC_C_AUTHN_LEVEL_PKT_PRIVACY:
 					if self.__auth_type == RPC_C_AUTHN_WINNT:
-						if self.__flags & ntlm.NTLMSSP_NEGOTIATE_EXTENDED_SESSIONSECURITY:
+						if self._transport._ntlm_ctx.is_extended_security() == True:
 							# TODO: FIX THIS, it's not calculating the signature well
 							# Since I'm not testing it we don't care... yet
-							answer, signature =  ntlm.SEAL(self.__flags, 
-									self.__serverSigningKey, 
-									self.__serverSealingKey,  
-									answer, 
-									answer, 
-									self.__sequence, 
-									self.__serverSealingHandle)
+							answer, signature = self._transport._ntlm_ctx.SEAL(
+														self.__serverSigningKey,
+														self.__serverSealingKey,
+														answer,
+														answer,
+														self.__sequence,
+														self.__serverSealingHandle)
+							
+							
+							#answer, signature =  ntlm.SEAL(self.__flags, 
+							#		self.__serverSigningKey, 
+							#		self.__serverSealingKey,  
+							#		answer, 
+							#		answer, 
+							#		self.__sequence, 
+							#		self.__serverSealingHandle)
 						else:
-							answer, signature = ntlm.SEAL(self.__flags, 
-									self.__serverSigningKey, 
-									self.__serverSealingKey, 
-									answer, 
-									answer, 
-									self.__sequence, 
-									self.__serverSealingHandle)
+							answer, signature = self._transport._ntlm_ctx.SEAL(
+														self.__serverSigningKey,
+														self.__serverSealingKey,
+														answer,
+														answer,
+														self.__sequence,
+														self.__serverSealingHandle)
+							#answer, signature = ntlm.SEAL(self.__flags, 
+							#		self.__serverSigningKey, 
+							#		self.__serverSealingKey, 
+							#		answer, 
+							#		answer, 
+							#		self.__sequence, 
+							#		self.__serverSealingHandle)
 							self.__sequence += 1
 					elif self.__auth_type == RPC_C_AUTHN_NETLOGON:
 						from impacket.dcerpc.v5 import nrpc
@@ -1385,7 +1487,9 @@ class DCERPC_v5(DCERPC):
 				elif sec_trailer['auth_level'] == RPC_C_AUTHN_LEVEL_PKT_INTEGRITY:
 					if self.__auth_type == RPC_C_AUTHN_WINNT:
 						ntlmssp = auth_data[12:]
+						
 						if self.__flags & ntlm.NTLMSSP_NEGOTIATE_EXTENDED_SESSIONSECURITY:
+							#TODO:
 							signature =  ntlm.SIGN(self.__flags, 
 									self.__serverSigningKey, 
 									answer, 

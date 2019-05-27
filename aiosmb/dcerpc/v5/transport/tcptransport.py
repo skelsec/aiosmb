@@ -90,8 +90,8 @@ class DCERPCTCPConnection:
 		
 
 class TCPTransport(DCERPCTransport):
-	def __init__(self, remote_name, dstport = 135):
-		DCERPCTransport.__init__(self, remote_name, dstport)
+	def __init__(self, connection, remote_name, dstport = 135):
+		DCERPCTransport.__init__(self, connection, remote_name, dstport)
 		self.address = remote_name
 		self.port = dstport
 		print(self.port )

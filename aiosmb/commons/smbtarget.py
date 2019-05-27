@@ -40,6 +40,14 @@ class SMBTarget:
 		if not self.ip and not self.hostname:
 			raise Exception('SMBTarget must have ip or hostname defined!')
 		return self.ip if self.ip is not None else self.hostname
+		
+	def get_hostname(self):
+		raise Exception('Not implemented!')
+	
+	def get_hostname_or_ip(self):
+		if self.hostname:
+			return self.hostname
+		return self.ip
 	
 	def get_port(self):
 		return self.port

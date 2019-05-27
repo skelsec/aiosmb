@@ -10,7 +10,7 @@ from aiosmb.crypto.pure.RC4.RC4 import RC4 as _pureRC4
 try:
 	from Crypto.Cipher import ARC4 as _pyCryptoRC4
 except Exception as e:
-	print(e)
+	#print(e)
 	pass
 
 try:

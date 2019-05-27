@@ -21,7 +21,11 @@ class SMBKerberosSSPI:
 		self.client = self.settings.client
 		self.target = self.settings.target
 		
-		input(self.target)
+	async def encrypt(self, data, message_no):
+		return self.sspi.encrypt(data, message_no)
+		
+	async def decrypt(self, data, message_no):
+		return self.sspi.decrypt(data, message_no)
 	
 	def get_session_key(self):
 		return self.ksspi.get_session_key()

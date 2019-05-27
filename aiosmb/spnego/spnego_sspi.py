@@ -34,12 +34,17 @@ class SPNEGO_SSPI:
 	
 	def get_session_key(self):
 		return self.sspi.get_session_key()
-	
-	async def authenticate(self, token):
+		
+	async def encrypt(self, data, message_no):
+		return await self.sspi.encrypt(data, message_no)
+
+	async def decrypt(self, data, message_no):
+		return await self.sspi.decrypt(data, message_no)
+		
+	async def authenticate(self, token, flags = None, seq_number = 0):
 		try:
 			if self.mode.upper() == 'CLIENT':
 				res, data = self.sspi.authGSSClientStep(token)
-				input(data[0][1])
 				if res == SSPIResult.OK:
 					return data[0][1], True
 				elif res == SSPIResult.CONTINUE:

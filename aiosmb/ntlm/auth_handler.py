@@ -1,5 +1,8 @@
 
 import os
+import struct
+import hmac
+import copy
 
 from aiosmb.commons.smbcredential import SMBNTLMCredential
 from aiosmb.commons.serverinfo import NTLMServerInfo
@@ -7,6 +10,8 @@ from aiosmb.ntlm.templates.server import NTLMServerTemplates
 from aiosmb.ntlm.templates.client import NTLMClientTemplates
 from aiosmb.ntlm.structures.negotiate_flags import NegotiateFlags
 from aiosmb.ntlm.structures.version import Version
+from aiosmb.ntlm.structures.ntlmssp_message_signature import NTLMSSP_MESSAGE_SIGNATURE
+from aiosmb.ntlm.structures.ntlmssp_message_signature_noext import NTLMSSP_MESSAGE_SIGNATURE_NOEXT
 from aiosmb.ntlm.messages.negotiate import NTLMNegotiate
 from aiosmb.ntlm.messages.challenge import NTLMChallenge
 from aiosmb.ntlm.messages.authenticate import NTLMAuthenticate
@@ -69,6 +74,11 @@ class NTLMAUTHHandler:
 		self.SessionBaseKey = None
 		self.KeyExchangeKey = None
 		
+		self.SignKey_client = None
+		self.SealKey_client = None
+		self.SignKey_server = None
+		self.SealKey_server = None
+		
 		self.iteration_cnt = 0
 		self.ntlm_credentials = None
 		self.timestamp = None #used in unittest only!
@@ -94,18 +104,135 @@ class NTLMAUTHHandler:
 
 			self.ntlmChallenge = NTLMChallenge.construct(challenge = self.challenge_server, targetName = targetName, targetInfo = targetInfo, version = version, flags = self.flags)
 		
+		#else:
+		#	domainname = self.settings.template['domain_name']
+		#	workstationname = self.settings.template['workstation_name']
+		#	version = self.settings.template.get('version')
+			
+	
+	def set_sign(self, tf = True):
+		if tf == True:
+			self.flags |= NegotiateFlags.NEGOTIATE_SIGN
 		else:
-			domainname = self.settings.template['domain_name']
-			workstationname = self.settings.template['workstation_name']
-			version = self.settings.template.get('version')
-			self.ntlmNegotiate = NTLMNegotiate.construct(self.flags, domainname = domainname, workstationname = workstationname, version = version)			
-
+			self.flags &= ~NegotiateFlags.NEGOTIATE_SIGN
+			
+	def set_seal(self, tf = True):
+		if tf == True:
+			self.flags |= NegotiateFlags.NEGOTIATE_SEAL
+		else:
+			self.flags &= ~NegotiateFlags.NEGOTIATE_SEAL
+			
+	def set_version(self, tf = True):
+		if tf == True:
+			self.flags |= NegotiateFlags.NEGOTIATE_VERSION
+		else:
+			self.flags &= ~NegotiateFlags.NEGOTIATE_VERSION
+			
+	def is_extended_security(self):
+		return NegotiateFlags.NEGOTIATE_EXTENDED_SESSIONSECURITY in self.ntlmChallenge.NegotiateFlags
 	def get_extra_info(self):
 		self.extra_info = NTLMServerInfo.from_challenge(self.ntlmChallenge)
 		return self.extra_info
 		
+	def MAC(self, handle, signingKey, seqNum, message):
+		if self.is_extended_security() == True:
+			msg = NTLMSSP_MESSAGE_SIGNATURE()
+			if NegotiateFlags.NEGOTIATE_KEY_EXCH in self.ntlmChallenge.NegotiateFlags:
+				tt = struct.pack('<i', seqNum) + message
+				t = hmac_md5(signingKey)
+				t.update(tt)
+				
+				msg.Checksum = handle(t.digest()[:8])
+				msg.SeqNum = seqNum
+				seqNum += 1
+			else:
+				msg.Checksum = struct.unpack('<q',hmac_md5(signingKey, struct.pack('<i',seqNum)+message)[:8])[0]
+				msg.SeqNum = seqNum
+				seqNum += 1
+				
+		else:
+			raise Exception('Not implemented!')
+			#t = struct.pack('<I',binascii.crc32(message)& 0xFFFFFFFF)
+			#randompad = 0
+			#msg = NTLMSSP_MESSAGE_SIGNATURE_NOEXT()
+			#msg.RandomPad = handle(struct.pack('<I',randompad))
+			#msg.Checksum = struct.unpack('<I',handle(messageSignature['Checksum']))[0]
+			
+		return msg.to_bytes()
+				
+		
+	def SEAL(self, signingKey, sealingKey, messageToSign, messageToEncrypt, seqNum, cipher_encrypt):
+		sealedMessage = cipher_encrypt(messageToEncrypt)
+		signature = self.MAC(cipher_encrypt, signingKey, seqNum, messageToSign)
+		return sealedMessage, signature
+		
+	def SIGN(self, signingKey, message, seqNum, cipher_encrypt):
+		return self.MAC(cipher_encrypt, signingKey, seqNum, message)
+		
+	def calc_sealkey(self, mode = 'Client'):
+		if NegotiateFlags.NEGOTIATE_EXTENDED_SESSIONSECURITY in self.ntlmChallenge.NegotiateFlags:
+			if NegotiateFlags.NEGOTIATE_128 in self.ntlmChallenge.NegotiateFlags:
+				sealkey = self.RandomSessionKey
+			elif NegotiateFlags.NEGOTIATE_56 in self.ntlmChallenge.NegotiateFlags:
+				sealkey = self.RandomSessionKey[:7]
+			else:
+				sealkey = self.RandomSessionKey[:5]
+				
+			if mode == 'Client':
+				md5 = hashlib.new('md5')
+				md5.update(sealkey + b'session key to client-to-server sealing key magic constant\x00')
+				sealkey = md5.digest()
+			else:
+				md5 = hashlib.new('md5')
+				md5.update(sealkey + b'session key to server-to-client sealing key magic constant\x00')
+				sealkey = md5.digest()
+				
+		elif NegotiateFlags.NEGOTIATE_56 in self.ntlmChallenge.NegotiateFlags:
+			sealkey = self.RandomSessionKey[:7] + b'\xa0'
+		else:
+			sealkey = self.RandomSessionKey[:5] + b'\xe5\x38\xb0'
+			
+		if mode == 'Client':
+			self.SealKey_client = sealkey
+		else:
+			self.SealKey_server = sealkey
+			
+		return sealkey
+		
+	def calc_signkey(self, mode = 'Client'):
+		if NegotiateFlags.NEGOTIATE_EXTENDED_SESSIONSECURITY in self.ntlmChallenge.NegotiateFlags:
+			if mode == 'Client':
+				md5 = hashlib.new('md5')
+				md5.update(self.RandomSessionKey + b"session key to client-to-server signing key magic constant\x00")
+				signkey = md5.digest()
+			else:
+				md5 = hashlib.new('md5')
+				md5.update(self.RandomSessionKey + b"session key to server-to-client signing key magic constant\x00")
+				signkey = md5.digest()
+		else:
+			signkey = None
+			
+		if mode == 'Client':
+			self.SignKey_client = signkey
+		else:
+			self.SignKey_server = signkey
+		
+		return signkey
+		
 	def get_session_key(self):
 		return self.RandomSessionKey
+		
+	def get_sealkey(self, mode = 'Client'):
+		if mode == 'Client':
+			return self.SealKey_client
+		else:
+			return self.SealKey_server
+			
+	def get_signkey(self, mode = 'Client'):
+		if mode == 'Client':
+			return self.SignKey_client
+		else:
+			return self.SignKey_server
 		
 	def setup_crypto(self):
 		if not self.RandomSessionKey:
@@ -116,7 +243,10 @@ class NTLMAUTHHandler:
 		rc4 = RC4(self.KeyExchangeKey)
 		self.EncryptedRandomSessionKey = rc4.encrypt(self.RandomSessionKey)
 		
-		#if self.flags & 
+		self.calc_sealkey('Client')
+		self.calc_sealkey('Server')
+		self.calc_signkey('Client')
+		self.calc_signkey('Server')
 
 	async def authenticate(self, authData):
 		if self.mode == 'SERVER':
@@ -152,6 +282,7 @@ class NTLMAUTHHandler:
 				
 				self.iteration_cnt += 1
 				#negotiate message was already calulcated in setup
+				self.ntlmNegotiate = NTLMNegotiate.construct(self.flags, domainname = self.settings.template['domain_name'], workstationname = self.settings.template['workstation_name'], version = self.settings.template.get('version'))			
 				return self.ntlmNegotiate.to_bytes(), True
 				
 			else:
@@ -197,7 +328,12 @@ class NTLMAUTHHandler:
 						return self.ntlmAuthenticate.to_bytes(), False
 						
 					else:
-						self.ntlm_credentials = netntlmv2.construct(self.ntlmChallenge.ServerChallenge, self.challenge, self.ntlmChallenge.TargetInfo, self.settings.credential, timestamp = self.timestamp)
+						#comment this out for testing!
+						ti = self.ntlmChallenge.TargetInfo
+						ti[AVPAIRType.MsvAvTargetName] = 'cifs/%s' % ti[AVPAIRType.MsvAvNbComputerName]
+						###
+						
+						self.ntlm_credentials = netntlmv2.construct(self.ntlmChallenge.ServerChallenge, self.challenge, ti, self.settings.credential, timestamp = self.timestamp)
 						self.KeyExchangeKey = self.ntlm_credentials.calc_key_exchange_key()						
 						self.setup_crypto()
 						

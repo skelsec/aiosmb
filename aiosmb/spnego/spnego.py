@@ -4,6 +4,7 @@
 #  Tamas Jos (@skelsec)
 #
 
+import copy
 from aiosmb.spnego.asn1_structs import *
 
 # https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-spng/d4f2b41c-5f9e-4e11-98d0-ade76467095d
@@ -16,14 +17,28 @@ class SPNEGO:
 	def __init__(self, mode = 'CLIENT'):
 		self.mode = mode
 		self.authentication_contexts = {}
+		self.original_authentication_contexts = {}
 		self.selected_authentication_context = None
 		self.selected_mechtype = None
 		
-	def is_signing_required(self):
-		pass
+	def list_original_conexts(self):
+		"""
+		Returns a list of authentication context names available to the SPNEGO authentication.
+		"""
+		return list(self.original_authentication_contexts.keys())
 		
-	def is_encryption_required(self):
-		pass
+	def get_original_context(self, ctx_name):
+		"""
+		Returns a copy of the original (not used) authentication context sp[ecified by name.
+		You may use this ctx to perform future authentication, as it has the user credentials
+		"""
+		return copy.deepcopy(self.original_authentication_contexts[ctx_name])
+		
+	async def encrypt(self, data, message_no):
+		return await self.selected_authentication_context.encrypt(data, message_no)
+
+	async def decrypt(self, data, message_no):
+		return await self.selected_authentication_context.decrypt(data, message_no)
 		
 	def add_auth_context(self, name, ctx):
 		"""
@@ -38,6 +53,7 @@ class SPNEGO:
 		Context MUST be already set up!
 		"""
 		self.authentication_contexts[name] = ctx
+		self.original_authentication_contexts[name] = copy.deepcopy(ctx)
 		
 	def select_common_athentication_type(self, mech_types):
 		for auth_type_name in self.authentication_contexts:
@@ -68,7 +84,7 @@ class SPNEGO:
 	def get_session_key(self):
 		return self.selected_authentication_context.get_session_key()
 	
-	async def authenticate(self, token):
+	async def authenticate(self, token, flags = None, seq_number = 0):
 		"""
 		This function is called (multiple times) during negotiation phase of a protocol to determine hich auth mechanism to be used
 		Token is a byte array that is an ASN1 NegotiationToken structure.
