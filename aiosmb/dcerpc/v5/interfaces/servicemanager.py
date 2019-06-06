@@ -1,5 +1,6 @@
 import enum
 
+from aiosmb import logger
 from aiosmb.dcerpc.v5.transport.smbtransport import SMBTransport
 from aiosmb.dcerpc.v5 import wkst, scmr
 
@@ -83,18 +84,18 @@ class SMBRemoteServieManager:
 		# Let's check its status
 		ans = await scmr.hRQueryServiceStatus(self.dce, self.service_handles[service_name])
 		if ans['lpServiceStatus']['dwCurrentState'] == scmr.SERVICE_STOPPED:
-			LOG.info('Service %s is in stopped state'% service_name)
+			logger.info('Service %s is in stopped state'% service_name)
 			
 			# Let's check its configuration if service is stopped, maybe it's disabled :s
 			ans = await scmr.hRQueryServiceConfigW(self.__scmr,self.__serviceHandle)
 			if ans['lpServiceConfig']['dwStartType'] == 0x4:
-				LOG.info('Service %s is disabled'% service_name)
+				logger.info('Service %s is disabled'% service_name)
 				return SMBRemoteServiceStatus.DISABLED
 			else:
 				return SMBRemoteServiceStatus.STOPPED
 
 		elif ans['lpServiceStatus']['dwCurrentState'] == scmr.SERVICE_RUNNING:
-			LOG.debug('Service %s is already running'% service_name)
+			logger.debug('Service %s is already running'% service_name)
 			return SMBRemoteServiceStatus.RUNNING
 		else:
 			raise Exception('Unknown service state 0x%x - Aborting' % ans['CurrentState'])

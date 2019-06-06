@@ -8,7 +8,7 @@ from aiosmb.dcerpc.v5.dtypes import NULL
 from aiosmb.dcerpc.v5.uuid import string_to_bin
 from aiosmb.dcerpc.v5.transport.smbtransport import SMBTransport
 from aiosmb.dcerpc.v5.transport.factory import DCERPCTransportFactory
-from aiosmb.dcerpc.v5 import epm, drsuapi
+from aiosmb.dcerpc.v5 import epm, drsuapi, samr
 from aiosmb.dcerpc.v5.interfaces.servicemanager import *
 from aiosmb.dcerpc.v5.rpcrt import RPC_C_AUTHN_LEVEL_PKT_PRIVACY, DCERPCException, RPC_C_AUTHN_GSS_NEGOTIATE
 		
@@ -46,6 +46,14 @@ class SMBDRSUAPI:
 			'supplementalCredentials': 0x9007D,
 			'objectSid': 0x90092,
 			'userAccountControl':0x90008,
+		}
+		
+		self.KERBEROS_TYPE = {
+			1:'dec-cbc-crc',
+			3:'des-cbc-md5',
+			17:'aes128-cts-hmac-sha1-96',
+			18:'aes256-cts-hmac-sha1-96',
+			0xffffff74:'rc4_hmac',
 		}
 		
 	async def __aenter__(self):
@@ -180,6 +188,8 @@ class SMBDRSUAPI:
 		domain = None
 		LMHistory = []
 		NTHistory = []
+		kerberos_keys = []
+		cleartext_pwds = []
 		
 		NTHash = None
 		LMHash = None
@@ -187,6 +197,7 @@ class SMBDRSUAPI:
 		objectSid = None
 		pwdLastSet = None
 		userAccountStatus = None
+		userProperties = None
 
 		rid = int.from_bytes(record['pmsgOut'][replyVersion]['pObjects']['Entinf']['pName']['Sid'][-4:], 'little', signed = False)
 		
@@ -232,12 +243,12 @@ class SMBDRSUAPI:
 				if attr['AttrVal']['valCount'] > 0:
 					try:
 						userName = b''.join(attr['AttrVal']['pAVal'][0]['pVal']).decode('utf-16le')
-					except:
+					except Exception as e:
 						logger.error('Cannot get sAMAccountName for %s' % record['pmsgOut'][replyVersion]['pNC']['StringName'][:-1])
 						userName = 'unknown'
-					else:
-						logger.error('Cannot get sAMAccountName for %s' % record['pmsgOut'][replyVersion]['pNC']['StringName'][:-1])
-						userName = 'unknown'
+				else:
+					logger.error('Cannot get sAMAccountName for %s' % record['pmsgOut'][replyVersion]['pNC']['StringName'][:-1])
+					userName = 'unknown'
 						
 			elif attId == LOOKUP_TABLE['objectSid']:
 				if attr['AttrVal']['valCount'] > 0:
@@ -278,14 +289,63 @@ class SMBDRSUAPI:
 				else:
 					logger.debug('No ntPwdHistory for user %s' % record['pmsgOut'][replyVersion]['pNC']['StringName'][:-1])
 					
-			####continue writing this
+			elif attId == LOOKUP_TABLE['supplementalCredentials']:
+				if attr['AttrVal']['valCount'] > 0:
+					blob = b''.join(attr['AttrVal']['pAVal'][0]['pVal'])
+					supplementalCredentials = drsuapi.DecryptAttributeValue(self.dce.get_session_key(), blob)
+					if len(supplementalCredentials) < 24:
+						supplementalCredentials = None
+						
+					else:
+						try:
+							userProperties = samr.USER_PROPERTIES(supplementalCredentials)
+						except Exception as e:
+							# On some old w2k3 there might be user properties that don't
+							# match [MS-SAMR] structure, discarding them
+							pass
 			
+		
+		if userProperties is not None:
+			propertiesData = userProperties['UserProperties']
+			for propertyCount in range(userProperties['PropertyCount']):
+				userProperty = samr.USER_PROPERTY(propertiesData)
+				propertiesData = propertiesData[len(userProperty):]
+				# For now, we will only process Newer Kerberos Keys and CLEARTEXT
+				if userProperty['PropertyName'].decode('utf-16le') == 'Primary:Kerberos-Newer-Keys':
+					propertyValueBuffer = bytes.fromhex(userProperty['PropertyValue'].decode())
+					kerbStoredCredentialNew = samr.KERB_STORED_CREDENTIAL_NEW(propertyValueBuffer)
+					data = kerbStoredCredentialNew['Buffer']
+					for credential in range(kerbStoredCredentialNew['CredentialCount']):
+						keyDataNew = samr.KERB_KEY_DATA_NEW(data)
+						data = data[len(keyDataNew):]
+						keyValue = propertyValueBuffer[keyDataNew['KeyOffset']:][:keyDataNew['KeyLength']]
+
+						if  keyDataNew['KeyType'] in self.KERBEROS_TYPE:
+							answer =  "%s:%s:%s" % (userName, self.KERBEROS_TYPE[keyDataNew['KeyType']],keyValue.hex())
+						else:
+							answer =  "%s:%s:%s" % (userName, hex(keyDataNew['KeyType']),keyValue.hex())
+						# We're just storing the keys, not printing them, to make the output more readable
+						# This is kind of ugly... but it's what I came up with tonight to get an ordered
+						# set :P. Better ideas welcomed ;)
+						kerberos_keys.append(answer)
+				elif userProperty['PropertyName'].decode('utf-16le') == 'Primary:CLEARTEXT':
+					# [MS-SAMR] 3.1.1.8.11.5 Primary:CLEARTEXT Property
+					# This credential type is the cleartext password. The value format is the UTF-16 encoded cleartext password.
+					try:
+						answer = "%s:CLEARTEXT:%s" % (userName, unhexlify(userProperty['PropertyValue']).decode('utf-16le'))
+					except UnicodeDecodeError:
+						# This could be because we're decoding a machine password. Printing it hex
+						answer = "%s:CLEARTEXT:0x%s" % (userName, userProperty['PropertyValue'].decode('utf-8'))
+
+					cleartext_pwds.append(answer)
 			
-			
+		
 		print('NT hash %s' % NTHash)
 		print('LM hash %s' % LMHash)
 		print('LM hash %s' % LMHistory)	
 		print('NT hash %s' % NTHistory)	
+		print('kerberos_keys %s' % kerberos_keys)	
+		print('cleartext_pwds %s' % cleartext_pwds)	
 		input()
 			
 		
