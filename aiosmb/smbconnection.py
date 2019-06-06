@@ -148,6 +148,12 @@ class SMBConnection:
 		self.SessionId = 0
 		self.SessionKey = None
 		
+		#ignore_close is there to skip the logoff/closing of the channel
+		#this is useful because there could be certain errors after a scusessful logon
+		#that invalidates the whole session (eg. STATUS_USER_SESSION_DELETED)
+		#if this happens then logoff will fail as well!
+		self.session_closed = False 
+		
 	async def __aenter__(self):
 		return self
 		
@@ -319,7 +325,11 @@ class SMBConnection:
 			
 			rply = await self.recvSMB(message_id)
 			
-			self.SessionId = rply.header.SessionId
+			if self.SessionId == 0:
+				self.SessionId = rply.header.SessionId
+			
+			if rply.header.Status not in [NTStatus.SUCCESS, NTStatus.MORE_PROCESSING_REQUIRED]:
+				break
 			
 			authdata = rply.command.Buffer
 			status = rply.header.Status
@@ -341,9 +351,7 @@ class SMBConnection:
 			raise SMBAuthenticationFailed()
 		
 		else:
-			print('session got reply!')
-			print(rply)
-			raise Exception('session_setup_1 (authentication probably failed) reply: %s' % rply.header.Status)
+			raise SMBException('session_setup (authentication probably failed)', rply.header.Status)
 			
 		
 		
@@ -430,7 +438,8 @@ class SMBConnection:
 		"""
 		share_name MUST be in "\\server\share" format! Server can be NetBIOS name OR IP4 OR IP6 OR FQDN
 		"""
-		
+		if self.session_closed == True:
+			return
 		command = TREE_CONNECT_REQ()
 		command.Path = share_name
 		command.Flags = 0
@@ -451,11 +460,19 @@ class SMBConnection:
 		
 		elif rply.header.Status == NTStatus.BAD_NETWORK_NAME:
 			raise SMBIncorrectShareName()
+			
+		elif rply.header.Status == NTStatus.USER_SESSION_DELETED:
+			self.session_closed = True
+			raise SMBException('session delted', NTStatus.USER_SESSION_DELETED)
+		
 		
 		else:
 			raise SMBGenericException()
 		
 	async def create(self, tree_id, file_path, desired_access, share_mode, create_options, create_disposition, file_attrs, impresonation_level = ImpersonationLevel.Impersonation, oplock_level = OplockLevel.SMB2_OPLOCK_LEVEL_NONE, create_contexts = None, return_reply = False):
+		if self.session_closed == True:
+			return
+		
 		if tree_id not in self.TreeConnectTable_id:
 			raise Exception('Unknown Tree ID!')
 		
@@ -504,6 +521,9 @@ class SMBConnection:
 		
 		If and EOF happens the function returns an empty byte array and the remaining data is set to 0
 		"""
+		if self.session_closed == True:
+			return
+			
 		if tree_id not in self.TreeConnectTable_id:
 			raise Exception('Unknown Tree ID!')
 		if file_id not in self.FileHandleTable:
@@ -551,6 +571,9 @@ class SMBConnection:
 		Use a high-level function to get a full write.
 		
 		"""
+		if self.session_closed == True:
+			return
+			
 		if tree_id not in self.TreeConnectTable_id:
 			raise Exception('Unknown Tree ID!')
 		if file_id not in self.FileHandleTable:
@@ -593,6 +616,8 @@ class SMBConnection:
 		
 		IMPORTANT: in case you are requesting big amounts of data, the result will arrive in chunks. You will need to invoke this function until None is returned to get the full data!!!
 		"""
+		if self.session_closed == True:
+			return
 		if tree_id not in self.TreeConnectTable_id:
 			raise Exception('Unknown Tree ID!')
 		if file_id not in self.FileHandleTable:
@@ -648,6 +673,9 @@ class SMBConnection:
 		
 		IMPORTANT: in case you are requesting big amounts of data, the result will arrive in chunks. You will need to invoke this function until None is returned to get the full data!!!
 		"""
+		if self.session_closed == True:
+			return
+			
 		if tree_id not in self.TreeConnectTable_id:
 			raise Exception('Unknown Tree ID!')
 		if file_id not in self.FileHandleTable:
@@ -688,6 +716,8 @@ class SMBConnection:
 		"""
 		Closes the file/directory/pipe/whatever based on file_id. It will automatically remove all traces of the file handle.
 		"""
+		if self.session_closed == True:
+			return
 		command = CLOSE_REQ()
 		command.Flags = flags
 		command.FileId = file_id
@@ -708,6 +738,9 @@ class SMBConnection:
 		"""
 		Flushes all cached data that may be on the server for the given file.
 		"""
+		if self.session_closed == True:
+			return
+			
 		command = FLUSH_REQ()
 		command.FileId = file_id
 		
@@ -725,6 +758,9 @@ class SMBConnection:
 		The underlying connection will still be active, so please either clean it up manually or dont touch this function
 		For proper closing of the connection use the terminate function
 		"""
+		if self.session_closed == True:
+			return
+			
 		command = LOGOFF_REQ()
 		
 		header = SMB2Header_SYNC()
@@ -738,6 +774,8 @@ class SMBConnection:
 		"""
 		Issues an ECHO request to the server. Server will reply with and ECHO response, if it's still alive
 		"""
+		if self.session_closed == True:
+			return
 		command = ECHO_REQ()
 		header = SMB2Header_SYNC()
 		header.Command  = SMB2Command.ECHO
@@ -749,6 +787,9 @@ class SMBConnection:
 		"""
 		Disconnects from tree, removes all file entries associated to the tree
 		"""
+		if self.session_closed == True:
+			return
+			
 		command = TREE_DISCONNECT_REQ()
 		
 		header = SMB2Header_SYNC()
@@ -777,6 +818,9 @@ class SMBConnection:
 		"""
 		Issues a CANCEL command for the given message_id
 		"""
+		if self.session_closed == True:
+			return
+			
 		command = CANCEL_REQ()
 		header = SMB2Header_SYNC()
 		header.Command  = SMB2Command.CANCEL
@@ -790,6 +834,9 @@ class SMBConnection:
 		Use this function to properly terminate the SBM connection.
 		Terminates the connection. Closes all tree handles, logs off and disconnects the TCP connection.
 		"""
+		if self.session_closed == True:
+			return
+			
 		if self.status == SMBConnectionStatus.RUNNING:
 			#only doing the proper disconnection if the connection was already running
 			for tree_id in list(self.TreeConnectTable_id.keys()):

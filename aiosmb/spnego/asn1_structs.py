@@ -6,9 +6,10 @@
 
 # https://www.rfc-editor.org/rfc/rfc4178.txt
 
-from asn1crypto.core import ObjectIdentifier, Sequence, SequenceOf, Enumerated, GeneralString, OctetString, BitString, Choice, Any
+from asn1crypto.core import ObjectIdentifier, Sequence, SequenceOf, Enumerated, GeneralString, OctetString, BitString, Choice, Any, Boolean
 import enum
 import os
+import io
 
 TAG = 'explicit'
 
@@ -116,3 +117,52 @@ class GSSAPI(Sequence):
 	_oid_specs = {
 		'SPNEGO': NegotiationToken,
 	}
+
+# https://tools.ietf.org/html/rfc2743#page-81
+# You may think this is ASN1. But it truth, it's not.
+# Below is a fucking disgrace of a protocol design.
+class KRB5Token:
+	def __init__(self, data = None, tok_id = b'\x01\x00'):
+		self.tok_id = tok_id
+		self.data = data
+	
+	
+	@staticmethod
+	def from_bytes(data):
+		return KRB5Token.from_buffer(io.BytesIO(data))
+		
+	@staticmethod
+	def from_buffer(buff):
+		t = KRB5Token()
+		buff.read(1)
+		length = -1
+		x = int.from_bytes(buff.read(1), 'big', signed = False)
+		input(x)
+		if x <= 127:
+			length = x
+		else:
+			x &= ~0x80
+			input(x)
+			length = int.from_bytes(buff.read(x), 'big', signed = False)
+			input('length: %s' % length)
+		oid_asn1 = buff.read(11)
+		t.tok_id = int.from_bytes(buff.read(2), 'big', signed = False)
+		t.data = buff.read(length-13)
+		input(t.tok_id )
+		return t
+		
+	def length_encode(self, x):
+		if x <= 127:
+			return x.to_bytes(1, 'big', signed = False)
+		else:
+			lb = x.to_bytes((x.bit_length() + 7) // 8, 'big')
+			t = (0x80 | len(lb)).to_bytes(1, 'big', signed = False)
+			return t+lb
+		
+	def to_bytes(self):
+		t = b'\x60' #
+		t += self.length_encode(11 + 2 + len(self.data))
+		t += bytes.fromhex('06092a864886f712010202') #OID length + OID for kerberos 
+		t += self.tok_id 
+		t += self.data
+		return t

@@ -1,5 +1,6 @@
 
 from aiosmb.ntlm.structures.avpair import AVPAIRType
+from aiosmb.dtyp.structures.filetime import FILETIME
 
 class NTLMServerInfo:
 	def __init__(self):

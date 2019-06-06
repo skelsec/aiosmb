@@ -1,29 +1,35 @@
-class SMBConnectionTimeoutException(Exception):
+
+class SMBException(Exception):
+	def __init__(self, message = '', ntstatus = None):
+		super().__init__(message)
+		self.ntstatus = ntstatus
+		
+class SMBConnectionTimeoutException(SMBException):
 	pass
 	
-class SMBConnectionRefusedException(Exception):
+class SMBConnectionRefusedException(SMBException):
 	pass
 	
-class SMBUnsupportedDialectSelected(Exception):
+class SMBUnsupportedDialectSelected(SMBException):
 	pass
 
-class SMBUnsupportedDialectSign(Exception):
+class SMBUnsupportedDialectSign(SMBException):
 	pass
 	
-class SMBUnsupportedSMBVersion(Exception):
+class SMBUnsupportedSMBVersion(SMBException):
 	pass
 	
-class SMBKerberosPreauthFailed(Exception):
+class SMBKerberosPreauthFailed(SMBException):
 	pass
 
-class SMBAuthenticationFailed(Exception):
+class SMBAuthenticationFailed(SMBException):
 	pass
 	
-class SMBGenericException(Exception):
+class SMBGenericException(SMBException):
 	pass
 	
-class SMBIncorrectShareName(Exception):
+class SMBIncorrectShareName(SMBException):
 	pass
 	
-class SMBCreateAccessDenied(Exception):
+class SMBCreateAccessDenied(SMBException):
 	pass

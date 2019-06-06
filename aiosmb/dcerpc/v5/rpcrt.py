@@ -17,6 +17,7 @@
 #	 more SSP (e.g. NETLOGON)
 # 
 
+import asyncio
 import logging
 import socket
 import sys
@@ -893,7 +894,7 @@ class DCERPC_v5(DCERPC):
 	def __init__(self, transport):
 		DCERPC.__init__(self, transport)
 		self.__auth_level = RPC_C_AUTHN_LEVEL_NONE
-		# SkelSec: Testing other auth types   self.__auth_type = RPC_C_AUTHN_WINNT
+		# SkelSec: Testing other auth types   self.__auth_type =  RPC_C_AUTHN_WINNT 
 		self.__auth_type = RPC_C_AUTHN_GSS_NEGOTIATE
 		self.__auth_type_callback = None
 		# Flags of the authenticated session. We will need them throughout the connection
@@ -1015,13 +1016,10 @@ class DCERPC_v5(DCERPC):
 				
 				print('RPC - NTLM auth 1')
 				self._transport.get_ntlm_ctx()
-				self._transport._ntlm_ctx.set_sign()
-				self._transport._ntlm_ctx.set_seal()
-				self._transport._ntlm_ctx.set_version(False)
-				self._transport._ntlm_ctx.flags = 0xe00882b7
-				
-				
-				auth, res = await self._transport._ntlm_ctx.authenticate(None)
+				#seal flag MUST be turned on in the handshake flags!!!!!!!
+				#it is "signaled via the is_rpc variable"
+				auth, res = await self._transport._ntlm_ctx.authenticate(None, is_rpc = True)
+				self.__sessionKey = self._transport._ntlm_ctx.get_session_key()
 			
 			elif self.__auth_type == RPC_C_AUTHN_NETLOGON:
 				input('RPC_C_AUTHN_NETLOGON Not implemented!')
@@ -1039,8 +1037,8 @@ class DCERPC_v5(DCERPC):
 																							GSSAPIFlags.GSS_C_REPLAY_FLAG | \
 																							GSSAPIFlags.GSS_C_MUTUAL_FLAG | \
 																							GSSAPIFlags.GSS_C_DCE_STYLE,
-																					seq_number = 0)
-				print(auth)
+																					seq_number = 0, is_rpc = True)
+
 				#auth, res  = await self._transport._kerberos_ctx.authenticate(None)
 				
 				#self.__cipher, self.__sessionKey, auth = kerberosv5.getKerberosType1(self.__username, self.__password,
@@ -1067,7 +1065,8 @@ class DCERPC_v5(DCERPC):
 
 		await self._transport.send(packet.get_packet())
 
-		s = await self._transport.recv()
+		s = await self.recv_one()
+		input(s)
 
 		if s != 0:
 			resp = MSRPCHeader(s)
@@ -1114,8 +1113,12 @@ class DCERPC_v5(DCERPC):
 		input(self.__auth_type)
 		if self.__auth_level != RPC_C_AUTHN_LEVEL_NONE:
 			if self.__auth_type == RPC_C_AUTHN_WINNT:
-				self._transport._ntlm_ctx.flags = 0xe0888235
-				response, res = await self._transport._ntlm_ctx.authenticate(bindResp['auth_data'])
+				
+				
+				#self._transport._ntlm_ctx.flags = 0xe0888235
+				
+				
+				response, res = await self._transport._ntlm_ctx.authenticate(bindResp['auth_data'], is_rpc = True)
 				#response, self.__sessionKey = ntlm.getNTLMSSPType3(auth, bindResp['auth_data'], self.__username,
 				#												   self.__password, self.__domain, self.__lmhash,
 				#												   self.__nthash,
@@ -1124,7 +1127,14 @@ class DCERPC_v5(DCERPC):
 			elif self.__auth_type == RPC_C_AUTHN_NETLOGON:
 				response = None
 			elif self.__auth_type == RPC_C_AUTHN_GSS_NEGOTIATE:
-				response, res  = await self._transport._spnego_ctx.authenticate(bindResp['auth_data'])
+				response, res  = await self._transport._spnego_ctx.authenticate(bindResp['auth_data'], is_rpc = True, flags =   GSSAPIFlags.GSS_C_CONF_FLAG |\
+																							GSSAPIFlags.GSS_C_INTEG_FLAG | \
+																							GSSAPIFlags.GSS_C_SEQUENCE_FLAG | \
+																							GSSAPIFlags.GSS_C_REPLAY_FLAG | \
+																							GSSAPIFlags.GSS_C_MUTUAL_FLAG | \
+																							GSSAPIFlags.GSS_C_DCE_STYLE,)
+																							
+				self.__sessionKey = self._transport._spnego_ctx.get_session_key()
 				
 				# probably need to add feature to minikerberos for this, check code!
 				
@@ -1190,17 +1200,15 @@ class DCERPC_v5(DCERPC):
 			sec_trailer['auth_ctx_id'] = self._ctx + 79231 
 
 			if response is not None:
-				#if self.__auth_type == RPC_C_AUTHN_GSS_NEGOTIATE:
-				if False:
+				if self.__auth_type == RPC_C_AUTHN_GSS_NEGOTIATE:
 					alter_ctx = MSRPCHeader()
 					alter_ctx['type'] = MSRPC_ALTERCTX
 					alter_ctx['pduData'] = bind.getData()
 					alter_ctx['sec_trailer'] = sec_trailer
 					alter_ctx['auth_data'] = response
 					await self._transport.send(alter_ctx.get_packet(), forceWriteAndx = 1)
-					#self.__gss = gssapi.GSSAPI(self.__cipher)
 					self.__sequence = 0
-					await self.recv()
+					await self.recv_one() #recieving the result of alter_context command
 					self.__sequence = 0
 				else:
 					auth3 = MSRPCHeader()
@@ -1285,8 +1293,8 @@ class DCERPC_v5(DCERPC):
 					sealedMessage, signature = nrpc.SEAL(plain_data, self.__confounder, self.__sequence, self.__sessionKey, False)
 				elif self.__auth_type == RPC_C_AUTHN_GSS_NEGOTIATE:
 					#sealedMessage, signature = self.__gss.GSS_Wrap(self.__sessionKey, plain_data, self.__sequence)
-					sealedMessage = await self._transport._spnego_ctx.encrypt(plain_data, self.__sequence)
-					input('Sealed: %s' % sealedMessage)
+					sealedMessage, signature = await self._transport._spnego_ctx.encrypt(plain_data, self.__sequence)
+					input(sealedMessage)
 
 				rpc_packet['pduData'] = sealedMessage
 				print(sealedMessage)
@@ -1387,21 +1395,21 @@ class DCERPC_v5(DCERPC):
 		else:
 			await self._transport_send(data)
 		self.__callid += 1
-
-	async def recv(self):
+		
+	async def recv_one(self):
 		finished = False
 		forceRecv = 0
 		retAnswer = b''
 		while not finished:
 			# At least give me the MSRPCRespHeader, especially important for 
 			# TCP/UDP Transports
-			response_data = await self._transport.recv(forceRecv, count=MSRPCRespHeader._SIZE)
+			response_data = await self._transport.recv(MSRPCRespHeader._SIZE)
 			response_header = MSRPCRespHeader(response_data)
 			# Ok, there might be situation, especially with large packets, that 
 			# the transport layer didn't send us the full packet's contents
 			# So we gotta check we received it all
 			while len(response_data) < response_header['frag_len']:
-			   t = await self._transport.recv(forceRecv, count=(response_header['frag_len']-len(response_data)))
+			   t = await self._transport.recv(response_header['frag_len']-len(response_data))
 			   response_data += t
 
 			off = response_header.get_header_size()
@@ -1426,7 +1434,49 @@ class DCERPC_v5(DCERPC):
 			else:
 				# Forcing Read Recv, we need more packets!
 				forceRecv = 1
+				
+		return response_data
 
+	async def recv(self):
+		finished = False
+		forceRecv = 0
+		retAnswer = b''
+		while not finished:
+			# At least give me the MSRPCRespHeader, especially important for 
+			# TCP/UDP Transports
+			response_data = await self._transport.recv(MSRPCRespHeader._SIZE)
+			response_header = MSRPCRespHeader(response_data)
+			# Ok, there might be situation, especially with large packets, that 
+			# the transport layer didn't send us the full packet's contents
+			# So we gotta check we received it all
+			while len(response_data) < response_header['frag_len']:
+			   t = await self._transport.recv(response_header['frag_len']-len(response_data))
+			   response_data += t
+
+			off = response_header.get_header_size()
+
+			if response_header['type'] == MSRPC_FAULT and response_header['frag_len'] >= off+4:
+				status_code = unpack("<L",response_data[off:off+4])[0]
+				if status_code in rpc_status_codes:
+					raise DCERPCException(rpc_status_codes[status_code])
+				elif status_code & 0xffff in rpc_status_codes:
+					raise DCERPCException(rpc_status_codes[status_code & 0xffff])
+				else:
+					if status_code in hresult_errors.ERROR_MESSAGES:
+						error_msg_short = hresult_errors.ERROR_MESSAGES[status_code][0]
+						error_msg_verbose = hresult_errors.ERROR_MESSAGES[status_code][1] 
+						raise DCERPCException('%s - %s' % (error_msg_short, error_msg_verbose))
+					else:
+						raise DCERPCException('Unknown DCE RPC fault status code: %.8x' % status_code)
+
+			if response_header['flags'] & PFC_LAST_FRAG:
+				# No need to reassembly DCERPC
+				finished = True
+			else:
+				# Forcing Read Recv, we need more packets!
+				forceRecv = 1
+			
+			print('response_data: %s' % response_data.hex())
 			answer = response_data[off:]
 			auth_len = response_header['auth_len']
 			if auth_len:
@@ -1481,8 +1531,16 @@ class DCERPC_v5(DCERPC):
 						self.__sequence += 1
 					elif self.__auth_type == RPC_C_AUTHN_GSS_NEGOTIATE:
 						if self.__sequence > 0:
-							answer, cfounder = self.__gss.GSS_Unwrap(self.__sessionKey, answer, self.__sequence,
-																	 direction='init', authData=auth_data)
+							tasks = [self._transport._spnego_ctx.decrypt(answer, self.__sequence, direction='init', auth_data=auth_data)]
+							res = await asyncio.gather(*tasks, return_exceptions = True)
+							print(res)
+							if isinstance(res[0], Exception):
+								raise res[0]
+							else:
+								answer, cfounder = res[0]
+							#answer, cfounder = self.__gss.GSS_Unwrap(self.__sessionKey, answer, self.__sequence,
+							#										 direction='init', authData=auth_data)
+																	 
 
 				elif sec_trailer['auth_level'] == RPC_C_AUTHN_LEVEL_PKT_INTEGRITY:
 					if self.__auth_type == RPC_C_AUTHN_WINNT:

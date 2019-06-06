@@ -2,6 +2,10 @@ import enum
 import io
 import collections
 
+class MsvAvFlags(enum.IntFlag):
+	CONSTRAINED_AUTH = 0x00000001
+	MIC_PRESENT      = 0x00000002
+	SPN_UNTRUSTED    = 0x00000004
 
 class AVPAIRType(enum.Enum):
 	MsvAvEOL             = 0x0000 #Indicates that this is the last AV_PAIR in the list. AvLen MUST be 0. This type of information MUST be present in the AV pair list.
@@ -47,6 +51,9 @@ class AVPairs(collections.UserDict):
 						  AVPAIRType.MsvAvTargetName,
 			]:
 				avp[avId] = buff.read(AvLen).decode('utf-16le')
+				
+			elif avId == AVPAIRType.MsvAvFlags:
+				avp[avId] = MsvAvFlags(int.from_bytes(buff.read(4), byteorder = 'little', signed = False))
 
 			# TODO IMPLEMENT PARSING OFR OTHER TYPES!!!!
 			else:

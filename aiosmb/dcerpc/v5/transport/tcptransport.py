@@ -98,11 +98,13 @@ class TCPTransport(DCERPCTransport):
 		
 		self.connection = DCERPCTCPConnection(remote_name, dstport)
 		self.buffer = b''
+		self.data_in_evt = asyncio.Event()
 
 	async def __handle_incoming(self):
 		while True:
 			data = await self.connection.in_queue.get()
 			self.buffer += data
+			self.data_in_evt.set()
 		
 	async def connect(self):
 		print(1)
@@ -132,21 +134,12 @@ class TCPTransport(DCERPCTransport):
 		else:
 			await self.connection.out_queue.put(data)
 	
-	async def recv(self, forceRecv = 0, count = 0):
-		if count > 0:
-			#DISGUstING! but it's fukken late here :(
-			#TODO: clean up!
-			while len(self.buffer) < count:
-				await asyncio.sleep(1)
+	async def recv(self, count, forceRecv = 0):
+		while len(self.buffer) < count:
+			self.data_in_evt.clear()
+			await self.data_in_evt.wait()
 			
-			data = self.buffer[:count]
-			self.buffer = self.buffer[count:]
-			return data
-			
-		while len(self.buffer) == 0:
-			await asyncio.sleep(1)
-		
-		data = self.buffer
-		self.buffer = b''
+		data = self.buffer[:count]
+		self.buffer = self.buffer[count:]
 		return data
 		

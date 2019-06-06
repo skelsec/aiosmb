@@ -43,8 +43,12 @@ class NTLMAuthenticate:
 				raise Exception('NEGOTIATE_VERSION set but no Version supplied!')
 				
 			auth.Version = version
-			auth.MIC = mic
-			payload_pos += 8 + 16
+			
+			payload_pos += 8
+			
+		if mic is not None:
+			self.MIC = mic
+			payload_pos += 16
 			
 		if lm_response:
 			data =  lm_response.to_bytes()
@@ -118,7 +122,8 @@ class NTLMAuthenticate:
 		t += self.NegotiateFlags.to_bytes(4, byteorder = 'little', signed = False)
 		if self.Version:
 			t += self.Version.to_bytes()
-			t += self.MIC		
+		if self.MIC is not None:	
+			t += self.MIC
 		t += self.Payload
 		return t
 		

@@ -17,6 +17,8 @@ from aiosmb.ntlm.messages.challenge import NTLMChallenge
 from aiosmb.ntlm.messages.authenticate import NTLMAuthenticate
 from aiosmb.ntlm.creds_calc import *
 from aiosmb.crypto.symmetric import RC4
+
+from aiosmb.dtyp.structures.filetime import FILETIME
 		
 
 class NTLMHandlerSettings:
@@ -32,9 +34,6 @@ class NTLMHandlerSettings:
 		self.construct_message_template()
 		
 	def construct_message_template(self):
-		if self.mode.upper() == 'MANUAL':
-			return
-			
 		if not self.template_name:
 			if not self.custom_template:
 				raise Exception('No NTLM tamplate specified!')
@@ -91,11 +90,6 @@ class NTLMAUTHHandler:
 		self.setup()
 
 	def setup(self):
-		self.mode = self.settings.mode
-		if self.mode.upper() == 'MANUAL':
-			#for passign the messages automatically with the sessionbasekey, the using this class for sign and seal
-			return
-		
 		if 'challenge' not in self.settings.template:
 			self.challenge = os.urandom(8)
 		else:
@@ -103,7 +97,7 @@ class NTLMAUTHHandler:
 		self.flags = self.settings.template['flags']
 		if 'session_key' in self.settings.template:
 			self.RandomSessionKey = self.settings.template['session_key']
-		
+		self.mode = self.settings.mode
 		self.timestamp = self.settings.template.get('timestamp') #used in unittest only!
 		
 					
@@ -119,18 +113,6 @@ class NTLMAUTHHandler:
 		#	workstationname = self.settings.template['workstation_name']
 		#	version = self.settings.template.get('version')
 			
-	def load_negotiate(self, data):
-		self.ntlmNegotiate = NTLMNegotiate.from_bytes(data)
-	
-	def load_challenge(self, data):
-		self.ntlmChallenge = NTLMChallenge.from_bytes(data)
-		
-	def load_authenticate(self, data):
-		self.ntlmAuthenticate = NTLMAuthenticate.from_bytes(data)
-		
-	def load_sessionkey(self, data):
-		self.RandomSessionKey = data
-		self.setup_crypto()
 	
 	def set_sign(self, tf = True):
 		if tf == True:
@@ -152,7 +134,6 @@ class NTLMAUTHHandler:
 			
 	def is_extended_security(self):
 		return NegotiateFlags.NEGOTIATE_EXTENDED_SESSIONSECURITY in self.ntlmChallenge.NegotiateFlags
-	
 	def get_extra_info(self):
 		self.extra_info = NTLMServerInfo.from_challenge(self.ntlmChallenge)
 		return self.extra_info
@@ -169,9 +150,7 @@ class NTLMAUTHHandler:
 				msg.SeqNum = seqNum
 				seqNum += 1
 			else:
-				t = hmac_md5(signingKey)
-				t.update(struct.pack('<i',seqNum)+message)
-				msg.Checksum = t.digest()[:8]
+				msg.Checksum = struct.unpack('<q',hmac_md5(signingKey, struct.pack('<i',seqNum)+message)[:8])[0]
 				msg.SeqNum = seqNum
 				seqNum += 1
 				
@@ -263,14 +242,10 @@ class NTLMAUTHHandler:
 		if not self.RandomSessionKey:
 			self.RandomSessionKey = os.urandom(16)
 		
-		input(self.mode.upper())
-		if self.mode.upper() != 'MANUAL':
-			#this check is here to provide the option to load the messages + the sessionbasekey manually
-			#then you will be able to use the sign and seal functions provided by this class
-			self.SessionBaseKey = self.ntlm_credentials.SessionBaseKey
+		self.SessionBaseKey = self.ntlm_credentials.SessionBaseKey
 		
-			rc4 = RC4(self.KeyExchangeKey)
-			self.EncryptedRandomSessionKey = rc4.encrypt(self.RandomSessionKey)
+		rc4 = RC4(self.KeyExchangeKey)
+		self.EncryptedRandomSessionKey = rc4.encrypt(self.RandomSessionKey)
 		
 		self.calc_sealkey('Client')
 		self.calc_sealkey('Server')
@@ -308,10 +283,6 @@ class NTLMAUTHHandler:
 			if self.iteration_cnt == 0:
 				if authData is not None:
 					raise Exception('First call as client MUST be with empty data!')
-					
-				if is_rpc == True:
-					#rpc (unknow reason) reqauires seal to be set, otherwise it will fail to authenticate
-					self.set_seal()
 				
 				self.iteration_cnt += 1
 				#negotiate message was already calulcated in setup
@@ -323,13 +294,6 @@ class NTLMAUTHHandler:
 				#server challenge incoming
 				self.ntlmChallenge_raw = authData
 				self.ntlmChallenge = NTLMChallenge.from_bytes(authData)
-				
-				
-				if is_rpc == True:
-					#rpc (unknow reason) reqauires seal to be set, otherwise it will fail to authenticate
-					self.set_seal()
-				
-				##################self.flags = self.ntlmChallenge.NegotiateFlags
 				
 				#we need to calculate the response based on the credential and the settings flags
 				if self.settings.ntlm_downgrade == True:

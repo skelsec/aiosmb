@@ -3,12 +3,11 @@
 # This is just a simple interface to the winsspi library to support Kerberos
 # 
 
-from aiosmb.spnego.asn1_structs import KRB5Token
 from winsspi.sspi import KerberosSMBSSPI
 from winsspi.common.function_defs import ISC_REQ
 from minikerberos.gssapi import get_gssapi
-from minikerberos.asn1_structs import AP_REQ, AP_REP
-from minikerberos.encryption import Enctype, Key, _enctype_table
+from minikerberos.asn1_structs import AP_REQ
+from minikerberos.encryption import Enctype, Key
 
 # SMBKerberosSSPICredential:
 
@@ -43,45 +42,35 @@ class SMBKerberosSSPI:
 		#authdata is only for api compatibility reasons
 		if is_rpc == True:
 			if self.iterations == 0:
-				flags = ISC_REQ.CONFIDENTIALITY | \
-						ISC_REQ.INTEGRITY | \
-						ISC_REQ.MUTUAL_AUTH | \
-						ISC_REQ.REPLAY_DETECT | \
-						ISC_REQ.SEQUENCE_DETECT|\
-						ISC_REQ.USE_DCE_STYLE
-						
-
+				flags = ISC_REQ.CONFIDENTIALITY | ISC_REQ.INTEGRITY | ISC_REQ.SEQUENCE_DETECT|\
+					ISC_REQ.REPLAY_DETECT | ISC_REQ.MUTUAL_AUTH | ISC_REQ.USE_DCE_STYLE
 				token = self.ksspi.get_ticket_for_spn(self.target, flags = flags, is_rpc = True, token_data = authData)
-				print(token.hex())
-				self.iterations += 1
-				return token, True
 			
-			elif self.iterations == 1:
-				flags = ISC_REQ.USE_DCE_STYLE
-						
-				token = self.ksspi.get_ticket_for_spn(self.target, flags = flags, is_rpc = True, token_data = authData)
-				print(token.hex())
+			
+				etype = AP_REQ.load(token).native['authenticator']['etype']
+				if etype == 17:
+					self.etype = Enctype.AES128
+				elif etype == 18:
+					self.etype = Enctype.AES256
+				elif etype == 23:
+					self.etype = Enctype.RC4
+				else:
+					raise Exception('Unsupported encryption type!')
 				
-				
-				aprep = AP_REP.load(token).native
-				
-				subkey = Key(aprep['enc-part']['etype'], self.get_session_key())
-				
-				cipher_text = aprep['enc-part']['cipher']
-				cipher = _enctype_table[aprep['enc-part']['etype']]()
-				
-				plaintext = cipher.decrypt(subkey, 12, cipher_text)
-				print('plaintext')
-				input(plaintext.hex())
-				
-				self.gssapi = get_gssapi(subkey)
-				
-				input(self.gssapi)
 				self.iterations += 1
 				return token, False
-				
+			
 			else:
-				raise Exception('???????')
+				flags = ISC_REQ.CONFIDENTIALITY | ISC_REQ.INTEGRITY | ISC_REQ.SEQUENCE_DETECT|\
+					ISC_REQ.REPLAY_DETECT | ISC_REQ.MUTUAL_AUTH | ISC_REQ.USE_DCE_STYLE
+				token = self.ksspi.get_ticket_for_spn(self.target, flags = flags, is_rpc = True, token_data = authData)
+			
+				session_key = Key(self.etype, self.get_session_key())
+				input(session_key.contents)
+				self.gssapi = get_gssapi(session_key)
+				print(self.gssapi)
+				self.iterations += 1
+				return token, False
 			
 		else:
 			apreq = self.ksspi.get_ticket_for_spn(self.target)
