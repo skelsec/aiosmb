@@ -57,7 +57,7 @@ class SMBADScanner:
 		"""
 		raise Exception('Not implemented')
 		
-	async def enumerate_groups(self, domain):
+	async def enumerate_user_group_memberships(self, domain):
 		"""
 		Enumerates all AD groups in the given domain
 		"""
@@ -125,7 +125,10 @@ class SMBHostScanner:
 		"""
 		Enumerates all active user sessions on the host
 		"""
-		await self.fs.connect_share(share)
+		try:
+			await self.fs.connect_share(share)
+		except Exception as e:
+			return
 		for directory_name in share.subdirs:
 			async for directory in self.fs.enumerate_directory_stack(share.subdirs[directory_name], maxdepth = 4, with_sid = True):
 				if self.results_queue is not None:
@@ -140,12 +143,16 @@ class SMBHostScanner:
 		if self.srvs_works == False:
 			return
 			
-		async for user, ip in self.srvs.list_sessions():
-			session = SMBUserSession(user, ip)
-			if self.results_queue is not None:
-				await self.results_queue.put(session)
-			
-			self.hostinfo.sessions.append(session)
+		try:
+			async for user, ip in self.srvs.list_sessions():
+				session = SMBUserSession(user, ip)
+				if self.results_queue is not None:
+					await self.results_queue.put(session)
+				
+				self.hostinfo.sessions.append(session)
+		except Exception as e:
+			print(e)
+			return
 		
 	async def enumerate_groups(self):
 		"""
@@ -153,15 +160,20 @@ class SMBHostScanner:
 		"""
 		if not self.samr:
 			await self.open_samr()
+		
+		print(self.samr_works)
 		if self.samr_works == False:
 			return
-			
+		
+		
 		local_domain_sid = await self.samr.get_domain_sid('Builtin')
+		print('local_domain_sid : %s' % local_domain_sid)
 		domain_handle = await self.samr.open_domain(local_domain_sid)
 		async for groupname, sid in self.samr.list_domain_groups(domain_handle):
 			lg = SMBLocalGroup(groupname, sid)
 			
 			alias_handle = await self.samr.open_alias(domain_handle, sid.split('-')[-1])
+			print('alias_handle : %s' % alias_handle)
 			async for sid in self.samr.list_alias_members(alias_handle):
 				lg.members[sid] = 1
 				
@@ -185,7 +197,7 @@ class SMBHostScanner:
 				continue
 			await self.enumerate_share(share)
 		await self.enumerate_sessions()
-		#await self.enumerate_groups()
+		await self.enumerate_groups()
 		
 		
 class SMBScanner:
@@ -246,14 +258,21 @@ async def filereader_test(connection_string, filename):
 		except Exception as e:
 			print(str(e))
 			raise e
-		host_scanner = SMBHostScanner(connection, results_queue = asyncio.Queue())
+			
+		results_queue =asyncio.Queue()
+		host_scanner = SMBHostScanner(connection, results_queue = results_queue)
 		
 		await host_scanner.run()
 		
+		while True:
+			res = await results_queue.get()
+			
+			print(type(res))
+			print(res)
 	
 if __name__ == '__main__':
-	#connection_string = 'TEST/victim/ntlm/password:Passw0rd!1@10.10.10.2'	
-	connection_string = 'TEST/Administrator/ntlm/password:QLFbT8zkiFGlJuf0B3Qq@win2019ad.test.corp/10.10.10.2'
+	connection_string = 'TEST/victim/ntlm/password:Passw0rd!1@10.10.10.2'	
+	#connection_string = 'TEST/Administrator/ntlm/password:QLFbT8zkiFGlJuf0B3Qq@win2019ad.test.corp/10.10.10.2'
 	#connection_string = 'TEST/Administrator/sspi-ntlm/password:QLFbT8zkiFGlJuf0B3Qq@win2019ad.test.corp/10.10.10.2'
 	#connection_string = 'TEST/Administrator/kerberos/password:QLFbT8zkiFGlJuf0B3Qq@win2019ad.test.corp/10.10.10.2'
 	#connection_string = 'TEST.corp/Administrator/sspi-kerberos@win2019ad.test.corp/10.10.10.2'

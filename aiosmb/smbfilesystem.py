@@ -1,4 +1,5 @@
 
+import traceback
 import asyncio
 from aiosmb.commons.smbcontainer import *
 from aiosmb.protocol.smb2.commands import *
@@ -161,11 +162,12 @@ class SMBFileSystem:
 					await self.get_sid(directory.files[file_name])
 				for directory_name in directory.subdirs:
 					await self.get_sid(directory.subdirs[directory_name])
-					
+			
+			await self.close_directory(directory)		
+			yield directory			
 			if md > maxdepth:
-				yield directory
 				continue
-							
+			
 			for directory_name in directory.subdirs:
 				dirs.append((directory.subdirs[directory_name], md - 1))
 		
@@ -186,11 +188,36 @@ class SMBFileSystem:
 			await self.enumerate_directory(directory.subdirs[directory_name], maxdepth = maxdepth -1, with_sid = with_sid)
 		
 	async def enumerate_share(self, share, maxdepth = 4, with_sid = False):
-		await self.connect_share(share)
+		try:
+			await self.connect_share(share)
+		except Exception as e:
+			return
+		
 		await self.list_share(share)
+		
 		for directory_name in share.subdirs:
 			await self.enumerate_directory(share.subdirs[directory_name], maxdepth = maxdepth, with_sid = with_sid)
 			
 	def print_tree(self, share):
 		print(str(share))
+		
+		
+	async def close_directory(self, directory):
+		if directory.parent_share is None or directory.parent_share.tree_id is None:
+			return
+		for file_name in directory.files:
+			if directory.files[file_name].file_id is None:
+				continue
+			
+			try:
+				await self.connection.close(directory.parent_share.tree_id, directory.files[file_name].file_id)
+			except Exception as e:
+				pass
+		
+		if directory.file_id is None:
+			return
+		try:
+			await self.connection.close(directory.parent_share.tree_id, directory.file_id)
+		except Exception as e:
+			pass
 
