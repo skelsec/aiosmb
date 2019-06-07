@@ -1,10 +1,11 @@
 
 
 class SMBShare:
-	def __init__(self):
-		self.fullpath = None
-		self.name = None
-		self.type = None
+	def __init__(self, name = None, type = None, remark = None, fullpath = None):
+		self.fullpath = fullpath
+		self.name = name
+		self.type = type
+		self.remark = remark
 		self.flags = None
 		self.capabilities = None
 		self.maximal_access = None
@@ -85,3 +86,26 @@ class SMBFile:
 			t += '%s : %s\r\n' % (k, self.__dict__[k])
 		
 		return t
+		
+class SMBUserSession:
+	def __init__(self, username = None, ip_addr = None):
+		self.username = username
+		self.ip_addr = ip_addr
+		
+class SMBLocalGroup:
+	def __init__(self, name = None, sid = None, members = {}):
+		self.name = name
+		self.sid = sid
+		self.members = members
+		
+class SMBDomain:
+	def __init__(self):
+		self.name = None
+		self.sid = None
+		
+class SMBHostInfo:
+	def __init__(self):
+		self.sessions = []
+		self.domains = []
+		self.groups = []
+		self.shares = []

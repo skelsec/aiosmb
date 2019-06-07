@@ -180,7 +180,12 @@ class SMBConnection:
 				raise Exception('Encrypted SMBv2 message recieved, but encryption is not yet supported!')
 			
 			self.OutstandingResponses[msg.header.MessageId] = msg
-			self.OutstandingResponsesEvent[msg.header.MessageId].set()
+			if msg.header.MessageId in self.OutstandingResponsesEvent:
+				self.OutstandingResponsesEvent[msg.header.MessageId].set()
+			else:
+				#here we are loosing messages, the functionality for "PENDING" and "SHARING_VIOLATION" should be written
+				continue
+			
 			
 	async def login(self):
 		"""
@@ -365,8 +370,11 @@ class SMBConnection:
 		
 		msg = self.OutstandingResponses.pop(message_id)
 		
-		if message_id in self.OutstandingResponsesEvent:
-			del self.OutstandingResponsesEvent[message_id]
+		if msg.header.Status != NTStatus.PENDING:
+			if message_id in self.OutstandingResponsesEvent:
+				del self.OutstandingResponsesEvent[message_id]
+		else:
+			self.OutstandingResponsesEvent[message_id].clear()
 		
 		return msg
 		

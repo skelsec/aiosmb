@@ -13,6 +13,10 @@ class SMBSAMR:
 		self.handle = None
 		
 		self.domain_ids = {} #sid to RPC_SID
+		self.domain_handles = {} #handle to sid
+		
+		self.user_handles = {} #handle to domain-sid
+		self.alias_handles = {} #handle to domain-sid
 		
 	async def __aenter__(self):
 		return self
@@ -41,12 +45,50 @@ class SMBSAMR:
 		ans = await samr.hSamrConnect(self.dce)
 		self.handle = ans['ServerHandle']
 		
+	async def close(self):
+		if self.dce:
+			for dhandle in self.domain_handles:
+				try:
+					await self.close_handle(dhandle)
+				except:
+					pass
+					
+			for uhandle in self.user_handles:
+				try:
+					await self.close_handle(uhandle)
+				except:
+					pass
+			
+			try:
+				await self.close_handle(self.handle)
+			except:
+				pass
+				
+			try:
+				await self.dce.disconnect()
+			except:
+				pass
+			return
+			
+	async def close_handle(self,handle):
+		resp = await hSamrCloseHandle(handle)
+		
 	async def list_domains(self):
-		resp = await samr.hSamrEnumerateDomainsInSamServer(self.dce, self.handle)
-		domains = []
-		for domain in resp['Buffer']['Buffer']:
-			domains.append(domain['Name'])
-		return domains
+		status = NTStatus.MORE_ENTRIES
+		enumerationContext = 0
+		while status == NTStatus.MORE_ENTRIES:
+			try:
+				resp = await samr.hSamrEnumerateDomainsInSamServer(self.dce, self.handle, enumerationContext = enumerationContext)
+			except DCERPCException as e:
+				if str(e).find('STATUS_MORE_ENTRIES') < 0:
+					raise
+				resp = e.get_packet()
+			
+			for domain in resp['Buffer']['Buffer']:
+				yield domain['Name']
+			
+			enumerationContext = resp['EnumerationContext']
+			status = NTStatus(resp['ErrorCode'])
 		
 	async def get_domain_sid(self, domain_name):
 		resp = await samr.hSamrLookupDomainInSamServer(self.dce, self.handle, domain_name)
@@ -54,11 +96,8 @@ class SMBSAMR:
 		return resp['DomainId'].formatCanonical()
 		
 	async def open_domain(self, domain_sid):
-		##domain_id = RPC_SID()
-		##domain_id.fromCanonical(domain_sid)
-		##input(domain_id.dump())
-		##input(domain_id.Data)
 		resp = await samr.hSamrOpenDomain(self.dce, self.handle, domainId = self.domain_ids[domain_sid])
+		self.domain_handles[resp['DomainHandle']] = domain_sid
 		return resp['DomainHandle']
 		
 	async def list_domain_users(self, domain_handle):
@@ -74,9 +113,8 @@ class SMBSAMR:
 				resp = e.get_packet()
 
 			for user in resp['Buffer']['Buffer']:
-				print(user.dump())
-				yield user['Name']
-				logger.debug('Machine name - rid: %s - %d'% (user['Name'], user['RelativeId']))
+				user_sid = '%s-%s' % (self.domain_handles[domain_handle], user['RelativeId'])
+				yield user_sid, user['Name']
 
 			enumerationContext = resp['EnumerationContext'] 
 			status = NTStatus(resp['ErrorCode'])
@@ -94,8 +132,78 @@ class SMBSAMR:
 				resp = e.get_packet()
 
 			for group in resp['Buffer']['Buffer']:
-				print(group.dump())
-				yield group['Name']
+				group_sid = '%s-%s' % (self.domain_handles[domain_handle], group['RelativeId'])
+				yield group['Name'], group_sid
 			enumerationContext = resp['EnumerationContext'] 
 			status = NTStatus(resp['ErrorCode'])
+			
+			
+	async def enumerate_users(self, domain_handle):
+		status = NTStatus.MORE_ENTRIES
+		enumerationContext = 0
+		while status == NTStatus.MORE_ENTRIES:
+			try:
+				#userAccountControl=USER_NORMAL_ACCOUNT,
+				resp = await samr.hSamrEnumerateUsersInDomain(self.dce, domain_handle,  enumerationContext=enumerationContext)
+			except DCERPCException as e:
+				print(str(e))
+				if str(e).find('STATUS_MORE_ENTRIES') < 0:
+					raise
+				resp = e.get_packet()
+			
+			for user in resp['Buffer']['Buffer']:
+				user_sid = '%s-%s' % (self.domain_handles[domain_handle], user['RelativeId'])
+				yield user_sid, user['Name']
+			enumerationContext = resp['EnumerationContext'] 
+			status = NTStatus(resp['ErrorCode'])
+
+	async def open_user(self, domain_handle, user_id):
+		try:
+			resp = await samr.hSamrOpenUser(self.dce, domain_handle, userId=user_id)
+			self.user_handles[resp['UserHandle']] = self.domain_handles[domain_handle]
+			return resp['UserHandle']
+		except DCERPCException as e:
+			print(str(e))
+			if str(e).find('STATUS_MORE_ENTRIES') < 0:
+				raise
+			resp = e.get_packet()
+			
+	async def get_user_group_memberships(self, user_handle):
+		#strange: the underlying function is not iterable
+		try:
+			resp = await samr.hSamrGetGroupsForUser(self.dce, user_handle)
+		except Exception as e:
+			print(str(e))
+			if str(e).find('STATUS_MORE_ENTRIES') < 0:
+				raise
+			resp = e.get_packet()
 		
+		for group in resp['Groups']['Groups']:
+			yield '%s-%s' % (self.user_handles[user_handle], group['RelativeId'])
+
+
+	async def open_alias(self, domain_handle, alias_id):
+		try:
+			resp = await samr.hSamrOpenAlias(self.dce, domain_handle, aliasId=alias_id)
+			self.alias_handles[resp['AliasHandle']] = self.domain_handles[domain_handle]
+			return resp['AliasHandle']
+		except DCERPCException as e:
+			print(str(e))
+			if str(e).find('STATUS_MORE_ENTRIES') < 0:
+				raise
+			resp = e.get_packet()
+	
+	
+	async def list_alias_members(self, alias_handle):
+		#no iterators here...
+		try:
+			resp = await samr.hSamrGetMembersInAlias(self.dce, alias_handle)
+			
+			for sidr in resp['Members']['Sids']:
+				yield sidr['SidPointer'].formatCanonical()
+				
+		except DCERPCException as e:
+			print(str(e))
+			if str(e).find('STATUS_MORE_ENTRIES') < 0:
+				raise
+			resp = e.get_packet()

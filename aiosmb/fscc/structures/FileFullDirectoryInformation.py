@@ -21,7 +21,6 @@ class FileFullDirectoryInformationList:
 			pos = buff.tell()
 			info = FileFullDirectoryInformation.from_buffer(buff)
 			t.append(info)
-			print(str(info))
 			
 		return t
 			
