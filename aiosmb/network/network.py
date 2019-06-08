@@ -38,19 +38,19 @@ class TCPSocket:
 		"""
 		Reads data bytes from the socket and dispatches it to the incoming queue
 		"""
-		try:
-			while not self.disconnected.is_set() or not self.shutdown_evt.is_set():
-				data = await self.reader.read(4096)
-				await self.in_queue.put(data)
-		
-		except asyncio.CancelledError:
-			#the SMB connection is terminating
-			return
+		while not self.disconnected.is_set() or not self.shutdown_evt.is_set():			
+			data = await asyncio.gather(*[self.reader.read(4096)], return_exceptions = True)
+			if isinstance(data[0], bytes):
+				await self.in_queue.put(data[0])
 			
-		except Exception as e:	
-			logger.exception('[TCPSocket] handle_incoming %s' % str(e))
-			await self.disconnect()
-			
+			elif isinstance(data[0], asyncio.CancelledError):
+				return
+				
+			elif isinstance(data[0], Exception):
+				if not self.shutdown_evt.is_set():
+					logger.exception('[TCPSocket] handle_incoming %s' % str(data[0]))
+				await self.disconnect()
+				return
 		
 	async def handle_outgoing(self):
 		"""

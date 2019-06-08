@@ -37,6 +37,7 @@ class SMBConnectionStatus(enum.Enum):
 	NEGOTIATING = 'NEGOTIATING'
 	SESSIONSETUP = 'SESSIONSETUP'
 	RUNNING = 'RUNNING'
+	CLOSED = 'CLOSED'
 	
 class TreeEntry:
 	def __init__(self):
@@ -198,6 +199,15 @@ class SMBConnection:
 		await self.negotiate()
 		await self.session_setup()
 		
+	async def fake_login(self):
+		if 'NTLMSSP - Microsoft NTLM Security Support Provider' not in self.gssapi.authentication_contexts:
+			raise Exception('Fake authentication is only supported via NTLM package')
+		await self.connect()
+		await self.negotiate()
+		await self.session_setup(fake_auth = True)
+		await self.disconnect()
+		return self.gssapi.get_extra_info()
+		
 	async def connect(self):
 		"""
 		Establishes socket connection to the remote endpoint. Also starts the internal reading procedures.
@@ -222,8 +232,14 @@ class SMBConnection:
 		Doesn't do any cleanup! 
 		For proper cleanup call the terminate function.
 		"""
+		if self.status == SMBConnectionStatus.CLOSED:
+			return
+		
+		self.status = SMBConnectionStatus.CLOSED
+		self.shutdown_evt.set()
 		await self.netbios_transport.stop()
 		await self.network_transport.disconnect()
+		
 		
 		
 	async def negotiate(self):
@@ -296,7 +312,7 @@ class SMBConnection:
 			
 		self.status = SMBConnectionStatus.SESSIONSETUP
 		
-	async def session_setup(self):
+	async def session_setup(self, fake_auth = False):
 		
 		authdata = None
 		status = NTStatus.MORE_PROCESSING_REQUIRED
@@ -305,6 +321,9 @@ class SMBConnection:
 			command = SESSION_SETUP_REQ()
 			try:
 				command.Buffer, res  = await self.gssapi.authenticate(authdata)
+				if fake_auth == True:
+					if self.gssapi.selected_authentication_context is not None and self.gssapi.selected_authentication_context.ntlmChallenge is not None:
+						return
 			except Exception as e:
 				logger.exception('GSSAPI auth failed!')
 				#TODO: Clear this up, kerberos lib needs it's own exceptions!
@@ -769,6 +788,9 @@ class SMBConnection:
 		if self.session_closed == True:
 			return
 			
+		if self.status == SMBConnectionStatus.CLOSED:
+			return
+			
 		command = LOGOFF_REQ()
 		
 		header = SMB2Header_SYNC()
@@ -842,9 +864,9 @@ class SMBConnection:
 		Use this function to properly terminate the SBM connection.
 		Terminates the connection. Closes all tree handles, logs off and disconnects the TCP connection.
 		"""
-		if self.session_closed == True:
+		if self.session_closed == True or self.status == SMBConnectionStatus.CLOSED:
 			return
-			
+		
 		if self.status == SMBConnectionStatus.RUNNING:
 			#only doing the proper disconnection if the connection was already running
 			for tree_id in list(self.TreeConnectTable_id.keys()):

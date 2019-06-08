@@ -35,5 +35,4 @@ class SMBTransport(DCERPCTransport):
 	
 	async def recv(self, forceRecv = 0, count = 0):
 		t = await self.pipe_reader.read(-1)
-		print(t)
 		return t

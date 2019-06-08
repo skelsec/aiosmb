@@ -12,11 +12,16 @@ class SMBNTLMSSPI:
 		self.sspi = NTLMSMBSSPI()
 		self.client = None
 		self.target = None
+		#self.ntlmChallenge = None
 		
 		self.session_key = None
 		self.ntlm_ctx = NTLMAUTHHandler(NTLMHandlerSettings(None, 'MANUAL'))
 		
 		self.setup()
+		
+	@property
+	def ntlmChallenge(self):
+		return self.ntlm_ctx.ntlmChallenge
 		
 	def setup(self):
 		self.mode = self.settings.mode.upper()
@@ -43,7 +48,7 @@ class SMBNTLMSSPI:
 		return self.session_key
 		
 	def get_extra_info(self):
-		return self.ntlm_ctx.get_extra_info(self)
+		return self.ntlm_ctx.get_extra_info()
 		
 	def is_extended_security(self):
 		return self.ntlm_ctx.is_extended_security()

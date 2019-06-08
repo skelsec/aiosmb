@@ -94,7 +94,6 @@ class TCPTransport(DCERPCTransport):
 		DCERPCTransport.__init__(self, connection, remote_name, dstport)
 		self.address = remote_name
 		self.port = dstport
-		print(self.port )
 		
 		self.connection = DCERPCTCPConnection(remote_name, dstport)
 		self.buffer = b''
@@ -107,11 +106,8 @@ class TCPTransport(DCERPCTransport):
 			self.data_in_evt.set()
 		
 	async def connect(self):
-		print(1)
 		asyncio.ensure_future(self.__handle_incoming())
-		print(2)
 		await self.connection.connect()
-		print(3)
 		
 		return 1
 	

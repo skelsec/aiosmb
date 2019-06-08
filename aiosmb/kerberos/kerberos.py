@@ -62,10 +62,8 @@ class SMBKerberos:
 			else:
 				#mutual authentication part here
 				aprep = AP_REP.load(authData).native
-				print(aprep['enc-part']['etype'])
 				cipher = _enctype_table[int(aprep['enc-part']['etype'])]()
 				cipher_text = aprep['enc-part']['cipher']
-				print(cipher_text.hex())
 				temp = cipher.decrypt(self.session_key, 12, cipher_text)
 				
 				enc_part = EncAPRepPart.load(temp).native
@@ -90,7 +88,6 @@ class SMBKerberos:
 				token = AP_REP(ap_rep).dump()
 				
 				self.gssapi = get_gssapi(self.session_key)
-				print(self.gssapi)
 				self.iterations += 1
 				
 				return token, False

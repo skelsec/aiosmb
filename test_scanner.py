@@ -67,6 +67,9 @@ class SMBADScanner:
 	
 class SMBHostScanner:
 	def __init__(self, connection, results_queue = None):
+		"""
+		Connection MUST NOT be initialized!!!!
+		"""
 		self.connection = connection
 		self.hostinfo = SMBHostInfo()
 		self.results_queue = results_queue
@@ -80,6 +83,18 @@ class SMBHostScanner:
 		
 	async def connect(self):
 		await self.connection.login()
+		
+	async def fake_logon(self):
+		"""
+		Initiates NTLM authentication, but disconnects after the server sent the CHALLENGE message.
+		Useful for getting info on the server without having valid user creds
+		"""
+		extra_info = await self.connection.fake_login()
+		print(extra_info)
+		if self.results_queue is not None:
+			await self.results_queue.put(extra_info)
+		else:
+			self.hostinfo.finger_info = extra_info
 		
 	async def open_srvs(self):
 		if self.srvs_works == False:
@@ -191,59 +206,269 @@ class SMBHostScanner:
 	
 	async def run(self):
 		
-		await self.list_shares()
-		for share in self.hostinfo.shares:
-			if share.name in ['IPC$', 'ADMIN$']:
-				continue
-			await self.enumerate_share(share)
-		await self.enumerate_sessions()
-		await self.enumerate_groups()
+		await self.fake_logon()
+		#await self.list_shares()
+		#for share in self.hostinfo.shares:
+		#	if share.name in ['IPC$', 'ADMIN$']:
+		#		continue
+		#	await self.enumerate_share(share)
+		#await self.enumerate_sessions()
+		#await self.enumerate_groups()
 		
+		
+class SMBScanCommandFinger:
+	def __init__(self, credential = None, target = None):
+		self.credential = credential
+		self.target = target
+		
+class SMBScanResultFinger:
+	def __init__(self):
+		self.extrainfo = None
+
+class SMBScanCommandListShares:
+	def __init__(self):
+		self.credential = None
+		self.target = None
+		
+class SMBScanResultListShares:
+	def __init__(self):
+		self.shares = {}
+		
+class SMBScanCommandListEnumShares:
+	def __init__(self):
+		self.credential = None
+		self.target = None
+		self.max_depth = None
+		self.skip_shares = {}
+		self.skip_folders = {}
+		self.grab_sids = True
+		
+class SMBScanCommandEnumSessions:
+	def __init__(self):
+		self.credential = None
+		self.target = None
+		
+class SMBScanResultEnumSessions:
+	def __init__(self):
+		self.sessions = {}
+		
+class SMBScanCommandEnumLocalGroups:
+	def __init__(self):
+		self.credential = None
+		self.target = None
+		self.group_rids = {}
+		
+class SMBScanResultEnumLocalGroups:
+	def __init__(self):
+		self.groups = {}
+		
+class SMBScanCommandEnumServices:
+	def __init__(self):
+		self.credential = None
+		self.target = None
+		
+class SMBScanResultEnumServices:
+	def __init__(self):
+		self.services = {}
+		
+class SMBScanCommandEnumSchedTasks:
+	def __init__(self):
+		self.credential = None
+		self.target = None
+		
+class SMBScanResultEnumSchedTasks:
+	def __init__(self):
+		self.tasks = {}
+		
+class SMBScanCommandEnumNetworkInterfaces:
+	def __init__(self):
+		self.credential = None
+		self.target = None
+		
+class SMBScanResultEnumNetworkInterfaces:
+	def __init__(self):
+		self.interfaces = None
+		
+class SMBScanScannerSetup:
+	def __init__(self):
+		self.max_workers = None
+		
+class SMBScanScannerStop:
+	def __init__(self):
+		self.a = None
+		
+class SMBScanTask:
+	def __init__(self, target, credential = None, commands = []):
+		self.target = target
+		self.credential = credential
+		self.commands = commands
+		
+		
+class SMBScanWorker:
+	def __init__(self, work_queue, results_queue, shutdown_evt = asyncio.Event()):
+		self.work_queue = work_queue
+		self.results_queue = results_queue
+		self.shutdown_evt = shutdown_evt
+		
+	async def run(self):
+		while not self.shutdown_evt.is_set():
+			
+			get_task = asyncio.create_task(self.work_queue.get())
+			shutdown_task = asyncio.create_task(self.shutdown_evt.wait())
+			done, pending = await asyncio.wait([get_task, shutdown_task], return_when = asyncio.FIRST_COMPLETED)
+			if shutdown_task in done:
+				print('shutdown!')
+				return
+			if get_task in done:
+				job = await get_task
+				input('SMBScanWorker run %s' % job)
+				try:
+					#TODO:
+					result = None
+					
+					
+				except Exception as e:
+					print(e)
+				
+				else:
+					await self.results_queue.put(result)
 		
 class SMBScanner:
-	def __init__(self, spnego, max_workers = 200, targets = None, targets_queue = None, results_queue = None):
-		self.spnego = spnego
-		self.targets = targets
-		self.targets_queue = targets_queue
-		self.results_queue = results_queue
-		self.scan_finished = asyncio.Event()
+	def __init__(self, config):
+		self.config = config
 		
-		self.__scan_queue = asyncio.Queue()
-		self.__result_queue = asyncio.Queue()
-		self.max_workers = max_workers
+		######### FROM CONFIG
+		self.command_queue = None
+		self.results_queue = None
 		
+		######### INTERNAL
+		self.work_queue = asyncio.Queue()
+		self.work_results = asyncio.Queue()
 		self.shutdown_evt = asyncio.Event()
+		self.dispatch_results_task = None
+		
+		######### FROM SETUP COMMAND
+		self.max_workers = 0
 		self.worker_tasks = []
 		
-		self.scan_type = 'QUEUE'
+	async def setup(self, setup_cmd):
+		self.max_workers = setup_cmd.max_workers
 		
-	async def scan_worker(self):
-		while not self.shutdown_evt.is_set():
-			host_scanner = await self.targets_queue.get()
-			try:
-				res = await host_scanner.run()
-			except Exception as e:
-				print('scan_worker error: %s' % e)
-			else:
-				if res is None:
-					continue
-				await self.__result_queue.put(res)
-	
-
-	async def run_queue(self):
 		for i in range(self.max_workers):
-			self.worker_tasks.append(asyncio.create_task(self.scan_worker()))
+			worker = SMBScanWorker(self.work_queue, self.work_results, self.shutdown_evt)
+			self.worker_tasks.append(asyncio.create_task(worker.run()))
 		
+	async def run(self):
+		if self.config['mode'] == 'INTERNAL':
+			self.command_queue = self.config['command_queue']
+			self.results_queue = self.config['results_queue']
+		
+		else:
+			raise Exception('Not implemented!')
+			return
+		
+		self.dispatch_results_task = asyncio.ensure_future(self.dispatch_results())
+		asyncio.ensure_future(self.fetch_commands())
+		
+		
+		
+		
+	async def fetch_commands(self):
 		while not self.shutdown_evt.is_set():
-			target = await self.targets_queue.get()
-			if target is None:
-				break
+			cmd = await self.command_queue.get()
+			if isinstance(cmd, SMBScanScannerSetup):
+				await self.setup(cmd)
+				
+			elif isinstance(cmd, SMBScanScannerStop):
+				print('SMBScanner shutting down!')
+				self.shutdown_evt.set()
+				try:
+					await asyncio.wait_for(asyncio.gather(*self.worker_tasks), timeout = 1)
+				except asyncio.TimeoutError:
+					for task in self.worker_tasks:
+						task.cancel()
+				print('All workers finished!')
+				self.dispatch_results_task.cancel()
+				return
 			
-		await asyncio.gather(*self.worker_tasks, return_exceptions=True)
-		print('scan finished!')
+			else:
+				print('fetch_commands : %s' % cmd)
+				job = cmd
+				await self.work_queue.put(job)
+			
+	async def dispatch_results(self):
+		while not self.shutdown_evt.is_set():
+			result = await self.work_results.get()
+			await self.results_queue.put(result)
+	
+			
+		
+class SMBScannerManager:
+	def __init__(self, max_workers = 200, tasks = [], tasks_queue = None):
+		#self.spnego = spnego
+		self.tasks = tasks
+		self.tasks_queue = tasks_queue
+		self.max_workers = max_workers
+		
+		self.scanners_in_q = asyncio.Queue()
+		self.scanners_out_q = asyncio.Queue()
+		self.shutdown_evt = asyncio.Event()
+		self.scanner = None
+		
+		self.__command_queue = asyncio.Queue()
+		self.__results_queue = asyncio.Queue()
+	
+	async def run_internal(self):
+		config= {
+			'mode' : 'INTERNAL',
+			'command_queue' : self.scanners_out_q,
+			'results_queue' : self.scanners_in_q,
+		}
+		
+		self.scanner = SMBScanner(config)
+		await self.scanner.run()
+		
+		ss = SMBScanScannerSetup()
+		ss.max_workers = self.max_workers
+		await self.__command_queue.put(ss)
+		
+		asyncio.ensure_future(self.send_tasks())
+		asyncio.ensure_future(self.process_results())
+		
+		asyncio.ensure_future(self.dispatch_tasks())
+		
+		await self.shutdown_evt.wait()
+		
+	async def dispatch_tasks(self):
+		for task in self.tasks:
+			await self.__command_queue.put(task)
+			
+		if self.tasks_queue is not None:
+			while True:
+				task = await self.tasks_queue.get()
+				await self.__command_queue.put(task)
+		
+	async def send_tasks(self):
+		while not self.shutdown_evt.is_set():
+			job = await self.__command_queue.get()
+			print('send_tasks %s' % str(job))
+			await self.scanners_out_q.put(job)
 		
 		
-		
+	async def process_results(self):
+		while not self.shutdown_evt.is_set():
+			res = await asyncio.gather(*[self.__results_queue.get(), self.shutdown_evt.wait()], return_exceptions = True)
+			print('send_tasks %s' % str(res))
+
+async def scanmanager_test(connection_string):
+	target = SMBTarget.from_connection_string(connection_string)
+	credential = SMBCredential.from_connection_string(connection_string)
+	command = SMBScanCommandFinger()
+	
+	task = SMBScanTask(target, credential = credential, commands = [command])
+	
+	sm = SMBScannerManager(tasks = [task])
+	await sm.run_internal()
 
 async def filereader_test(connection_string, filename):
 	target = SMBTarget.from_connection_string(connection_string)
@@ -253,11 +478,11 @@ async def filereader_test(connection_string, filename):
 	
 	async with SMBConnection(spneg, target) as connection:
 		
-		try:
-			await connection.login()
-		except Exception as e:
-			print(str(e))
-			raise e
+		#try:
+		#	await connection.login()
+		#except Exception as e:
+		#	print(str(e))
+		#	raise e
 			
 		results_queue =asyncio.Queue()
 		host_scanner = SMBHostScanner(connection, results_queue = results_queue)
@@ -279,7 +504,8 @@ if __name__ == '__main__':
 	filename = '\\\\10.10.10.2\\Users\\Administrator\\Desktop\\smb_test\\testfile1.txt'
 	
 	
-	asyncio.run(filereader_test(connection_string, filename))
+	#asyncio.run(filereader_test(connection_string, filename))
+	asyncio.run(scanmanager_test(connection_string))
 	
 	
 	'TODO: TEST NT hash with ntlm!'

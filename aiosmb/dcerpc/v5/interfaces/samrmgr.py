@@ -114,7 +114,7 @@ class SMBSAMR:
 
 			for user in resp['Buffer']['Buffer']:
 				user_sid = '%s-%s' % (self.domain_handles[domain_handle], user['RelativeId'])
-				yield user_sid, user['Name']
+				yield user['Name'], user_sid 
 
 			enumerationContext = resp['EnumerationContext'] 
 			status = NTStatus(resp['ErrorCode'])
@@ -153,7 +153,7 @@ class SMBSAMR:
 			
 			for user in resp['Buffer']['Buffer']:
 				user_sid = '%s-%s' % (self.domain_handles[domain_handle], user['RelativeId'])
-				yield user_sid, user['Name']
+				yield user['Name'], user_sid
 			enumerationContext = resp['EnumerationContext'] 
 			status = NTStatus(resp['ErrorCode'])
 

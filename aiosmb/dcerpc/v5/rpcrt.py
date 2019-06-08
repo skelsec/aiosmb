@@ -1001,8 +1001,7 @@ class DCERPC_v5(DCERPC):
 		if alter:
 			packet['type'] = MSRPC_ALTERCTX
 
-		input('Bind auth type: %s' % self.__auth_type)
-		input('Bind auth level: %s' % self.__auth_level)
+
 		if self.__auth_level != RPC_C_AUTHN_LEVEL_NONE:
 			if (self.__username is None) or (self.__password is None):
 				#self.__username, self.__password, self.__domain, self.__lmhash, self.__nthash, self.__aesKey, self.__TGT, self.__TGS = self._transport.get_credentials()
@@ -1014,7 +1013,7 @@ class DCERPC_v5(DCERPC):
 				#auth = ntlm.getNTLMSSPType1('', '', signingRequired=True,
 				#							use_ntlmv2=self._transport.doesSupportNTLMv2())
 				
-				print('RPC - NTLM auth 1')
+				#print('RPC - NTLM auth 1')
 				self._transport.get_ntlm_ctx()
 				#seal flag MUST be turned on in the handshake flags!!!!!!!
 				#it is "signaled via the is_rpc variable"
@@ -1022,14 +1021,12 @@ class DCERPC_v5(DCERPC):
 				self.__sessionKey = self._transport._ntlm_ctx.get_session_key()
 			
 			elif self.__auth_type == RPC_C_AUTHN_NETLOGON:
-				input('RPC_C_AUTHN_NETLOGON Not implemented!')
 				raise Exception('Not implemented!')
 				#TODO: implement this
 				#from impacket.dcerpc.v5 import nrpc
 				#auth = nrpc.getSSPType1(self.__username[:-1], self.__domain, signingRequired=True)
 			
 			elif self.__auth_type == RPC_C_AUTHN_GSS_NEGOTIATE:
-				input('RPC_C_AUTHN_GSS_NEGOTIATE start!')
 				self._transport.get_spnego()
 				auth, res  = await self._transport._spnego_ctx.authenticate(None, flags =   GSSAPIFlags.GSS_C_CONF_FLAG |\
 																							GSSAPIFlags.GSS_C_INTEG_FLAG | \
@@ -1066,7 +1063,6 @@ class DCERPC_v5(DCERPC):
 		await self._transport.send(packet.get_packet())
 
 		s = await self.recv_one()
-		input(s)
 
 		if s != 0:
 			resp = MSRPCHeader(s)
@@ -1110,7 +1106,6 @@ class DCERPC_v5(DCERPC):
 		# The received transmit size becomes the client's receive size, and the received receive size becomes the client's transmit size.
 		self.__max_xmit_size = bindResp['max_rfrag']
 
-		input(self.__auth_type)
 		if self.__auth_level != RPC_C_AUTHN_LEVEL_NONE:
 			if self.__auth_type == RPC_C_AUTHN_WINNT:
 				
@@ -1294,11 +1289,10 @@ class DCERPC_v5(DCERPC):
 				elif self.__auth_type == RPC_C_AUTHN_GSS_NEGOTIATE:
 					#sealedMessage, signature = self.__gss.GSS_Wrap(self.__sessionKey, plain_data, self.__sequence)
 					sealedMessage, signature = await self._transport._spnego_ctx.encrypt(plain_data, self.__sequence)
-					input(sealedMessage)
 
 				rpc_packet['pduData'] = sealedMessage
-				print(sealedMessage)
-				print(self.__auth_level)
+				#print(sealedMessage)
+				#print(self.__auth_level)
 			elif self.__auth_level == RPC_C_AUTHN_LEVEL_PKT_INTEGRITY: 
 				if self.__auth_type == RPC_C_AUTHN_WINNT:
 					if self.__flags & ntlm.NTLMSSP_NEGOTIATE_EXTENDED_SESSIONSECURITY:
@@ -1476,7 +1470,7 @@ class DCERPC_v5(DCERPC):
 				# Forcing Read Recv, we need more packets!
 				forceRecv = 1
 			
-			print('response_data: %s' % response_data.hex())
+			#print('response_data: %s' % response_data.hex())
 			answer = response_data[off:]
 			auth_len = response_header['auth_len']
 			if auth_len:
@@ -1484,7 +1478,7 @@ class DCERPC_v5(DCERPC):
 				auth_data = answer[-auth_len:]
 				sec_trailer = SEC_TRAILER(data = auth_data)
 				answer = answer[:-auth_len]
-				print('AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAa')
+				
 				if sec_trailer['auth_level'] == RPC_C_AUTHN_LEVEL_PKT_PRIVACY:
 					if self.__auth_type == RPC_C_AUTHN_WINNT:
 						if self._transport._ntlm_ctx.is_extended_security() == True:
@@ -1533,7 +1527,6 @@ class DCERPC_v5(DCERPC):
 						if self.__sequence > 0:
 							tasks = [self._transport._spnego_ctx.decrypt(answer, self.__sequence, direction='init', auth_data=auth_data)]
 							res = await asyncio.gather(*tasks, return_exceptions = True)
-							print(res)
 							if isinstance(res[0], Exception):
 								raise res[0]
 							else:

@@ -3,7 +3,9 @@ import logging
 from aiosmb import logger
 
 #from aiosmb.dtyp.constrcuted_security.guid import GUID
-
+from aiosmb.commons.smbcontainer import SMBUserSecrets
+from aiosmb.dtyp.structures.filetime import FILETIME
+from aiosmb.dtyp.constrcuted_security.sid import SID
 from aiosmb.dcerpc.v5.dtypes import NULL
 from aiosmb.dcerpc.v5.uuid import string_to_bin
 from aiosmb.dcerpc.v5.transport.smbtransport import SMBTransport
@@ -64,7 +66,7 @@ class SMBDRSUAPI:
 		
 	async def connect(self, open = False):
 		stringBinding = await epm.hept_map(self.connection, drsuapi.MSRPC_UUID_DRSUAPI, protocol='ncacn_ip_tcp')
-		print(stringBinding)
+		#print(stringBinding)
 		rpc = DCERPCTransportFactory(stringBinding, self.connection)
 		
 		rpc.setRemoteHost(self.connection.target.get_ip())
@@ -74,7 +76,7 @@ class SMBDRSUAPI:
 		#if self.__doKerberos:
 		#	self.dce.set_auth_type(RPC_C_AUTHN_GSS_NEGOTIATE)
 		await self.dce.connect()
-		print('Connected!')
+		#print('Connected!')
 		
 		if open == True:
 			await self.open()
@@ -83,13 +85,7 @@ class SMBDRSUAPI:
 		if not self.dce:
 			await self.connect()
 		
-		print('WOW!')
 		await self.dce.bind(drsuapi.MSRPC_UUID_DRSUAPI)
-		print('WOW2!')
-		
-		#if self.__domainName is None:
-			# Get domain name from credentials cached
-		#	self.__domainName = rpc.get_credentials()[2]
 			
 		request = drsuapi.DRSBind()
 		request['puuidClientDsa'] = drsuapi.NTDSAPI_CLIENT_GUID
@@ -107,8 +103,6 @@ class SMBDRSUAPI:
 		request['pextClient']['cb'] = len(drs)
 		request['pextClient']['rgb'] = list(drs.getData())
 		resp = await self.dce.request(request)
-		
-		print(resp.dump())
 		
 		# Let's dig into the answer to check the dwReplEpoch. This field should match the one we send as part of
 		# DRSBind's DRS_EXTENSIONS_INT(). If not, it will fail later when trying to sync data.
@@ -134,8 +128,7 @@ class SMBDRSUAPI:
 		# Now let's get the NtdsDsaObjectGuid UUID to use when querying NCChanges
 		resp = await drsuapi.hDRSDomainControllerInfo(self.dce, self.handle, self.domainname, 2)
 		if logger.level == logging.DEBUG:
-			logger.debug('DRSDomainControllerInfo() answer')
-			resp.dump()
+			logger.debug('DRSDomainControllerInfo() answer %s' % resp.dump())
 
 		if resp['pmsgOut']['V2']['cItems'] > 0:
 			self.__NtdsDsaObjectGuid = resp['pmsgOut']['V2']['rItems'][0]['NtdsDsaObjectGuid']
@@ -163,13 +156,11 @@ class SMBDRSUAPI:
 			drsuapi.DS_NAME_FORMAT.DS_UNIQUE_ID_NAME,
 			name=username
 		)
-		print(crackedName.dump())
 		
 		###### TODO: CHECKS HERE
 		
 		#guid = GUID.from_string(crackedName['pmsgOut']['V1']['pResult']['rItems'][0]['pName'][:-1][1:-1])
 		guid = crackedName['pmsgOut']['V1']['pResult']['rItems'][0]['pName'][:-1][1:-1]
-		input(guid)
 		
 		userRecord = await self.DRSGetNCChanges(guid, ra)
 		
@@ -185,19 +176,8 @@ class SMBDRSUAPI:
 		##### decryption!
 		logger.debug('Decrypting hash for user: %s' % record['pmsgOut'][replyVersion]['pNC']['StringName'][:-1])
 		
-		domain = None
-		LMHistory = []
-		NTHistory = []
-		kerberos_keys = []
-		cleartext_pwds = []
-		
-		NTHash = None
-		LMHash = None
-		userName = None
-		objectSid = None
-		pwdLastSet = None
-		userAccountStatus = None
-		userProperties = None
+		us = SMBUserSecrets()
+		user_properties = None
 
 		rid = int.from_bytes(record['pmsgOut'][replyVersion]['pObjects']['Entinf']['pName']['Sid'][-4:], 'little', signed = False)
 		
@@ -218,57 +198,60 @@ class SMBDRSUAPI:
 				if attr['AttrVal']['valCount'] > 0:
 					encrypteddBCSPwd = b''.join(attr['AttrVal']['pAVal'][0]['pVal'])
 					encryptedLMHash = drsuapi.DecryptAttributeValue(self.dce.get_session_key(), encrypteddBCSPwd)
-					LMHash = drsuapi.removeDESLayer(encryptedLMHash, rid)
+					us.lm_hash = drsuapi.removeDESLayer(encryptedLMHash, rid)
 				else:
-					LMHash = bytes.fromhex('aad3b435b51404eeaad3b435b51404ee')
+					us.lm_hash = bytes.fromhex('aad3b435b51404eeaad3b435b51404ee')
 					
 			elif attId == LOOKUP_TABLE['unicodePwd']:
 				if attr['AttrVal']['valCount'] > 0:
 					encryptedUnicodePwd = b''.join(attr['AttrVal']['pAVal'][0]['pVal'])
 					encryptedNTHash = drsuapi.DecryptAttributeValue(self.dce.get_session_key(), encryptedUnicodePwd)
-					NTHash = drsuapi.removeDESLayer(encryptedNTHash, rid)
+					us.nt_hash = drsuapi.removeDESLayer(encryptedNTHash, rid)
 				else:
-					NTHash = bytes.fromhex('31d6cfe0d16ae931b73c59d7e0c089c0')
+					us.nt_hash = bytes.fromhex('31d6cfe0d16ae931b73c59d7e0c089c0')
 					
 			elif attId == LOOKUP_TABLE['userPrincipalName']:
 				if attr['AttrVal']['valCount'] > 0:
 					try:
-						domain = b''.join(attr['AttrVal']['pAVal'][0]['pVal']).decode('utf-16le').split('@')[-1]
+						us.domain = b''.join(attr['AttrVal']['pAVal'][0]['pVal']).decode('utf-16le').split('@')[-1]
 					except:
-						domain = None
-					else:
-						domain = None
+						us.domain = None
+				else:
+					us.domain = None
 						
 			elif attId == LOOKUP_TABLE['sAMAccountName']:
 				if attr['AttrVal']['valCount'] > 0:
 					try:
-						userName = b''.join(attr['AttrVal']['pAVal'][0]['pVal']).decode('utf-16le')
+						us.username = b''.join(attr['AttrVal']['pAVal'][0]['pVal']).decode('utf-16le')
 					except Exception as e:
 						logger.error('Cannot get sAMAccountName for %s' % record['pmsgOut'][replyVersion]['pNC']['StringName'][:-1])
-						userName = 'unknown'
+						us.username = 'unknown'
 				else:
 					logger.error('Cannot get sAMAccountName for %s' % record['pmsgOut'][replyVersion]['pNC']['StringName'][:-1])
-					userName = 'unknown'
+					us.username = 'unknown'
 						
 			elif attId == LOOKUP_TABLE['objectSid']:
 				if attr['AttrVal']['valCount'] > 0:
-					objectSid = b''.join(attr['AttrVal']['pAVal'][0]['pVal'])
+					us.object_sid = SID.from_bytes(b''.join(attr['AttrVal']['pAVal'][0]['pVal']))
 				else:
 					logger.error('Cannot get objectSid for %s' % record['pmsgOut'][replyVersion]['pNC']['StringName'][:-1])
-					objectSid = rid
+					us.object_sid = rid
 			elif attId == LOOKUP_TABLE['pwdLastSet']:
 				if attr['AttrVal']['valCount'] > 0:
 					try:
-						pwdLastSet = self.__fileTimeToDateTime(unpack('<Q', b''.join(attr['AttrVal']['pAVal'][0]['pVal']))[0])
-					except:
+						
+						us.pwd_last_set = FILETIME.from_bytes(b''.join(attr['AttrVal']['pAVal'][0]['pVal'])).datetime.isoformat()
+					except Exception as e:
+						
 						logger.error('Cannot get pwdLastSet for %s' % record['pmsgOut'][replyVersion]['pNC']['StringName'][:-1])
-						pwdLastSet = 'N/A'
+						us.pwd_last_set = None
+						input(e)
 						
 			elif attId == LOOKUP_TABLE['userAccountControl']:
 				if attr['AttrVal']['valCount'] > 0:
-					userAccountStatus = int.from_bytes(b''.join(attr['AttrVal']['pAVal'][0]['pVal']), 'little', signed = False)
+					us.user_account_status = int.from_bytes(b''.join(attr['AttrVal']['pAVal'][0]['pVal']), 'little', signed = False)
 				else:
-					userAccountStatus = None
+					us.user_account_status = None
 					
 			if attId == LOOKUP_TABLE['lmPwdHistory']:
 				if attr['AttrVal']['valCount'] > 0:
@@ -276,7 +259,7 @@ class SMBDRSUAPI:
 					tmpLMHistory = drsuapi.DecryptAttributeValue(self.dce.get_session_key(), encryptedLMHistory)
 					for i in range(0, len(tmpLMHistory) // 16):
 						LMHashHistory = drsuapi.removeDESLayer(tmpLMHistory[i * 16:(i + 1) * 16], rid)
-						LMHistory.append(LMHashHistory)
+						us.lm_history.append(LMHashHistory)
 				else:
 					logger.debug('No lmPwdHistory for user %s' % record['pmsgOut'][replyVersion]['pNC']['StringName'][:-1])
 			elif attId == LOOKUP_TABLE['ntPwdHistory']:
@@ -285,7 +268,7 @@ class SMBDRSUAPI:
 					tmpNTHistory = drsuapi.DecryptAttributeValue(self.dce.get_session_key(), encryptedNTHistory)
 					for i in range(0, len(tmpNTHistory) // 16):
 						NTHashHistory = drsuapi.removeDESLayer(tmpNTHistory[i * 16:(i + 1) * 16], rid)
-						NTHistory.append(NTHashHistory)
+						us.nt_history.append(NTHashHistory)
 				else:
 					logger.debug('No ntPwdHistory for user %s' % record['pmsgOut'][replyVersion]['pNC']['StringName'][:-1])
 					
@@ -298,16 +281,16 @@ class SMBDRSUAPI:
 						
 					else:
 						try:
-							userProperties = samr.USER_PROPERTIES(supplementalCredentials)
+							user_properties = samr.USER_PROPERTIES(supplementalCredentials)
 						except Exception as e:
 							# On some old w2k3 there might be user properties that don't
 							# match [MS-SAMR] structure, discarding them
 							pass
 			
 		
-		if userProperties is not None:
-			propertiesData = userProperties['UserProperties']
-			for propertyCount in range(userProperties['PropertyCount']):
+		if user_properties is not None:
+			propertiesData = user_properties['UserProperties']
+			for propertyCount in range(user_properties['PropertyCount']):
 				userProperty = samr.USER_PROPERTY(propertiesData)
 				propertiesData = propertiesData[len(userProperty):]
 				# For now, we will only process Newer Kerberos Keys and CLEARTEXT
@@ -321,39 +304,33 @@ class SMBDRSUAPI:
 						keyValue = propertyValueBuffer[keyDataNew['KeyOffset']:][:keyDataNew['KeyLength']]
 
 						if  keyDataNew['KeyType'] in self.KERBEROS_TYPE:
-							answer =  "%s:%s:%s" % (userName, self.KERBEROS_TYPE[keyDataNew['KeyType']],keyValue.hex())
+							answer =  (self.KERBEROS_TYPE[keyDataNew['KeyType']],keyValue)
 						else:
-							answer =  "%s:%s:%s" % (userName, hex(keyDataNew['KeyType']),keyValue.hex())
+							answer =  (hex(keyDataNew['KeyType']),keyValue)
 						# We're just storing the keys, not printing them, to make the output more readable
 						# This is kind of ugly... but it's what I came up with tonight to get an ordered
 						# set :P. Better ideas welcomed ;)
-						kerberos_keys.append(answer)
+						us.kerberos_keys.append(answer)
 				elif userProperty['PropertyName'].decode('utf-16le') == 'Primary:CLEARTEXT':
 					# [MS-SAMR] 3.1.1.8.11.5 Primary:CLEARTEXT Property
 					# This credential type is the cleartext password. The value format is the UTF-16 encoded cleartext password.
 					try:
-						answer = "%s:CLEARTEXT:%s" % (userName, unhexlify(userProperty['PropertyValue']).decode('utf-16le'))
+						answer = (userProperty['PropertyValue'].decode('utf-16le'))
 					except UnicodeDecodeError:
 						# This could be because we're decoding a machine password. Printing it hex
-						answer = "%s:CLEARTEXT:0x%s" % (userName, userProperty['PropertyValue'].decode('utf-8'))
+						answer = (userProperty['PropertyValue'].decode('utf-8'))
 
-					cleartext_pwds.append(answer)
+					us.cleartext_pwds.append(answer)
 			
 		
-		print('NT hash %s' % NTHash)
-		print('LM hash %s' % LMHash)
-		print('LM hash %s' % LMHistory)	
-		print('NT hash %s' % NTHistory)	
-		print('kerberos_keys %s' % kerberos_keys)	
-		print('cleartext_pwds %s' % cleartext_pwds)	
-		input()
+		return us
 			
 		
 	async def DRSCrackNames(self, formatOffered=drsuapi.DS_NAME_FORMAT.DS_DISPLAY_NAME, formatDesired=drsuapi.DS_NAME_FORMAT.DS_FQDN_1779_NAME, name=''):
 		if self.handle is None:
 			await self.open()
 
-		logger.debug('Calling DRSCrackNames for %s ' % name)
+		logger.debug('Calling DRSCrackNames for %s' % name)
 		resp = await drsuapi.hDRSCrackNames(self.dce, self.handle, 0, formatOffered, formatDesired, (name,))
 		return resp
 		
@@ -405,4 +382,13 @@ class SMBDRSUAPI:
 		return await self.dce.request(request)
 		
 	async def close(self):
-		raise Exception('Not implemented!')
+		if self.handle:
+			try:
+				await drsuapi.hDRSUnbind(self.dce, self.handle)
+			except:
+				pass
+		if self.dce:
+			try:
+				await self.dce.disconnect()
+			except:
+				pass
