@@ -245,7 +245,6 @@ class NTLMAUTHHandler:
 		return signkey
 		
 	def get_session_key(self):
-		input('Get session key called! %s' % self.RandomSessionKey)
 		return self.RandomSessionKey
 		
 	def get_sealkey(self, mode = 'Client'):

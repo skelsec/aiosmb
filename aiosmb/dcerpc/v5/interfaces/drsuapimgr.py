@@ -73,12 +73,11 @@ class SMBDRSUAPI:
 		rpc.setRemoteName(self.connection.target.get_ip())
 		
 		self.dce = rpc.get_dce_rpc()
+		#the line below must be set!
 		self.dce.set_auth_level(RPC_C_AUTHN_LEVEL_PKT_PRIVACY)
-		#self.dce.set_auth_level(RPC_C_AUTHN_LEVEL_PKT_INTEGRITY)
 		
 		try:
 			await self.dce.connect()
-			print('Connected! %s' % str(self.dce))
 		except  Exception as e:
 			print(e)
 			

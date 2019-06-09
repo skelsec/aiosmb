@@ -29,7 +29,6 @@ from aiosmb import logger as LOG
 
 
 from aiosmb.dcerpc.v5.structure import Structure,pack,unpack
-#from impacket.krb5 import kerberosv5, gssapi
 from aiosmb.dcerpc.v5 import uuid
 from aiosmb.dcerpc.v5.uuid import uuidtup_to_bin, generate, stringver_to_bin, bin_to_uuidtup
 from aiosmb.dcerpc.v5.dtypes import UCHAR, ULONG, USHORT
@@ -971,15 +970,15 @@ class DCERPC_v5(DCERPC):
 
 	async def bind(self, iface_uuid, alter = 0, bogus_binds = 0, transfer_syntax = ('8a885d04-1ceb-11c9-9fe8-08002b104860', '2.0')):
 		
-		#if self._transport.transport_type.upper() != 'SMB':
-		#	###
-		#	### The logic below implies the following: SPNEGO object has ONLY ONE auth method, either kerberos on NTLM
-		#	###
-		#	if self._transport.is_ntlm() == True:
-		#		self.set_auth_type(RPC_C_AUTHN_WINNT)
-		#	
-		#	if self._transport.is_kerberos() == True:
-		#		self.set_auth_type(RPC_C_AUTHN_GSS_NEGOTIATE)
+		if self._transport.transport_type.upper() != 'SMB':
+			###
+			### The logic below implies the following: SPNEGO object has ONLY ONE auth method, either kerberos on NTLM
+			###
+			if self._transport.is_ntlm() == True:
+				self.set_auth_type(RPC_C_AUTHN_WINNT)
+			
+			if self._transport.is_kerberos() == True:
+				self.set_auth_type(RPC_C_AUTHN_GSS_NEGOTIATE)
 	
 		bind = MSRPCBind()
 		#item['TransferSyntax']['Version'] = 1
@@ -1403,7 +1402,7 @@ class DCERPC_v5(DCERPC):
 			   t = await self._transport.recv(response_header['frag_len']-len(response_data))
 			   response_data += t
 
-			print(response_header['type'])
+			
 			if response_header['type'] == MSRPC_FAULT and response_header['frag_len'] >= off+4:
 				status_code = unpack("<L",response_data[off:off+4])[0]
 				if status_code in rpc_status_codes:
@@ -1444,7 +1443,7 @@ class DCERPC_v5(DCERPC):
 			   response_data += t
 
 			off = response_header.get_header_size()
-			print(response_header['type'])
+			
 			if response_header['type'] == MSRPC_FAULT and response_header['frag_len'] >= off+4:
 				status_code = unpack("<L",response_data[off:off+4])[0]
 				if status_code in rpc_status_codes:
