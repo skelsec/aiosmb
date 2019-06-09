@@ -29,8 +29,8 @@ setup(
 	# long_description=open("README.txt").read(),
 	python_requires='>=3.7',
 	install_requires=[
-		'minikerberos',
-		'winsspi',
+		'minikerberos>=0.0.10',
+		'winsspi>=0.0.2',
 		'six',
 	],
 	

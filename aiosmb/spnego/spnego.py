@@ -34,6 +34,9 @@ class SPNEGO:
 		"""
 		return copy.deepcopy(self.original_authentication_contexts[ctx_name])
 		
+	async def sign(self, data, message_no, direction='init'):
+		return await self.selected_authentication_context.sign(data, message_no, direction=direction)
+		
 	async def encrypt(self, data, message_no):
 		return await self.selected_authentication_context.encrypt(data, message_no)
 

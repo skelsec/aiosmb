@@ -92,6 +92,7 @@ class DCERPCTCPConnection:
 class TCPTransport(DCERPCTransport):
 	def __init__(self, connection, remote_name, dstport = 135):
 		DCERPCTransport.__init__(self, connection, remote_name, dstport)
+		self.transport_type = 'TCP'
 		self.address = remote_name
 		self.port = dstport
 		

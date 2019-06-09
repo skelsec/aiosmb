@@ -12,7 +12,7 @@ from aiosmb.dcerpc.v5.transport.smbtransport import SMBTransport
 from aiosmb.dcerpc.v5.transport.factory import DCERPCTransportFactory
 from aiosmb.dcerpc.v5 import epm, drsuapi, samr
 from aiosmb.dcerpc.v5.interfaces.servicemanager import *
-from aiosmb.dcerpc.v5.rpcrt import RPC_C_AUTHN_LEVEL_PKT_PRIVACY, DCERPCException, RPC_C_AUTHN_GSS_NEGOTIATE
+from aiosmb.dcerpc.v5.rpcrt import RPC_C_AUTHN_LEVEL_PKT_INTEGRITY, RPC_C_AUTHN_LEVEL_PKT_PRIVACY, DCERPCException, RPC_C_AUTHN_GSS_NEGOTIATE
 		
 class SMBDRSUAPI:
 	def __init__(self, connection, domainname = None):
@@ -71,13 +71,17 @@ class SMBDRSUAPI:
 		
 		rpc.setRemoteHost(self.connection.target.get_ip())
 		rpc.setRemoteName(self.connection.target.get_ip())
+		
 		self.dce = rpc.get_dce_rpc()
 		self.dce.set_auth_level(RPC_C_AUTHN_LEVEL_PKT_PRIVACY)
-		#if self.__doKerberos:
-		#	self.dce.set_auth_type(RPC_C_AUTHN_GSS_NEGOTIATE)
-		await self.dce.connect()
-		#print('Connected!')
+		#self.dce.set_auth_level(RPC_C_AUTHN_LEVEL_PKT_INTEGRITY)
 		
+		try:
+			await self.dce.connect()
+			print('Connected! %s' % str(self.dce))
+		except  Exception as e:
+			print(e)
+			
 		if open == True:
 			await self.open()
 			
@@ -85,8 +89,10 @@ class SMBDRSUAPI:
 		if not self.dce:
 			await self.connect()
 		
-		await self.dce.bind(drsuapi.MSRPC_UUID_DRSUAPI)
-			
+		try:
+			await self.dce.bind(drsuapi.MSRPC_UUID_DRSUAPI)
+		except Exception as e:
+			print('!!!!!!!!!!!!!! Exc! %s' % e)
 		request = drsuapi.DRSBind()
 		request['puuidClientDsa'] = drsuapi.NTDSAPI_CLIENT_GUID
 		drs = drsuapi.DRS_EXTENSIONS_INT()

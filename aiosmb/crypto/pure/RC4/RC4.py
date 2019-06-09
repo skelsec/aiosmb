@@ -61,4 +61,4 @@ class RC4():
         return res
 
     def decrypt(self, data):
-        self.encrypt(data)
+        return self.encrypt(data)

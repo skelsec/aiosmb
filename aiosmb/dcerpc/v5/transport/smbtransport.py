@@ -3,6 +3,7 @@ from aiosmb.dcerpc.v5.transport.common import *
 
 class SMBTransport(DCERPCTransport):
 	def __init__(self, connection, filename):
+		self.transport_type = 'SMB'
 		self.target = connection.target
 		self.filename = filename
 		self.connection = connection

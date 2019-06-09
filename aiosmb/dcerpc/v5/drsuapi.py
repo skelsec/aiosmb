@@ -35,16 +35,18 @@ from aiosmb.dcerpc.v5.enum import Enum
 from aiosmb.dcerpc.v5.rpcrt import DCERPCException
 from aiosmb.crypto.DES import expand_DES_key
 from asn1crypto.core import ObjectIdentifier
+from aiosmb.crypto.symmetric import RC4, DES
+from aiosmb.crypto.BASE import cipherMODE
 
 ##### THIS CODE NEEDS TO BE CLEANED UP!!!!
 #from pyasn1.type import univ
 #from impacket.crypto import transformKey
 
-try:
-	from Cryptodome.Cipher import ARC4, DES
-except Exception:
-	LOG.critical("Warning: You don't have any crypto installed. You need pycryptodomex")
-	LOG.critical("See https://pypi.org/project/pycryptodomex/")
+#try:
+#	from Cryptodome.Cipher import ARC4, DES
+#except Exception:
+#	LOG.critical("Warning: You don't have any crypto installed. You need pycryptodomex")
+#	LOG.critical("See https://pypi.org/project/pycryptodomex/")
 
 MSRPC_UUID_DRSUAPI = uuidtup_to_bin(('E3514235-4B06-11D1-AB04-00C04FC2DCD2','4.0'))
 
@@ -1378,8 +1380,8 @@ def deriveKey(baseKey):
 def removeDESLayer(cryptedHash, rid):
 		Key1,Key2 = deriveKey(rid)
 
-		Crypt1 = DES.new(Key1, DES.MODE_ECB)
-		Crypt2 = DES.new(Key2, DES.MODE_ECB)
+		Crypt1 = DES(Key1, cipherMODE.ECB)
+		Crypt2 = DES(Key2, cipherMODE.ECB)
 
 		decryptedHash = Crypt1.decrypt(cryptedHash[:8]) + Crypt2.decrypt(cryptedHash[8:])
 
@@ -1394,7 +1396,7 @@ def DecryptAttributeValue(sessionKey, attribute):
 	md5.update(encryptedPayload['Salt'])
 	finalMD5 = md5.digest()
 
-	cipher = ARC4.new(finalMD5)
+	cipher = RC4(finalMD5)
 	plainText = cipher.decrypt(attribute[16:])
 
 	#chkSum = (binascii.crc32(plainText[4:])) & 0xffffffff
@@ -1411,9 +1413,8 @@ def MakeAttid(prefixTable, oid):
 
 	# convert the dotted form of OID into a BER encoded binary * format.
 	# The BER encoding of OID is described in section * 8.19 of [ITUX690]
-	from pyasn1.type import univ
-	from pyasn1.codec.ber import encoder
-	binaryOID = encoder.encode(univ.ObjectIdentifier(oid))[2:]
+	binaryOID = ObjectIdentifier(oid).dump()[2:]
+
 
 	# get the prefix of the OID
 	if lastValue < 128:

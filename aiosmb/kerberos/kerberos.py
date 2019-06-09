@@ -26,6 +26,10 @@ class SMBKerberos:
 	
 		self.setup()
 		
+		
+	async def sign(self, data, message_no, direction = 'init'):
+		return self.gssapi.GSS_GetMIC(data, message_no, direction = direction)	
+		
 	async def encrypt(self, data, message_no):
 		return self.gssapi.GSS_Wrap(data, message_no)
 		
@@ -46,7 +50,8 @@ class SMBKerberos:
 	
 	async def authenticate(self, authData, flags = None, seq_number = 0, is_rpc = False):
 		if self.iterations == 0:
-			tgt = await self.kc.get_TGT(override_etype=[18])
+			#tgt = await self.kc.get_TGT(override_etype=[18])
+			tgt = await self.kc.get_TGT()
 			tgs, encpart, self.session_key = await self.kc.get_TGS(self.target)
 		ap_opts = []
 		if is_rpc == True:

@@ -245,6 +245,7 @@ class NTLMAUTHHandler:
 		return signkey
 		
 	def get_session_key(self):
+		input('Get session key called! %s' % self.RandomSessionKey)
 		return self.RandomSessionKey
 		
 	def get_sealkey(self, mode = 'Client'):
@@ -263,7 +264,6 @@ class NTLMAUTHHandler:
 		if not self.RandomSessionKey:
 			self.RandomSessionKey = os.urandom(16)
 		
-		input(self.mode.upper())
 		if self.mode.upper() != 'MANUAL':
 			#this check is here to provide the option to load the messages + the sessionbasekey manually
 			#then you will be able to use the sign and seal functions provided by this class

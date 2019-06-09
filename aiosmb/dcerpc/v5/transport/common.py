@@ -104,6 +104,16 @@ class DCERPCTransport:
 		self._kerberos_ctx = None
 		self._spnego_ctx = None
 		
+	def is_kerberos(self):
+		if self._kerberos_ctx is not None:
+			return True
+		return 'MS KRB5 - Microsoft Kerberos 5' in self.__connection.gssapi.list_original_conexts()
+		
+	def is_ntlm(self):
+		if self._ntlm_ctx is not None:
+			return True
+		return 'NTLMSSP - Microsoft NTLM Security Support Provider' in self.__connection.gssapi.list_original_conexts()
+		
 	def get_spnego(self):
 		if not self._spnego_ctx:
 			self._spnego_ctx = copy.deepcopy(self.__connection.original_gssapi)

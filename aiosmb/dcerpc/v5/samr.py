@@ -22,15 +22,14 @@ from __future__ import division
 from __future__ import print_function
 from binascii import unhexlify
 
-from impacket.dcerpc.v5.ndr import NDRCALL, NDR, NDRSTRUCT, NDRUNION, NDRPOINTER, NDRUniConformantArray, \
-	NDRUniConformantVaryingArray, NDRENUM
-from impacket.dcerpc.v5.dtypes import NULL, RPC_UNICODE_STRING, ULONG, USHORT, UCHAR, LARGE_INTEGER, RPC_SID, LONG, STR, \
-	LPBYTE, SECURITY_INFORMATION, PRPC_SID, PRPC_UNICODE_STRING, LPWSTR
-from impacket.dcerpc.v5.rpcrt import DCERPCException
-from impacket import nt_errors, LOG
-from impacket.uuid import uuidtup_to_bin
-from impacket.dcerpc.v5.enum import Enum
-from impacket.structure import Structure
+from aiosmb import logger as LOG
+from aiosmb.dcerpc.v5.enum import Enum
+from aiosmb.dcerpc.v5.uuid import uuidtup_to_bin
+from aiosmb.dcerpc.v5.structure import Structure
+from aiosmb.dcerpc.v5.ndr import NDRCALL, NDR, NDRSTRUCT, NDRUNION, NDRPOINTER, NDRUniConformantArray, NDRUniConformantVaryingArray, NDRENUM
+from aiosmb.dcerpc.v5.dtypes import NULL, RPC_UNICODE_STRING, ULONG, USHORT, UCHAR, LARGE_INTEGER, RPC_SID, LONG, STR, LPBYTE, SECURITY_INFORMATION, PRPC_SID, PRPC_UNICODE_STRING, LPWSTR
+from aiosmb.dcerpc.v5.rpcrt import DCERPCException
+from aiosmb.dcerpc.v5.uuid import uuidtup_to_bin
 
 MSRPC_UUID_SAMR   = uuidtup_to_bin(('12345778-1234-ABCD-EF00-0123456789AC', '1.0'))
 
@@ -40,12 +39,7 @@ class DCERPCSessionError(DCERPCException):
 
 	def __str__( self ):
 		key = self.error_code
-		if key in nt_errors.ERROR_MESSAGES:
-			error_msg_short = nt_errors.ERROR_MESSAGES[key][0]
-			error_msg_verbose = nt_errors.ERROR_MESSAGES[key][1] 
-			return 'SAMR SessionError: code: 0x%x - %s - %s' % (self.error_code, error_msg_short, error_msg_verbose)
-		else:
-			return 'SAMR SessionError: unknown error code: 0x%x' % self.error_code
+		return 'SAMR SessionError: unknown error code: 0x%x' % self.error_code
 
 ################################################################################
 # CONSTANTS
@@ -2729,6 +2723,7 @@ async def hSamrGetAliasMembership(dce, domainHandle, sidArray):
 	return await dce.request(request)
 
 async def hSamrChangePasswordUser(dce, userHandle, oldPassword, newPassword):
+	raise Exception('Not implemented, needs additional work!')
 	request = SamrChangePasswordUser()
 	request['UserHandle'] = userHandle
 
@@ -2752,6 +2747,7 @@ async def hSamrChangePasswordUser(dce, userHandle, oldPassword, newPassword):
 	return await dce.request(request)
 
 async def hSamrUnicodeChangePasswordUser2(dce, serverName='\x00', userName='', oldPassword='', newPassword='', oldPwdHashLM = '', oldPwdHashNT = ''):
+	raise Exception('Not implemented, needs additional work!')
 	request = SamrUnicodeChangePasswordUser2()
 	request['ServerName'] = serverName
 	request['UserName'] = userName
