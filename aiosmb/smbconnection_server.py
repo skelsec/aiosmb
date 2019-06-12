@@ -4,6 +4,7 @@ import hmac
 import hashlib
 import platform
 import copy
+import datetime
 
 from aiosmb import logger
 from aiosmb.exceptions import *
@@ -91,9 +92,10 @@ class SMBServerConnection:
 	"""
 	Connection class for network connectivity and SMB messages management (sending/recieveing/singing/encrypting).
 	"""
-	def __init__(self, gssapi, netbios_transport, dialects = [NegotiateDialects.SMB202], shutdown_evt = asyncio.Event()):
-		self.gssapi = gssapi
-		self.original_gssapi = copy.deepcopy(gssapi) #preserving a copy of the original
+	def __init__(self, server_settings, netbios_transport, dialects = [NegotiateDialects.SMB202], shutdown_evt = asyncio.Event()):
+		self.settings = server_settings
+		self.client_gssapi = self.settings.client_gssapi
+		self.original_client_gssapi = copy.deepcopy(self.client_gssapi) #preserving a copy of the original
 		self.shutdown_evt = shutdown_evt
 		
 		#######DONT CHANGE THIS
@@ -125,10 +127,10 @@ class SMBServerConnection:
 		self.MaxTransactSize = 0
 		self.MaxReadSize = 0
 		self.MaxWriteSize = 0
-		self.ServerGuid = None
+		self.ServerGuid = GUID.random()
 		self.RequireSigning = False
 		self.ServerName = None
-		self.ClientGUID = GUID.random()
+		self.ClientGUID = None
 		
 		self.Dialect = 0
 		self.SupportsFileLeasing = False
@@ -161,8 +163,12 @@ class SMBServerConnection:
 		
 		logger.info('SMB Server running')
 		while True:
-			msg = await self.recv_smb()
-			print(msg)
+			if self.status == SMBConnectionStatus.NEGOTIATING:
+				await self.negotiate()
+			if self.status == SMBConnectionStatus.SESSIONSETUP:
+				await self.session_setup()
+			else:
+				raise Exception('Not implemented!')
 		
 	async def __handle_smb_in(self):
 		"""
@@ -193,16 +199,10 @@ class SMBServerConnection:
 		Returns an SMB message from the outstandingresponse dict, OR waits until the expected message_id appears.
 		"""
 		if message_id not in self.OutstandingResponses:
-			#print('Waiting on messageID : %s' % message_id)
+			self.OutstandingResponsesEvent[message_id] = asyncio.Event()
 			await self.OutstandingResponsesEvent[message_id].wait()
 		
 		msg = self.OutstandingResponses.pop(message_id)
-		
-		if msg.header.Status != NTStatus.PENDING:
-			if message_id in self.OutstandingResponsesEvent:
-				del self.OutstandingResponsesEvent[message_id]
-		else:
-			self.OutstandingResponsesEvent[message_id].clear()
 		
 		return msg
 	
@@ -224,74 +224,85 @@ class SMBServerConnection:
 		
 	async def negotiate(self):
 		"""
-		Initiates protocol negotiation.
-		First we send an SMB_COM_NEGOTIATE_REQ with our supported dialects
 		"""
-		
-		#let's construct an SMBv1 SMB_COM_NEGOTIATE_REQ packet
-		header = SMBHeader()
-		header.Command  = SMBCommand.SMB_COM_NEGOTIATE
-		header.Status   = NTStatus.SUCCESS
-		header.Flags    = 0
-		header.Flags2   = SMBHeaderFlags2Enum.SMB_FLAGS2_UNICODE
+
+		rply = await self.recvSMB(0)
+
+		#TODO: check if SMB2 is supported
+		#currently we just continue with SMB2
+
+		command = NEGOTIATE_REPLY()
+		command.SecurityMode = NegotiateSecurityMode.SMB2_NEGOTIATE_SIGNING_ENABLED
+		command.DialectRevision = NegotiateDialects.WILDCARD
+		command.NegotiateContextCount = 0
+		command.ServerGuid = self.ServerGuid
+		command.Capabilities = 0
+		command.SystemTime = datetime.datetime.now()
+		command.ServerStartTime = datetime.datetime.now() - datetime.timedelta(days=1)
+		command.Buffer = self.client_gssapi.get_mechtypes_list()
+
 			
-		command = SMB_COM_NEGOTIATE_REQ()				
-		command.Dialects = ['SMB 2.???']
+		header = SMB2Header_SYNC()
+		header.Command  = SMB2Command.NEGOTIATE
+		header.CreditReq = 0
+		
+		msg = SMBMessage(header, command)
+		message_id = await self.sendSMB(msg)
+		print(message_id)
+		rply = await self.recvSMB(1)
+		#recieveing reply, should be version2, because currently we dont support v1 :(
+		 #negotiate MessageId should be 1
+		
+		print('1111111111111111111111111')
+
+		#TODO: check if SMB2 is supported
+		#currently we just continue with SMB2
+
+		command = NEGOTIATE_REPLY()
+		command.SecurityMode = NegotiateSecurityMode.SMB2_NEGOTIATE_SIGNING_ENABLED
+		command.DialectRevision = NegotiateDialects.SMB202
+		command.NegotiateContextCount = 0
+		command.ServerGuid = self.ServerGuid
+		command.Capabilities = 0
+		command.SystemTime = datetime.datetime.now()
+		command.ServerStartTime = datetime.datetime.now() - datetime.timedelta(days=1)
+		command.Buffer = self.client_gssapi.get_mechtypes_list()
+
+			
+		header = SMB2Header_SYNC()
+		header.Command  = SMB2Command.NEGOTIATE
+		header.CreditReq = 0
 		
 		msg = SMBMessage(header, command)
 		message_id = await self.sendSMB(msg)
 		
-		#recieveing reply, should be version2, because currently we dont support v1 :(
-		rply = await self.recvSMB(message_id) #negotiate MessageId should be 1
-		
-		if rply.header.Status == NTStatus.SUCCESS:
-			if isinstance(rply, SMB2Message):
-				
-				if rply.command.DialectRevision == NegotiateDialects.WILDCARD:
-					command = NEGOTIATE_REQ()
-					command.SecurityMode    = NegotiateSecurityMode.SMB2_NEGOTIATE_SIGNING_ENABLED | NegotiateSecurityMode.SMB2_NEGOTIATE_SIGNING_REQUIRED
-					command.Capabilities    = 0
-					command.ClientGuid      = self.ClientGUID
-					command.Dialects        = self.dialects
-						
-					header = SMB2Header_SYNC()
-					header.Command  = SMB2Command.NEGOTIATE
-					header.CreditReq = 0
-					
-					msg = SMB2Message(header, command)
-					message_id = await self.sendSMB(msg)
-					rply = await self.recvSMB(message_id) #negotiate MessageId should be 1
-					if rply.header.Status != NTStatus.SUCCESS:
-						print('session got reply!')
-						print(rply)
-						raise Exception('session_setup_1 (authentication probably failed) reply: %s' % rply.header.Status)
-					
-				if rply.command.DialectRevision not in self.supported_dialects:
-					raise SMBUnsupportedDialectSelected()
-				
-				self.selected_dialect = rply.command.DialectRevision
-				self.signing_required = NegotiateSecurityMode.SMB2_NEGOTIATE_SIGNING_REQUIRED in rply.command.SecurityMode
-				logger.log(1, 'Server selected dialect: %s' % self.selected_dialect)
-				
-				self.MaxTransactSize = min(0x100000, rply.command.MaxTransactSize)
-				self.MaxReadSize = min(0x100000, rply.command.MaxReadSize)
-				self.MaxWriteSize = min(0x100000, rply.command.MaxWriteSize)
-				self.ServerGuid = rply.command.ServerGuid
-				self.SupportsMultiChannel = NegotiateCapabilities.MULTI_CHANNEL in rply.command.Capabilities
-				
-			else:
-				logger.error('Server choose SMB v1 which is not supported currently')
-				raise SMBUnsupportedSMBVersion()
-			
-		else:
-			print('session got reply!')
-			print(rply)
-			raise Exception('session_setup_1 (authentication probably failed) reply: %s' % rply.header.Status)
-			
-			
-			
 		self.status = SMBConnectionStatus.SESSIONSETUP
+		return
+
+	async def session_setup(self):
+		print('session_setup')
+		rply = await self.recvSMB(2)
+		self.SessionId = int.from_bytes(os.urandom(8), 'big', signed = False)
+		auth_data = rply.command.Buffer
+		print('clinet buffer: %s' % auth_data)
+		data, res = await self.client_gssapi.authenticate(auth_data)
+
+
+		command = SESSION_SETUP_REPLY()
+		command.SessionFlags = 0
+		command.Buffer = data
+
+			
+		header = SMB2Header_SYNC()
+		header.Command  = SMB2Command.SESSION_SETUP
+		header.CreditReq = 127
+		header.Status = NTStatus.MORE_PROCESSING_REQUIRED
 		
+		msg = SMBMessage(header, command)
+		message_id = await self.sendSMB(msg)
+		print(message_id)
+		rply = await self.recvSMB(3)
+		input('end')
 
 
 		
@@ -312,23 +323,17 @@ class SMBServerConnection:
 		msg: SMB2Message or SMBMessage
 		Returns: MessageId integer
 		"""
+		msg.header.Flags |= SMB2HeaderFlag.SMB2_FLAGS_SERVER_TO_REDIR
 		if self.status == SMBConnectionStatus.NEGOTIATING:
-			if isinstance(msg, SMBMessage):
-				#creating an event for outstanding response
-				self.OutstandingResponsesEvent[0] = asyncio.Event()
-				await self.netbios_transport.out_queue.put(msg)
-				self.SequenceWindow += 1
-				return 0
-			else:
-				msg.header.CreditCharge = 1
-				msg.header.CreditReq = 127
-				msg.header.MessageId = self.SequenceWindow
-				message_id = self.SequenceWindow
-				self.SequenceWindow += 1
-				
-				self.OutstandingResponsesEvent[message_id] = asyncio.Event()
-				await self.netbios_transport.out_queue.put(msg)
-				return message_id
+			msg.header.CreditCharge = 1
+			msg.header.CreditReq = 1
+			msg.header.MessageId = self.SequenceWindow
+			message_id = self.SequenceWindow
+			self.SequenceWindow += 1
+			
+			self.OutstandingResponsesEvent[message_id] = asyncio.Event()
+			await self.netbios_transport.out_queue.put(msg)
+			return message_id
 				
 
 		if msg.header.Command is not SMB2Command.CANCEL:
@@ -352,8 +357,14 @@ class SMBServerConnection:
 			raise Exception('SMB Encryption not implemented yet :(')
 			#self.encrypt_message(msg)
 		
-		#creating an event for outstanding response
-		self.OutstandingResponsesEvent[message_id] = asyncio.Event()
+		###creating an event for outstanding response
+		###self.OutstandingResponsesEvent[message_id] = asyncio.Event()
+
+		if msg.header.Status != NTStatus.PENDING:
+			if message_id in self.OutstandingResponsesEvent:
+				del self.OutstandingResponsesEvent[message_id]
+		else:
+			self.OutstandingResponsesEvent[message_id].clear()
 		
 		await self.netbios_transport.out_queue.put(msg)
 		

@@ -48,8 +48,6 @@ class SMB_COM_NEGOTIATE_REQ:
 
 	def __repr__(self):
 		t = '===SMB_COM_NEGOTIATE_REQ===\r\n'
-		t += repr(self.params)
-		t += repr(self.data)	
 		return t
 		
 def test():

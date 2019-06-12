@@ -87,12 +87,11 @@ class SessionFlags(enum.IntFlag):
 # https://msdn.microsoft.com/en-us/library/cc246564.aspx
 class SESSION_SETUP_REPLY():
 	def __init__(self):
-		self.StructureSize = None
+		self.StructureSize = 9
 		self.SessionFlags = None
 		self.SecurityBufferOffset = None
 		self.SecurityBufferLength = None
 		self.Buffer = None
-		self.ppos = 64
 
 	@staticmethod
 	def from_bytes(bbuff):
@@ -109,19 +108,10 @@ class SESSION_SETUP_REPLY():
 		msg.Buffer = buff.read(msg.SecurityBufferLength)
 		return msg
 
-	@staticmethod
-	def construct(data, flags, ppos = None):
-		msg = SESSION_SETUP_REPLY()
-		if ppos is None:
-			ppos = msg.ppos
-		msg.StructureSize = 9
-		msg.SessionFlags = flags
-		msg.SecurityBufferOffset = ppos + 8
-		msg.SecurityBufferLength = len(data)
-		msg.Buffer = data
-		return msg
-
 	def to_bytes(self):
+		self.SecurityBufferOffset = 0x48
+		self.SecurityBufferLength = len(self.Buffer)
+
 		t  = self.StructureSize.to_bytes(2, byteorder = 'little', signed=False)
 		t += self.SessionFlags.to_bytes(2, byteorder = 'little', signed=False)
 		t += self.SecurityBufferOffset.to_bytes(2, byteorder = 'little', signed=False)

@@ -262,24 +262,23 @@ class SMB2EncryptionCapabilities:
 # https://msdn.microsoft.com/en-us/library/cc246561.aspx
 class NEGOTIATE_REPLY:
 	def __init__(self):
-		self.StructureSize = None
+		self.StructureSize = 65
 		self.SecurityMode = None
 		self.DialectRevision = None
 		self.NegotiateContextCount = None # or reserved
 		self.ServerGuid = None
 		self.Capabilities = None
-		self.MaxTransactSize = None
-		self.MaxReadSize = None
-		self.MaxWriteSize = None
+		self.MaxTransactSize = 8388608
+		self.MaxReadSize = 8388608
+		self.MaxWriteSize = 8388608
 		self.SystemTime = None
 		self.ServerStartTime = None
-		self.SecurityBufferOffset = None
-		self.SecurityBufferLength = None
-		self.NegotiateContextOffset = None
-		self.Buffer = None
+		self.SecurityBufferOffset = 0
+		self.SecurityBufferLength = 0
+		self.NegotiateContextOffset = 0
+		self.Buffer = b''
 		self.Padding = None
 		self.NegotiateContextList = None
-		self.ppos = 64
 
 	@staticmethod
 	def from_bytes(bbuff):
@@ -319,53 +318,21 @@ class NEGOTIATE_REPLY:
 
 		return msg
 
-	@staticmethod
-	def construct(data, SecurityMode, DialectRevision, ServerGuid, Capabilities, 
-					MaxTransactSize= 8388608, MaxReadSize= 8388608, MaxWriteSize= 8388608, 
-					SystemTime = datetime.datetime.now(), 
-					ServerStartTime=datetime.datetime.now() - datetime.timedelta(days=1),
-					NegotiateContextList = [], ppos = None):
-		
-		cmd = NEGOTIATE_REPLY()
-		if ppos is None:
-			ppos = cmd.ppos
-		#ppos = the size of the message until this class. it is needed to calculate the offsets!
-		cmd.StructureSize = 65
-		cmd.SecurityMode = SecurityMode
-		cmd.DialectRevision = DialectRevision
-		cmd.NegotiateContextCount = len(NegotiateContextList) #or reserved
-		cmd.ServerGuid = ServerGuid
-		cmd.Capabilities = Capabilities
-		cmd.MaxTransactSize = MaxTransactSize
-		cmd.MaxReadSize = MaxReadSize
-		cmd.MaxWriteSize = MaxWriteSize
-		cmd.SystemTime = SystemTime
-		cmd.ServerStartTime = ServerStartTime
-		cmd.SecurityBufferOffset = ppos + 64
-		cmd.SecurityBufferLength = len(data)
-		if NegotiateContextList == []:
-			cmd.NegotiateContextOffset = 0
-		else:
-			cmd.NegotiateContextOffset = cmd.SecurityBufferOffset + cmd.SecurityBufferLength ##WARNING! THIS SHOULD BE PADDED!!!!!
-		cmd.Buffer = data
-		cmd.NegotiateContextList = NegotiateContextList
+	def to_bytes(self):
+		self.SecurityBufferOffset = 0x80
+		self.SecurityBufferLength = len(self.Buffer)
 
-		return cmd
-
-	def to_bytes(self, ppos = None):
-		if ppos is None:
-			ppos = self.ppos
 		t  = self.StructureSize.to_bytes(2, byteorder = 'little', signed=False)
 		t += self.SecurityMode.to_bytes(2, byteorder = 'little', signed=False)
 		t += self.DialectRevision.value.to_bytes(2, byteorder = 'little', signed=False)
 		t += self.NegotiateContextCount.to_bytes(2, byteorder = 'little', signed=False)
-		t += self.ServerGuid.bytes_le
+		t += self.ServerGuid.to_bytes()
 		t += self.Capabilities.to_bytes(4, byteorder = 'little', signed=False)
 		t += self.MaxTransactSize.to_bytes(4, byteorder = 'little', signed=False)
 		t += self.MaxReadSize.to_bytes(4, byteorder = 'little', signed=False)
 		t += self.MaxWriteSize.to_bytes(4, byteorder = 'little', signed=False)
-		t += dt2wt(self.SystemTime).to_bytes(8, byteorder = 'little', signed=False)
-		t += dt2wt(self.ServerStartTime).to_bytes(8, byteorder = 'little', signed=False)
+		t += datetime2timestamp(self.SystemTime)
+		t += datetime2timestamp(self.ServerStartTime)
 
 		t += self.SecurityBufferOffset.to_bytes(2, byteorder = 'little', signed=False)
 		t += self.SecurityBufferLength.to_bytes(2, byteorder = 'little', signed=False)
@@ -377,7 +344,7 @@ class NEGOTIATE_REPLY:
 			for ngctx in self.NegotiateContextList:
 				t+= ngctx.to_bytes()
 				#PADDING!
-				q,m = divmod(len(t)+ppos,8)
+				q,m = divmod(len(t)+64,8)
 				t+= b'\x00'*( (q+1)*8 -  len(t)   )
 
 		return t
