@@ -72,8 +72,8 @@ class TCPServerSocket:
 		nbtransport = NetBIOSTransport(client)
 		server = SMBServerConnection(self.server_settings, nbtransport)
 		
-		await self.netbios_transport.run(client)
-		await server.run()
+		await nbtransport.run()
+		await server.main()
 		logger.info('SMB server terminated, closing client! %s:%s' % (raddr, rport))
 		
 		
@@ -86,5 +86,5 @@ class TCPServerSocket:
 		logger.info('TCP server terminated')	
 			
 	async def run(self):
-		server_task = asyncio.create_task(self.listen())
+		return self.listen()
 		

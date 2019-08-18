@@ -20,6 +20,7 @@ class SPNEGO:
 		self.original_authentication_contexts = {}
 		self.selected_authentication_context = None
 		self.selected_mechtype = None
+		self.iteration_ctr = 0
 		
 	def list_original_conexts(self):
 		"""
@@ -76,7 +77,7 @@ class SPNEGO:
 				response['negState'] = NegState('accept-incomplete')
 			else:
 				response['negState'] = NegState('accept-completed')
-			
+		
 		response['responseToken'] = result
 		return response, to_continue
 		
@@ -87,6 +88,17 @@ class SPNEGO:
 	
 	def get_session_key(self):
 		return self.selected_authentication_context.get_session_key()
+
+	def get_mechtypes_list(self):
+		neghint = {'hintName':'not_defined_in_RFC4178@please_ignore'}
+		tokinit = {
+			'mechTypes': [MechType(mt) for mt in self.authentication_contexts],
+			'negHints': NegHints(neghint),
+		}
+
+		negtoken = NegotiationToken({'negTokenInit':NegTokenInit2(tokinit)})
+		spnego = GSS_SPNEGO({'NegotiationToken':negtoken})
+		return GSSAPI({'type': GSSType('1.3.6.1.5.5.2'), 'value':negtoken}).dump()
 	
 	async def authenticate(self, token, flags = None, seq_number = 0, is_rpc = False):
 		"""
@@ -95,53 +107,77 @@ class SPNEGO:
 		"""
 		
 		if self.mode == 'SERVER':
-			neg_token_raw = NegotiationToken.load(token)
-			neg_token = neg_token_raw.native
-			if isinstance(neg_token_raw, NegTokenInit2):
-				if selected_authentication_context is not None:
-					raise Exception('Authentication context already selected, but Client sent NegTokenInit2')
-				
-				if len(neg_token.mechTypes) == 1:
-					#client only sent 1 negotiation token type, we either support it or raise exception
-					if neg_token.mechTypes[0] not in self.authentication_contexts:
-						raise Exception('Client sent %s auth mechanism but we dont have that set up!' % neg_token.mechTypes[0])
-					
-					self.selected_mechtype = neg_token.mechTypes[0]
-					self.selected_authentication_context = self.authentication_contexts[neg_token.mechTypes[0]]
-					#there is an option if onyl one auth type is set to have the auth token already in this message
-					if neg_token.mechToken is not None:
-						response, to_continue = await self.process_ctx_authenticate(neg_token.mechToken, flags = flags, seq_number = seq_number, is_rpc = is_rpc)
-						if not response:
-							return None, False
-						response['supportedMech'] = MechType(self.selected_mechtype)	
-						return NegTokenResp(response).dump(), to_continue
-						
-					else:
-						response = {}
-						response['negState'] = NegState('accept-incomplete')
-						response['supportedMech'] = MechType(self.selected_mechtype)
-						return NegTokenResp(response).dump(), True
-				
-				#multiple mechtypes present, we must select one and send it back to the client
+			if self.selected_authentication_context is None:
+				gss = GSSAPI.load(token).native
+				negtoken = gss['value']
+				if len(negtoken['mechTypes']) == 1:
+					self.selected_mechtype = negtoken['mechTypes'][0]
+					if negtoken['mechTypes'][0] == 'NTLMSSP - Microsoft NTLM Security Support Provider':
+						self.selected_authentication_context = self.authentication_contexts[negtoken['mechTypes'][0]]
+
+
 				else:
-					self.selected_mechtype, self.selected_authentication_context = self.select_common_athentication_type(neg_token.mechTypes)
-					if self.selected_mechtype is None:
-						raise Exception('Failed to select common authentication mechanism! Client sent: %s We have %s' % ())
-				
-					#server offered multiple auth types, we must choose one
-					response = {}
-					response['negState'] = NegState('accept-incomplete')
+					raise Exception('This path is not yet implemented')
+					#self.selected_mechtype, self.selected_authentication_context = self.select_common_athentication_type(neg_token.mechTypes)
+					#if self.selected_mechtype is None:
+					#	raise Exception('Failed to select common authentication mechanism! Client sent: %s We have %s' % ())
+				#
+				#	##server offered multiple auth types, we must choose one
+				#	#response = {}
+				#	#response['negState'] = NegState('accept-incomplete')
+				#	#response['supportedMech'] = MechType(self.selected_mechtype)
+				#	#		
+					#return NegTokenResp(response).dump(), True
+
+
+			if self.selected_authentication_context is not None:
+				response, to_continue = await self.process_ctx_authenticate(negtoken['mechToken'], flags = flags, seq_number = seq_number, is_rpc = is_rpc, include_negstate = True)
+				if self.iteration_ctr == 0:
 					response['supportedMech'] = MechType(self.selected_mechtype)
-							
-					return NegTokenResp(response).dump(), True
+				negtoken = NegotiationToken({'negTokenResp':NegTokenResp(response)})
 					
+					
+				#spnego = GSS_SPNEGO({'NegotiationToken':negtoken})
+
+				self.iteration_ctr += 1
+				#return GSSAPI({'type': GSSType('1.3.6.1.5.5.2'), 'value':negtoken}).dump(), to_continue
+				return negtoken.dump(), to_continue
+
+			#neg_token_raw = NegotiationToken.load(token)
+			#neg_token = neg_token_raw.native
+			#if isinstance(neg_token_raw, NegTokenInit2):
+			#	if selected_authentication_context is not None:
+			#		raise Exception('Authentication context already selected, but Client sent NegTokenInit2')
+			#	
+			#	if len(neg_token.mechTypes) == 1:
+			#		#client only sent 1 negotiation token type, we either support it or raise exception
+			#		if neg_token.mechTypes[0] not in self.authentication_contexts:
+			#			raise Exception('Client sent %s auth mechanism but we dont have that set up!' % neg_token.mechTypes[0])
+			#		
+			#		self.selected_mechtype = neg_token.mechTypes[0]
+			#		self.selected_authentication_context = self.authentication_contexts[neg_token.mechTypes[0]]
+			#		#there is an option if onyl one auth type is set to have the auth token already in this message
+			#		if neg_token.mechToken is not None:
+			#			response, to_continue = await self.process_ctx_authenticate(neg_token.mechToken, flags = flags, seq_number = seq_number, is_rpc = is_rpc)
+			#			if not response:
+			#				return None, False
+			#			response['supportedMech'] = MechType(self.selected_mechtype)	
+			#			return NegTokenResp(response).dump(), to_continue
+			#			
+			#		else:
+			#			response = {}
+			#			response['negState'] = NegState('accept-incomplete')
+			#			response['supportedMech'] = MechType(self.selected_mechtype)
+			#			return NegTokenResp(response).dump(), True
 				
-			elif isinstance(neg_token_raw, NegTokenResp):
-				if selected_authentication_context is None:
-					raise Exception('NegTokenResp got, but no authentication context selected!')
-			
-				response, to_continue = await self.process_ctx_authenticate(neg_token.mechToken, flags = flags, seq_number = seq_number, is_rpc = is_rpc)
-				return NegTokenResp(response.dump()), to_continue
+
+				
+			#elif isinstance(neg_token_raw, NegTokenResp):
+			#	if selected_authentication_context is None:
+			#		raise Exception('NegTokenResp got, but no authentication context selected!')
+			#
+			#	response, to_continue = await self.process_ctx_authenticate(neg_token.mechToken, flags = flags, seq_number = seq_number, is_rpc = is_rpc)
+			#	return NegTokenResp(response.dump()), to_continue
 				
 		else:
 			if self.selected_mechtype is None:

@@ -41,19 +41,18 @@ class NTLMHandlerSettings:
 			
 			self.template = self.custom_template
 		
-		else:
-			if self.mode.upper() == 'SERVER':
-				if self.template_name in NTLMServerTemplates:
-					self.template = NTLMServerTemplates[self.template_name]
-				else:
-					raise Exception('No NTLM server template found with name %s' % self.template_name)
-		
+		if self.mode.upper() == 'SERVER':
+			if self.template_name in NTLMServerTemplates:
+				self.template = NTLMServerTemplates[self.template_name]
 			else:
-				if self.template_name in NTLMClientTemplates:
-					self.template = NTLMClientTemplates[self.template_name]
-					if 'ntlm_downgrade' in self.template:
-						self.ntlm_downgrade = self.template['ntlm_downgrade']
-				else:
+				raise Exception('No NTLM server template found with name %s' % self.template_name)
+	
+		else:
+			if self.template_name in NTLMClientTemplates:
+				self.template = NTLMClientTemplates[self.template_name]
+				if 'ntlm_downgrade' in self.template:
+					self.ntlm_downgrade = self.template['ntlm_downgrade']
+			else:
 					raise Exception('No NTLM server template found with name %s' % self.template_name)
 		
 
@@ -112,7 +111,7 @@ class NTLMAUTHHandler:
 			targetName = self.settings.template['targetname']
 			targetInfo = self.settings.template['targetinfo']
 
-			self.ntlmChallenge = NTLMChallenge.construct(challenge = self.challenge_server, targetName = targetName, targetInfo = targetInfo, version = version, flags = self.flags)
+			self.ntlmChallenge = NTLMChallenge.construct(challenge = self.challenge, targetName = targetName, targetInfo = targetInfo, version = version, flags = self.flags)
 		
 		#else:
 		#	domainname = self.settings.template['domain_name']

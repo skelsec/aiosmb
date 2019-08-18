@@ -41,7 +41,7 @@ class SMBHeader:
 		self.TID      = 65535
 		self.PIDLow   = 0
 		self.UID      = 0
-		self.MID      = 0
+		self.MessageId      = 0
 
 	@staticmethod
 	def from_bytes(bbuff):
@@ -67,7 +67,7 @@ class SMBHeader:
 		hdr.TID      = int.from_bytes(buff.read(2), byteorder='little', signed = False)
 		hdr.PIDLow   = int.from_bytes(buff.read(2), byteorder='little', signed = False)
 		hdr.UID      = int.from_bytes(buff.read(2), byteorder='little', signed = False)
-		hdr.MID      = int.from_bytes(buff.read(2), byteorder='little', signed = False)
+		hdr.MessageId      = int.from_bytes(buff.read(2), byteorder='little', signed = False)
 		return hdr
 
 	@staticmethod
@@ -92,7 +92,7 @@ class SMBHeader:
 		hdr.TID      = tid
 		hdr.PIDLow   = pidlow
 		hdr.UID      = uid
-		hdr.MID      = mid
+		hdr.MessageId      = mid
 
 		return hdr
 
@@ -113,7 +113,7 @@ class SMBHeader:
 		t += self.TID.to_bytes(2, byteorder = 'little', signed=False)
 		t += self.PIDLow.to_bytes(2, byteorder = 'little', signed=False)
 		t += self.UID.to_bytes(2, byteorder = 'little', signed=False)
-		t += self.MID.to_bytes(2, byteorder = 'little', signed=False)
+		t += self.MessageId.to_bytes(2, byteorder = 'little', signed=False)
 		return t
 
 	def __repr__(self):
@@ -127,5 +127,5 @@ class SMBHeader:
 		t += 'TID: %s\r\n' % self.TID
 		t += 'PIDLow: %s\r\n' % self.PIDLow
 		t += 'UID: %s\r\n' % self.UID
-		t += 'MID: %s\r\n' % self.MID
+		t += 'MID: %s\r\n' % self.MessageId
 		return t
