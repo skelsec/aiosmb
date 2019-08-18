@@ -105,6 +105,7 @@ class SMBConnection:
 		self.settings = None
 		self.network_transport = None 
 		self.netbios_transport = None #this class is used by the netbios transport class, keeping it here also maybe you like to go in raw
+		self.incoming_task = None
 		self.dialects = dialects #list of SMBDialect
 		
 		self.selected_dialect = None
@@ -169,23 +170,28 @@ class SMBConnection:
 		Waits from SMB messages from the NetBIOSTransport in_queue, and fills the connection table.
 		This function started automatically when calling connect.
 		"""
-		while not self.shutdown_evt.is_set():
-			msg = await self.netbios_transport.in_queue.get()
-			
-			logger.log(1, '__handle_smb_in got new message with Id %s' % msg.header.MessageId)
-			
-			if isinstance(msg, SMB2Transform):
-				#message is encrypted
-				#this point we should decrypt it and only store the decrypted part in the OutstandingResponses table
-				#but for now we just thropw exception bc encryption is not implemented
-				raise Exception('Encrypted SMBv2 message recieved, but encryption is not yet supported!')
-			
-			self.OutstandingResponses[msg.header.MessageId] = msg
-			if msg.header.MessageId in self.OutstandingResponsesEvent:
-				self.OutstandingResponsesEvent[msg.header.MessageId].set()
-			else:
-				#here we are loosing messages, the functionality for "PENDING" and "SHARING_VIOLATION" should be written
-				continue
+		try:
+			while not self.shutdown_evt.is_set():
+				msg = await self.netbios_transport.in_queue.get()
+				logger.log(1, '__handle_smb_in got new message with Id %s' % msg.header.MessageId)
+				
+				if isinstance(msg, SMB2Transform):
+					#message is encrypted
+					#this point we should decrypt it and only store the decrypted part in the OutstandingResponses table
+					#but for now we just thropw exception bc encryption is not implemented
+					raise Exception('Encrypted SMBv2 message recieved, but encryption is not yet supported!')
+				
+				self.OutstandingResponses[msg.header.MessageId] = msg
+				if msg.header.MessageId in self.OutstandingResponsesEvent:
+					self.OutstandingResponsesEvent[msg.header.MessageId].set()
+				else:
+					#here we are loosing messages, the functionality for "PENDING" and "SHARING_VIOLATION" should be written
+					continue
+		except asyncio.CancelledError:
+			#the SMB connection is terminating
+			return
+		except Exception as e:
+			traceback.print_exc()
 			
 			
 	async def login(self):
@@ -224,7 +230,7 @@ class SMBConnection:
 		if isinstance(res[0], Exception):
 			raise res[0]
 		
-		asyncio.ensure_future(self.__handle_smb_in())
+		self.incoming_task = asyncio.ensure_future(self.__handle_smb_in())
 		
 	async def disconnect(self):
 		"""
@@ -239,6 +245,7 @@ class SMBConnection:
 		self.shutdown_evt.set()
 		await self.netbios_transport.stop()
 		await self.network_transport.disconnect()
+		self.incoming_task.cancel()
 		
 		
 		
@@ -263,10 +270,8 @@ class SMBConnection:
 		
 		#recieveing reply, should be version2, because currently we dont support v1 :(
 		rply = await self.recvSMB(message_id) #negotiate MessageId should be 1
-		
 		if rply.header.Status == NTStatus.SUCCESS:
 			if isinstance(rply, SMB2Message):
-				
 				if rply.command.DialectRevision == NegotiateDialects.WILDCARD:
 					command = NEGOTIATE_REQ()
 					command.SecurityMode    = NegotiateSecurityMode.SMB2_NEGOTIATE_SIGNING_ENABLED | NegotiateSecurityMode.SMB2_NEGOTIATE_SIGNING_REQUIRED
@@ -386,7 +391,7 @@ class SMBConnection:
 		if message_id not in self.OutstandingResponses:
 			#print('Waiting on messageID : %s' % message_id)
 			await self.OutstandingResponsesEvent[message_id].wait()
-		
+			
 		msg = self.OutstandingResponses.pop(message_id)
 		
 		if msg.header.Status != NTStatus.PENDING:

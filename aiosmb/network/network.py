@@ -41,6 +41,7 @@ class TCPSocket:
 		while not self.disconnected.is_set() or not self.shutdown_evt.is_set():			
 			data = await asyncio.gather(*[self.reader.read(4096)], return_exceptions = True)
 			if isinstance(data[0], bytes):
+				#print('%s : %s' % (self.writer.get_extra_info('peername')[0], data[0]))
 				await self.in_queue.put(data[0])
 			
 			elif isinstance(data[0], asyncio.CancelledError):

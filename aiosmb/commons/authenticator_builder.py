@@ -90,7 +90,7 @@ class AuthenticatorBuilder:
 				raise Exception('Target must be specified with Kerberos SSPI!')
 				
 			kerbcred = SMBKerberosSSPICredential()
-			kerbcred.client = None#creds.username #here we could submit the domain as well for impersonation? TODO!
+			kerbcred.client = None #creds.username #here we could submit the domain as well for impersonation? TODO!
 			kerbcred.password = creds.secret
 			kerbcred.target = target.to_target_string()
 			

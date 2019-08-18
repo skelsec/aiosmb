@@ -1,7 +1,9 @@
 import io
 import enum
+import sys
 
 from aiosmb.protocol.smb.commands import *
+from aiosmb.protocol.smb.header import *
 
 # https://msdn.microsoft.com/en-us/library/ee441774.aspx
 class SMBMessage:

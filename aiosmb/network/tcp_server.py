@@ -35,6 +35,7 @@ class TCPServerSocket:
 		"""
 		while not self.shutdown_evt.is_set():			
 			data = await asyncio.gather(*[client.reader.read(4096)], return_exceptions = True)
+			
 			if isinstance(data[0], bytes):
 				await client.in_queue.put(data[0])
 			

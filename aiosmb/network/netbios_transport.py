@@ -18,6 +18,9 @@ class NetBIOSTransport:
 		self.in_queue = asyncio.Queue()
 		self.out_queue = asyncio.Queue()
 		
+		self.outgoing_task = None
+		self.incoming_task = None
+		
 		self.shutdown_evt = shutdown_evt
 		self.stop_evt = asyncio.Event()
 		
@@ -28,14 +31,16 @@ class NetBIOSTransport:
 		self.stop_evt.set()
 		self.in_queue = None
 		self.out_queue = None
+		self.outgoing_task.cancel()
+		self.incoming_task.cancel()
 		
 		
 	async def run(self):
 		"""
 		Starts the input and output processing
 		"""
-		asyncio.ensure_future(self.handle_incoming())
-		asyncio.ensure_future(self.handle_outgoing())
+		self.incoming_task = asyncio.ensure_future(self.handle_incoming())
+		self.outgoing_task = asyncio.ensure_future(self.handle_outgoing())
 		
 	async def parse_buffer(self, buffer, total_size = None):
 		"""
@@ -66,6 +71,7 @@ class NetBIOSTransport:
 				else:
 					raise Exception('Unknown SMB version!')
 					
+				#print('%s nbmsg! ' % (self.network_transport.writer.get_extra_info('peername')[0], ))
 				await self.in_queue.put(msg)
 				await self.parse_buffer(buffer, total_size)
 		

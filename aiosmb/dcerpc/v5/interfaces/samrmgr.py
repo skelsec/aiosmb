@@ -1,6 +1,6 @@
 from aiosmb.dcerpc.v5.transport.smbtransport import SMBTransport
 from aiosmb.dcerpc.v5 import samr
-from aiosmb.dcerpc.v5.dtypes import RPC_SID
+from aiosmb.dcerpc.v5.dtypes import RPC_SID, DACL_SECURITY_INFORMATION
 from aiosmb.commons.ntstatus import NTStatus
 from aiosmb import logger
 		
@@ -73,6 +73,10 @@ class SMBSAMR:
 	async def close_handle(self,handle):
 		resp = await hSamrCloseHandle(handle)
 		
+	async def get_info(self, domain_handle, domainInformationClass = samr.DOMAIN_INFORMATION_CLASS.DomainGeneralInformation2):
+		resp = await samr.hSamrQueryInformationDomain(self.dce, domain_handle, domainInformationClass = domainInformationClass)
+		return resp
+		
 	async def list_domains(self):
 		status = NTStatus.MORE_ENTRIES
 		enumerationContext = 0
@@ -95,8 +99,8 @@ class SMBSAMR:
 		self.domain_ids[resp['DomainId'].formatCanonical()] = resp['DomainId']
 		return resp['DomainId'].formatCanonical()
 		
-	async def open_domain(self, domain_sid):
-		resp = await samr.hSamrOpenDomain(self.dce, self.handle, domainId = self.domain_ids[domain_sid])
+	async def open_domain(self, domain_sid, access_level = samr.MAXIMUM_ALLOWED):
+		resp = await samr.hSamrOpenDomain(self.dce, self.handle, domainId = self.domain_ids[domain_sid], desiredAccess = access_level)
 		self.domain_handles[resp['DomainHandle']] = domain_sid
 		return resp['DomainHandle']
 		
@@ -157,16 +161,23 @@ class SMBSAMR:
 			enumerationContext = resp['EnumerationContext'] 
 			status = NTStatus(resp['ErrorCode'])
 
-	async def open_user(self, domain_handle, user_id):
+	async def open_user(self, domain_handle, user_id, access_level = samr.MAXIMUM_ALLOWED):
 		try:
-			resp = await samr.hSamrOpenUser(self.dce, domain_handle, userId=user_id)
+			resp = await samr.hSamrOpenUser(self.dce, domain_handle, userId=user_id, desiredAccess = access_level)
 			self.user_handles[resp['UserHandle']] = self.domain_handles[domain_handle]
 			return resp['UserHandle']
+		except Exception as e:
+			print(e)
+			raise
 		except DCERPCException as e:
 			print(str(e))
 			if str(e).find('STATUS_MORE_ENTRIES') < 0:
 				raise
 			resp = e.get_packet()
+			
+	async def get_user_info(self, user_handle, userInformationClass = samr.USER_INFORMATION_CLASS.UserGeneralInformation):
+		resp = await samr.hSamrQueryInformationUser(self.dce, user_handle, userInformationClass = userInformationClass)
+		return resp
 			
 	async def get_user_group_memberships(self, user_handle):
 		#strange: the underlying function is not iterable
@@ -181,6 +192,24 @@ class SMBSAMR:
 		for group in resp['Groups']['Groups']:
 			yield '%s-%s' % (self.user_handles[user_handle], group['RelativeId'])
 
+	async def list_aliases(self, domain_handle):
+		status = NTStatus.MORE_ENTRIES
+		enumerationContext = 0
+		while status == NTStatus.MORE_ENTRIES:
+			try:
+				resp = await samr.hSamrEnumerateAliasesInDomain(self.dce, domain_handle, enumerationContext=enumerationContext)
+			except DCERPCException as e:
+				print(str(e))
+				if str(e).find('STATUS_MORE_ENTRIES') < 0:
+					raise
+				resp = e.get_packet()
+		
+			for alias in resp['Buffer']['Buffer']:
+				yield (alias['Name'] , alias['RelativeId'])
+			
+			enumerationContext = resp['EnumerationContext'] 
+			status = NTStatus(resp['ErrorCode'])
+			print(status)
 
 	async def open_alias(self, domain_handle, alias_id):
 		try:
@@ -201,6 +230,18 @@ class SMBSAMR:
 			
 			for sidr in resp['Members']['Sids']:
 				yield sidr['SidPointer'].formatCanonical()
+				
+		except DCERPCException as e:
+			print(str(e))
+			if str(e).find('STATUS_MORE_ENTRIES') < 0:
+				raise
+			resp = e.get_packet()
+			
+			
+	async def get_security_info(self, handle, securityInformation = DACL_SECURITY_INFORMATION):
+		try:
+			resp = await samr.hSamrQuerySecurityObject(self.dce, handle, securityInformation)
+			return resp
 				
 		except DCERPCException as e:
 			print(str(e))
