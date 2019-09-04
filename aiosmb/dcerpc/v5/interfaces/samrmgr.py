@@ -2,6 +2,7 @@ from aiosmb.dcerpc.v5.transport.smbtransport import SMBTransport
 from aiosmb.dcerpc.v5 import samr
 from aiosmb.dcerpc.v5.dtypes import RPC_SID, DACL_SECURITY_INFORMATION
 from aiosmb.commons.ntstatus import NTStatus
+from aiosmb.dcerpc.v5.rpcrt import DCERPCException
 from aiosmb import logger
 		
 class SMBSAMR:

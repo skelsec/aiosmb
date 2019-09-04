@@ -29,6 +29,13 @@ class SMBCredential:
 		#domain/user/auth_type/secret_type:secret@target_ip_hostname_fqdn:target_port/dc_ip
 	
 	@staticmethod
+	def from_credential_string(s):
+		"""
+		Making users life more conveinent
+		"""
+		return SMBCredential.from_connection_string(s + '@')
+
+	@staticmethod
 	def from_connection_string(s):
 		creds = SMBCredential()
 		

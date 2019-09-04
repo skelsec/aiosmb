@@ -49,7 +49,6 @@ class SMBSRVS:
 					raise
 				resp = e.get_packet()
 			
-			input(resp.dump())
 			for entry in resp['InfoStruct']['ShareInfo'][level_name]['Buffer']:
 				yield entry['shi1_netname'][:-1], entry['shi1_type'], entry['shi1_remark']
 			
@@ -57,6 +56,8 @@ class SMBSRVS:
 			status = NTStatus(resp['ErrorCode'])	
 	
 	async def list_sessions(self, level = 10):
+		if level not in [1, 10]:
+			raise Exception('Only levels 1 and 10 implemented!')
 		level_name = 'Level%s' % level
 		status = NTStatus.MORE_ENTRIES
 		resumeHandle = 0
@@ -68,12 +69,19 @@ class SMBSRVS:
 				if str(e).find('STATUS_MORE_ENTRIES') < 0:
 					raise
 				resp = e.get_packet()
-			
-			for entry in resp['InfoStruct']['SessionInfo'][level_name]['Buffer']:
-				username = entry['sesi10_username'][:-1]
-				ip_addr = entry['sesi10_cname'][:-1]
-				
-				yield username, ip_addr
+
+			if level == 1:
+				for entry in resp['InfoStruct']['SessionInfo'][level_name]['Buffer']:
+					username = entry['sesi1_username'][:-1]
+					ip_addr = entry['sesi1_cname'][:-1]					
+					yield username, ip_addr
+
+			elif level == 10:
+				for entry in resp['InfoStruct']['SessionInfo'][level_name]['Buffer']:
+					username = entry['sesi10_username'][:-1]
+					ip_addr = entry['sesi10_cname'][:-1]
+					
+					yield username, ip_addr
 			
 			resumeHandle = resp['ResumeHandle'] 
 			status = NTStatus(resp['ErrorCode'])	
