@@ -173,7 +173,10 @@ class SMBConnection:
 		"""
 		try:
 			while not self.shutdown_evt.is_set():
-				msg = await self.netbios_transport.in_queue.get()
+				msg, err = await self.netbios_transport.in_queue.get()
+				if err is not None:
+					logger.error('__handle_smb_in got error from transport layer %s' % err)
+					await self.terminate()
 				logger.log(1, '__handle_smb_in got new message with Id %s' % msg.header.MessageId)
 				
 				if isinstance(msg, SMB2Transform):

@@ -66,7 +66,7 @@ class NetBIOSTransport:
 					raise Exception('Unknown SMB version!')
 					
 				#print('%s nbmsg! ' % (self.network_transport.writer.get_extra_info('peername')[0], ))
-				await self.in_queue.put(msg)
+				await self.in_queue.put( (msg, None) )
 				await self.parse_buffer(buffer, total_size)
 		
 		return buffer
@@ -79,16 +79,20 @@ class NetBIOSTransport:
 		try:
 			buffer = b''
 			while True:
-				data = await self.socket_in_queue.get()
+				data, err = await self.socket_in_queue.get()
+				if err is not None:
+					raise err
 				#parse
 				buffer += data
 				buffer = await self.parse_buffer(buffer)
+
 		except asyncio.CancelledError:
 			#the SMB connection is terminating
 			return
 			
 		except Exception as e:
-			logger.exception('NetBIOSTransport handle_incoming')
+			logger.exception('NetBIOSTransport handle_incoming error')
+			await self.in_queue.put( (None, e) )
 			await self.stop()
 		
 	async def handle_outgoing(self):

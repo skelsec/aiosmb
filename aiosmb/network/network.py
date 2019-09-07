@@ -47,13 +47,14 @@ class TCPSocket:
 			data = await asyncio.gather(*[self.reader.read(4096)], return_exceptions = True)
 			if isinstance(data[0], bytes):
 				#print('%s : %s' % (self.writer.get_extra_info('peername')[0], data[0]))
-				await self.in_queue.put(data[0])
+				await self.in_queue.put( (data[0], None) )
 			
 			elif isinstance(data[0], asyncio.CancelledError):
 				return
 				
 			elif isinstance(data[0], Exception):
 				logger.exception('[TCPSocket] handle_incoming %s' % str(data[0]))
+				await self.in_queue.put( (None, data[0]) )
 				await self.disconnect()
 				return
 		

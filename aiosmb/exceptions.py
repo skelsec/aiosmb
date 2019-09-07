@@ -3,7 +3,10 @@ class SMBException(Exception):
 	def __init__(self, message = '', ntstatus = None):
 		super().__init__(message)
 		self.ntstatus = ntstatus
-		
+
+class SMBConnectionNetworkTerminated(SMBException):
+	pass
+
 class SMBConnectionTimeoutException(SMBException):
 	pass
 	
