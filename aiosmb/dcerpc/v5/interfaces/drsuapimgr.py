@@ -194,7 +194,6 @@ class SMBDRSUAPI:
 			except Exception as e:
 				logger.error('Failed to execute OidFromAttid with error %s, fallbacking to fixed table' % e)
 				logger.error('Exception', exc_info=True)
-				input()
 				# Fallbacking to fixed table and hope for the best
 				attId = attr['attrTyp']
 				LOOKUP_TABLE = self.NAME_TO_ATTRTYP
@@ -250,7 +249,6 @@ class SMBDRSUAPI:
 						
 						logger.error('Cannot get pwdLastSet for %s' % record['pmsgOut'][replyVersion]['pNC']['StringName'][:-1])
 						us.pwd_last_set = None
-						input(e)
 						
 			elif attId == LOOKUP_TABLE['userAccountControl']:
 				if attr['AttrVal']['valCount'] > 0:

@@ -71,12 +71,9 @@ class SMBKerberosSSPI:
 				cipher = _enctype_table[aprep['enc-part']['etype']]()
 				
 				plaintext = cipher.decrypt(subkey, 12, cipher_text)
-				print('plaintext')
-				input(plaintext.hex())
 				
 				self.gssapi = get_gssapi(subkey)
 				
-				input(self.gssapi)
 				self.iterations += 1
 				return token, False
 				

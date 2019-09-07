@@ -51,7 +51,6 @@ async def dcsync(connection_string, filename = None, target_domain = None, targe
 					if filename is not None:
 						with open(filename, 'w') as f:
 							for username in target_users:
-								input('polling secrets for user: %s' % username)
 								secrets = await drsuapi.get_user_secrets(username)
 								if json_out == True:
 									f.write(json.dumps(secrets.to_dict()))

@@ -71,7 +71,6 @@ class SMBNTLMSSPI:
 				self.ntlm_ctx.load_authenticate( data)
 				self.ntlm_ctx.load_sessionkey(self.get_session_key())
 				
-				input(self.ntlm_ctx.get_extra_info())
 				return data, res
 			
 	

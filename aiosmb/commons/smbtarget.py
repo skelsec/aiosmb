@@ -42,7 +42,7 @@ class SMBTarget:
 		return self.ip if self.ip is not None else self.hostname
 		
 	def get_hostname(self):
-		raise Exception('Not implemented!')
+		return self.hostname
 	
 	def get_hostname_or_ip(self):
 		if self.hostname:
@@ -55,6 +55,7 @@ class SMBTarget:
 	def __str__(self):
 		t = '==== SMBTarget ====\r\n'
 		for k in self.__dict__:
+			print(k)
 			t += '%s: %s\r\n' % (k, self.__dict__[k])
 			
 		return t

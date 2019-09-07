@@ -9,7 +9,7 @@ class TCPSocket:
 	Generic asynchronous TCP socket class, nothing SMB related.
 	Creates the connection and channels incoming/outgoing bytes via asynchonous queues.
 	"""
-	def __init__(self, shutdown_evt = asyncio.Event(), socket = None):
+	def __init__(self, socket = None):
 		self.settings = None
 		self.socket = socket #for future, if we want a custom soscket
 		self.reader = None
@@ -19,26 +19,31 @@ class TCPSocket:
 		self.in_queue = asyncio.Queue()
 		
 		self.disconnected = asyncio.Event()
-		self.shutdown_evt = shutdown_evt
+
+		self.incoming_task = None
+		self.outgoing_task = None
 		
 	async def disconnect(self):
 		"""
 		Disconnects from the socket.
 		Stops the reader and writer streams.
 		"""
-		self.reader = None
+		self.incoming_task.cancel()
+		self.outgoing_task.cancel()
+
 		try:
 			self.writer.close()
 		except:
 			pass
 		self.writer = None
+		self.reader = None
 		self.disconnected.set()
-		
+
 	async def handle_incoming(self):
 		"""
 		Reads data bytes from the socket and dispatches it to the incoming queue
 		"""
-		while not self.disconnected.is_set() or not self.shutdown_evt.is_set():			
+		while not self.disconnected.is_set():			
 			data = await asyncio.gather(*[self.reader.read(4096)], return_exceptions = True)
 			if isinstance(data[0], bytes):
 				#print('%s : %s' % (self.writer.get_extra_info('peername')[0], data[0]))
@@ -48,8 +53,7 @@ class TCPSocket:
 				return
 				
 			elif isinstance(data[0], Exception):
-				if not self.shutdown_evt.is_set():
-					logger.exception('[TCPSocket] handle_incoming %s' % str(data[0]))
+				logger.exception('[TCPSocket] handle_incoming %s' % str(data[0]))
 				await self.disconnect()
 				return
 		
@@ -58,7 +62,7 @@ class TCPSocket:
 		Reads data bytes from the outgoing queue and dispatches it to the socket
 		"""
 		try:
-			while not self.disconnected.is_set() or not self.shutdown_evt.is_set():
+			while not self.disconnected.is_set():
 				data = await self.out_queue.get()
 				self.writer.write(data)
 				await self.writer.drain()
@@ -84,19 +88,24 @@ class TCPSocket:
 			self.reader, self.writer = await asyncio.wait_for(con, int(self.settings.timeout))
 		except asyncio.TimeoutError:
 			logger.debug('[TCPSocket] Connection timeout')
-			raise SMBConnectionTimeoutException() 
+			raise SMBConnectionTimeoutException()
+			
 		except ConnectionRefusedError:
 			logger.debug('[TCPSocket] Connection refused')
 			raise SMBConnectionRefusedException()
+			
 		except asyncio.CancelledError:
 			#the SMB connection is terminating
-			return
+			raise asyncio.CancelledError
+			
 		except Exception as e:
 			logger.exception('[TCPSocket] connect generic exception')
 			raise e
 		
-		asyncio.ensure_future(self.handle_incoming())
-		asyncio.ensure_future(self.handle_outgoing())
+		self.incoming_task = asyncio.create_task(self.handle_incoming())
+		self.outgoing_task = asyncio.create_task(self.handle_outgoing())
+
+
 		return
 
 			

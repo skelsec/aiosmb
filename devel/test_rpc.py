@@ -30,7 +30,6 @@ async def filereader_test(connection_string, filename):
 			t = SMBDRSUAPI(connection, 'TEST.corp')
 			await t.connect()
 			await t.open()
-			input('open succsess!')
 			await t.get_user_secrets('victim')
 		except Exception as e:
 			import traceback

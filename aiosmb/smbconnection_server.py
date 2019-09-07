@@ -302,7 +302,6 @@ class SMBServerConnection:
 		message_id = await self.sendSMB(msg)
 		print(message_id)
 		rply = await self.recvSMB(3)
-		input('end')
 
 
 		

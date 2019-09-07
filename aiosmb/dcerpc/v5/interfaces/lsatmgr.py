@@ -62,11 +62,21 @@ class LSAD:
 		host_sid = resp['PolicyInformation']['PolicyAccountDomainInfo']['DomainSid'].formatCanonical()
 		return host_sid
 
-	async def lookup_sids(self, policy_handle, sids):
+	async def lookup_sids(self, policy_handle, sids, lookup_level = lsat.LSAP_LOOKUP_LEVEL.enumItems.LsapLookupWksta):
 		"""
 		sids: list of string sid
 		"""
-		resp = lsat.hLsarLookupSids(self.dce, self.policy_handles[policy_handle], sids, lsat.LSAP_LOOKUP_LEVEL.enumItems.LsapLookupWksta)
+		resp = await lsat.hLsarLookupSids(self.dce, self.policy_handles[policy_handle], sids, lookup_level)
+		if lookup_level == lsat.LSAP_LOOKUP_LEVEL.enumItems.LsapLookupWksta:
+			domains = []
+			for entry in resp['ReferencedDomains']['Domains']:
+				domains.append(entry['Name'])
+
+			for entry in resp['TranslatedNames']['Names']:
+				domain = domains[entry['DomainIndex']]
+				yield (domain, entry['Name'])
+		else:
+			yield resp
 		
 
 	

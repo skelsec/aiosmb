@@ -25,7 +25,6 @@ from aiosmb.dcerpc.v5.ndr import NDRCALL, NDRENUM, NDRUNION, NDRUniConformantVar
 from aiosmb.dcerpc.v5.dtypes import DWORD, LPWSTR, STR, LUID, LONG, ULONG, RPC_UNICODE_STRING, PRPC_SID, LPBYTE, \
     LARGE_INTEGER, NTSTATUS, RPC_SID, ACCESS_MASK, UCHAR, PRPC_UNICODE_STRING, PLARGE_INTEGER, USHORT, \
     SECURITY_INFORMATION, NULL, MAXIMUM_ALLOWED, GUID, SECURITY_DESCRIPTOR, OWNER_SECURITY_INFORMATION
-from impacket import nt_errors
 from aiosmb.dcerpc.v5.uuid import uuidtup_to_bin
 from aiosmb.dcerpc.v5.enum import Enum
 from aiosmb.dcerpc.v5.rpcrt import DCERPCException
@@ -45,14 +44,6 @@ class DCERPCSessionError(DCERPCException):
     def __init__(self, error_string=None, error_code=None, packet=None):
         DCERPCException.__init__(self, error_string, error_code, packet)
 
-    def __str__( self ):
-        key = self.error_code
-        if key in nt_errors.ERROR_MESSAGES:
-            error_msg_short = nt_errors.ERROR_MESSAGES[key][0]
-            error_msg_verbose = nt_errors.ERROR_MESSAGES[key][1] 
-            return 'LSAD SessionError: code: 0x%x - %s - %s' % (self.error_code, error_msg_short, error_msg_verbose)
-        else:
-            return 'LSAD SessionError: unknown error code: 0x%x' % self.error_code
 
 ################################################################################
 # CONSTANTS

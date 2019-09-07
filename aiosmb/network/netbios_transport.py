@@ -10,7 +10,7 @@ class NetBIOSTransport:
 	Converts incoming bytestream from the network starsport to SMB messages and vice-versa.
 	This layer is presented so the network transport can be changed for a TCP/UDP/whatever type of transport.
 	"""
-	def __init__(self, network_transport, shutdown_evt = asyncio.Event()):
+	def __init__(self, network_transport):
 		self.network_transport = network_transport
 		self.socket_out_queue = network_transport.out_queue
 		self.socket_in_queue = network_transport.in_queue
@@ -21,16 +21,10 @@ class NetBIOSTransport:
 		self.outgoing_task = None
 		self.incoming_task = None
 		
-		self.shutdown_evt = shutdown_evt
-		self.stop_evt = asyncio.Event()
-		
 	async def stop(self):
 		"""
 		Stops the input output processing
 		"""
-		self.stop_evt.set()
-		self.in_queue = None
-		self.out_queue = None
 		self.outgoing_task.cancel()
 		self.incoming_task.cancel()
 		
@@ -39,8 +33,8 @@ class NetBIOSTransport:
 		"""
 		Starts the input and output processing
 		"""
-		self.incoming_task = asyncio.ensure_future(self.handle_incoming())
-		self.outgoing_task = asyncio.ensure_future(self.handle_outgoing())
+		self.incoming_task = asyncio.create_task(self.handle_incoming())
+		self.outgoing_task = asyncio.create_task(self.handle_outgoing())
 		
 	async def parse_buffer(self, buffer, total_size = None):
 		"""
@@ -84,7 +78,7 @@ class NetBIOSTransport:
 		"""
 		try:
 			buffer = b''
-			while not self.shutdown_evt.is_set() or not self.stop_evt.is_set():
+			while True:
 				data = await self.socket_in_queue.get()
 				#parse
 				buffer += data
@@ -102,7 +96,7 @@ class NetBIOSTransport:
 		Reads SMBv1/2 outgoing message objects from out_queue, wraps them in NetBIOS object, then serializes them, then sends them to socket_out_queue
 		"""
 		try:
-			while not self.shutdown_evt.is_set() or not self.stop_evt.is_set():
+			while True:
 				smb_msg = await self.out_queue.get()
 				#print(smb_msg)
 				smb_msg_data = smb_msg.to_bytes()

@@ -148,7 +148,6 @@ class SMBFileSystem:
 		self.connection.terminate()
 		
 	async def enumerate_directory_stack(self, directory, maxdepth = 4, with_sid = False, exclude_dirs = ['Windows','Program Files','Program Files (x86)']):
-		input('enumerate_directory_stack %s' % directory.fullpath)
 		dirs = [(directory, maxdepth)]
 		
 		while len(dirs) != 0:

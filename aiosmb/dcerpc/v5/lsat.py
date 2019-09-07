@@ -18,7 +18,6 @@
 #   Helper functions start with "h"<name of the call>.
 #   There are test cases for them too. 
 #
-from impacket import nt_errors
 from aiosmb.dcerpc.v5.dtypes import ULONG, LONG, PRPC_SID, RPC_UNICODE_STRING, LPWSTR, PRPC_UNICODE_STRING, NTSTATUS, NULL
 from aiosmb.dcerpc.v5.enum import Enum
 from aiosmb.dcerpc.v5.lsad import LSAPR_HANDLE, PLSAPR_TRUST_INFORMATION_ARRAY
@@ -36,15 +35,6 @@ MSRPC_UUID_LSAT  = uuidtup_to_bin(('12345778-1234-ABCD-EF00-0123456789AB','0.0')
 class DCERPCSessionError(DCERPCException):
     def __init__(self, error_string=None, error_code=None, packet=None):
         DCERPCException.__init__(self, error_string, error_code, packet)
-
-    def __str__( self ):
-        key = self.error_code
-        if key in nt_errors.ERROR_MESSAGES:
-            error_msg_short = nt_errors.ERROR_MESSAGES[key][0]
-            error_msg_verbose = nt_errors.ERROR_MESSAGES[key][1] 
-            return 'LSAT SessionError: code: 0x%x - %s - %s' % (self.error_code, error_msg_short, error_msg_verbose)
-        else:
-            return 'LSAT SessionError: unknown error code: 0x%x' % self.error_code
 
 ################################################################################
 # CONSTANTS
