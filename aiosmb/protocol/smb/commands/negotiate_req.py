@@ -19,12 +19,12 @@ class SMB_COM_NEGOTIATE_REQ:
 		cmd.WordCount = int.from_bytes(buff.read(1), byteorder='little', signed = False)
 		cmd.ByteCount = int.from_bytes(buff.read(2), byteorder='little', signed = False)
 		dialect_buffer = buff.read(cmd.ByteCount)
-		print(dialect_buffer)
+		#print(dialect_buffer)
 		
 		i = 0
 		while i < len(dialect_buffer):
 			if not dialect_buffer[i] == 2:
-				print(i)
+				#print(i)
 				raise Exception('Dialect buffer expected byte 0x02!')
 			m = dialect_buffer[i:].find(b'\x00')
 			if m == -1:

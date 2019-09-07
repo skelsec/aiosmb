@@ -4,6 +4,7 @@ import hmac
 import hashlib
 import platform
 import copy
+import traceback
 
 from aiosmb import logger
 from aiosmb.exceptions import *
@@ -202,7 +203,7 @@ class SMBConnection:
 			#the SMB connection is terminating
 			return
 		except Exception as e:
-			traceback.print_exc()
+			logger.exception('__handle_smb_in')
 			
 			
 	async def login(self):
@@ -901,7 +902,7 @@ class SMBConnection:
 			#terminating TCP connection
 			results = await asyncio.gather(*[self.disconnect()], return_exceptions=True)
 		except:
-			traceback.print_exc()
+			logger.exception()
 			
 async def test(target):
 	#setting up NTLM auth

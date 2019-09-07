@@ -45,8 +45,8 @@ class NTLMNegotiate:
 		if t.DomainNameFields.length != 0:
 			buff.seek(t.DomainNameFields.offset, io.SEEK_SET)
 			raw_data = buff.read(t.WorkstationFields.length)
-			print(raw_data)
-			print(t.DomainNameFields.length)
+			#print(raw_data)
+			#print(t.DomainNameFields.length)
 			try:
 				t.Domain = raw_data.decode('utf-16le')
 			except UnicodeDecodeError:

@@ -336,7 +336,6 @@ class NEGOTIATE_REPLY:
 
 		t += self.SecurityBufferOffset.to_bytes(2, byteorder = 'little', signed=False)
 		t += self.SecurityBufferLength.to_bytes(2, byteorder = 'little', signed=False)
-		print(self.NegotiateContextOffset)
 		t += self.NegotiateContextOffset.to_bytes(4, byteorder = 'little', signed=False)
 		t += self.Buffer
 

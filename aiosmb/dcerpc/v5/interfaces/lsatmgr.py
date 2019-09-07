@@ -34,8 +34,8 @@ class LSAD:
 			for hid in self.policy_handles:
 				try:
 					await lsad.hLsarClose(self.dce, self.policy_handles[hid])
-				except Exception as e:
-					print(e)
+				except:
+					logger.exception()
 					pass
 
 			try:
