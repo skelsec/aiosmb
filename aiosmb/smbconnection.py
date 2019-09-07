@@ -182,6 +182,7 @@ class SMBConnection:
 						self.OutstandingResponsesEvent[mid].set()
 
 					await self.terminate()
+					return
 
 				logger.log(1, '__handle_smb_in got new message with Id %s' % msg.header.MessageId)
 				
