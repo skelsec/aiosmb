@@ -128,7 +128,7 @@ class Socks5ProxyConnection:
 
 		logger.debug('Sending connect request to %s:%d' % self.proxy_writer.get_extra_info('peername'))
 		self.proxy_writer.write(SOCKS5Request.construct(SOCKS5Command.CONNECT, self.target.get_hostname_or_ip(), self.target.port).to_bytes())
-		t = await asyncio.wait_for(self.proxy_writer.drain(), timeout=1)
+		await asyncio.wait_for(self.proxy_writer.drain(), timeout=int(self.target.proxy.timeout))
 
 		rep = await asyncio.wait_for(SOCKS5Reply.from_streamreader(self.proxy_reader), timeout=int(self.target.proxy.timeout))
 		if rep.REP != SOCKS5ReplyType.SUCCEEDED:
