@@ -8,6 +8,7 @@ class SMBTarget:
 		self.timeout = 1
 		self.dc_ip = None
 		self.domain = None
+		self.proxy = None
 		
 	def to_target_string(self):
 		return 'cifs/%s@%s' % (self.hostname, self.domain)

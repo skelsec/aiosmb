@@ -8,7 +8,7 @@ import traceback
 
 from aiosmb import logger
 from aiosmb.exceptions import *
-from aiosmb.network.network import TCPSocket
+from aiosmb.network.selector import NetworkSelector
 from aiosmb.network.netbios_transport import NetBIOSTransport
 from aiosmb.protocol.smb.command_codes import SMBCommand
 from aiosmb.commons.ntstatus import NTStatus
@@ -232,7 +232,7 @@ class SMBConnection:
 		"""
 		Establishes socket connection to the remote endpoint. Also starts the internal reading procedures.
 		"""
-		self.network_transport = TCPSocket()
+		self.network_transport = NetworkSelector.select(self.target)
 		
 		res = await asyncio.gather(*[self.network_transport.connect(self.target)], return_exceptions=True)
 		if isinstance(res[0], Exception):

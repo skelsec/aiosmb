@@ -3,6 +3,7 @@ import asyncio
 from aiosmb import logger
 from aiosmb.filereader import SMBFileReader
 from aiosmb.dcerpc.v5.transport.common import *
+from aiosmb.exceptions import *
 
 class DCERPCTCPConnection:
 	def __init__(self, ip, port):
