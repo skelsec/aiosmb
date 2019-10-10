@@ -15,16 +15,18 @@ class SMBCredentialsAuthType(enum.Enum):
 	KERBEROS = 'KERBEROS'
 	SSPI_KERBEROS = 'SSPI-KERBEROS'
 	SSPI_NTLM = 'SSPI-NTLM'
+	MULTIPLEXOR = 'MULTIPLEXOR'
 
 
 class SMBCredential:
-	def __init__(self):
-		self.username = None
-		self.domain = None
-		self.secret = None
-		self.secret_type = None #SMBCredentialsSecretType
+	def __init__(self, username = None, domain = None, secret = None, secret_type = None, authentication_type = None, settings = None):
+		self.username = username
+		self.domain = domain
+		self.secret = secret
+		self.secret_type = secret_type #SMBCredentialsSecretType
 		
-		self.authentication_type = None #kerberos or NTLM or ...
+		self.authentication_type = authentication_type #kerberos or NTLM or ...
+		self.settings = settings
 			
 		#domain/user/auth_type/secret_type:secret@target_ip_hostname_fqdn:target_port/dc_ip
 	

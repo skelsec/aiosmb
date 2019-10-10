@@ -11,8 +11,8 @@ class Socks5ProxyConnection:
 	Generic asynchronous TCP socket class, nothing SMB related.
 	Creates the connection and channels incoming/outgoing bytes via asynchonous queues.
 	"""
-	def __init__(self, socket = None):
-		self.target = None
+	def __init__(self, target = None, socket = None):
+		self.target = target
 		self.socket = socket #for future, if we want a custom soscket
 		self.reader = None
 		self.writer = None
@@ -45,21 +45,35 @@ class Socks5ProxyConnection:
 		"""
 		Reads data bytes from the socket and dispatches it to the incoming queue
 		"""
-		while not self.disconnected.is_set():			
-			data = await asyncio.gather(*[self.reader.read(4096)], return_exceptions = True)
-			if isinstance(data[0], bytes):
-				#print('%s : %s' % (self.writer.get_extra_info('peername')[0], data[0]))
-				await self.in_queue.put( (data[0], None) )
-			
-			elif isinstance(data[0], asyncio.CancelledError):
-				return
+		try:
+			while not self.disconnected.is_set():			
+				data = await asyncio.gather(*[asyncio.wait_for(self.reader.read(4096), int(self.target.proxy.timeout))], return_exceptions = True)
+				if isinstance(data[0], bytes):
+					#print('%s : %s' % (self.writer.get_extra_info('peername')[0], data[0]))
+					print('SOCKS5 data in %s' % data[0])
+					await self.in_queue.put( (data[0], None) )
 				
-			elif isinstance(data[0], Exception):
-				logger.exception('[TCPSocket] handle_incoming %s' % str(data[0]))
-				await self.in_queue.put( (None, data[0]) )
-				await self.disconnect()
-				return
-		
+				elif isinstance(data[0], asyncio.CancelledError):
+					print('SOCKS5 data in CANCELLED')
+					return
+					
+				elif isinstance(data[0], Exception):
+					print('SOCKS5 data in exception')
+					logger.exception('[TCPSocket] handle_incoming %s' % str(data[0]))
+					await self.in_queue.put( (None, data[0]) )
+					await self.disconnect()
+					return
+			
+			print('SOCKS5 data in EXITING')
+		except asyncio.CancelledError:
+			await self.in_queue.put( (None, asyncio.CancelledError) )
+
+		except Exception as e:
+			import traceback
+			traceback.print_exc()
+			print('SOCKS5 data in ERROR!')
+			await self.in_queue.put( (None, e) )
+
 	async def handle_outgoing(self):
 		"""
 		Reads data bytes from the outgoing queue and dispatches it to the socket
@@ -67,6 +81,7 @@ class Socks5ProxyConnection:
 		try:
 			while not self.disconnected.is_set():
 				data = await self.out_queue.get()
+				print('SOCKS5 data out %s' % data)
 				self.writer.write(data)
 				await self.writer.drain()
 		except asyncio.CancelledError:
@@ -78,13 +93,10 @@ class Socks5ProxyConnection:
 			await self.disconnect()
 			
 		
-	async def connect(self, target):
+	async def connect(self):
 		"""
 		Main function to be called, connects to the target specified in target, and starts reading/writing.
 		"""
-
-		self.target = target
-
 		con = asyncio.open_connection(self.target.proxy.ip, self.target.proxy.port)
 		try:
 			self.proxy_reader, self.proxy_writer = await asyncio.wait_for(con, int(self.target.proxy.timeout))
@@ -137,7 +149,7 @@ class Socks5ProxyConnection:
 		
 		logger.debug('Server reply from %s : %s' % (self.proxy_writer.get_extra_info('peername'),repr(rep)))
 
-		if rep.BIND_ADDR == ipaddress.IPv6Address('::') or rep.BIND_ADDR == ipaddress.IPv4Address('0.0.0.0') or rep.BIND_PORT == self.proxy_writer.get_extra_info('sockname')[1]:
+		if rep.BIND_ADDR == ipaddress.IPv6Address('::') or rep.BIND_ADDR == ipaddress.IPv4Address('0.0.0.0') or rep.BIND_PORT == self.proxy_writer.get_extra_info('peername')[1]:
 			logger.debug('Same socket can be used now on %s:%d' % (self.proxy_writer.get_extra_info('peername')))
 			#this means that the communication can continue on the same socket!
 			logger.info('Proxy connection succeeded')

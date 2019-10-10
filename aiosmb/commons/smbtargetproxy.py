@@ -1,23 +1,39 @@
 import ipaddress
 import enum
+from urllib.parse import urlparse
 
 
 class SMBTargetProxySecretType(enum.Enum):
 	NONE = 'NONE'
+	PLAIN = 'PLAIN'
 
 class SMBTargetProxyServerType(enum.Enum):
 	SOCKS5 = 'SOCKS5'
+	SOCKS5_SSL = 'SOCKS5_SSL'
+	MULTIPLEXOR = 'MULTIPLEXOR'
+	MULTIPLEXOR_SSL = 'MULTIPLEXOR_SSL'
+
+
 
 class SMBTargetProxy:
-	def __init__(self):
-		self.ip = None
-		self.port = 1080
-		self.timeout = 5
-		self.proxy_type = None
-		self.username = None
-		self.domain = None
-		self.secret = None
-		self.secret_type = None #SMBCredentialsSecretType
+	def __init__(self, ip = None,
+				port = None,
+				timeout = 5,
+				proxy_type = None,
+				username = None,
+				domain = None,
+				secret = None,
+				secret_type = SMBTargetProxySecretType.NONE,
+				agent_id = None):
+		self.ip = ip
+		self.port = port
+		self.timeout = timeout
+		self.proxy_type = proxy_type
+		self.username = username
+		self.domain = domain
+		self.secret = secret
+		self.secret_type = secret_type
+		self.agent_id = agent_id #used by multiplexor only
 		
 	def to_target_string(self):
 		pass
@@ -25,26 +41,25 @@ class SMBTargetProxy:
 	@staticmethod
 	def from_connection_string(s):
 		"""
-		protocol/domain/user/secret-type:secret@proxy_server:port
+		URL format required
+		socks5://user:password@ipaddress:port
+		socks5+ssl://user:password@ipaddress:port
+		multiplexor://user:password@ipaddress:port/agentid
 		"""
-		port = 1080
-		t, target = s.rsplit('@', 1)
-		ip = target
-		if target.find(':') != -1:
-			ip, port = target.split(':')
-			
 		st = SMBTargetProxy()
-		st.port = int(port)
-		st.ip = ip
+		o = urlparse(s)
 
-		t, secret = t.split(':', 1)
-		elems = t.split('/')
-		st.proxy_type = SMBTargetProxyServerType(elems[0].upper())
-		st.domain = elems[1]
-		st.user = elems[2]
-		st.secret_type = SMBTargetProxySecretType(elems[3].upper())
-		st.secret = secret
-	
+		st.proxy_type = SMBTargetProxyServerType(o.scheme.upper().replace('+','_'))
+		st.ip = o.hostname
+		st.username = o.username
+		st.secret = o.password
+		st.port = int(o.port)
+		if st.secret is not None:
+			st.secret_type = SMBTargetProxySecretType.PLAIN
+		
+		if st.proxy_type in [SMBTargetProxyServerType.MULTIPLEXOR, SMBTargetProxyServerType.MULTIPLEXOR_SSL]:
+			st.agent_id = o.path.replace('/','')
+		
 		return st
 		
 	def __str__(self):
@@ -57,12 +72,14 @@ class SMBTargetProxy:
 		
 		
 def test():
-	t1 = 'SOCKS5///NONE:@10.1.1.1:22'
-	t2 = 'SOCKS5/alma/korte/none:asdfasdfadsf@10.33.11.22:4444'
-	s = SMBTargetProxy.from_connection_string(t1)
-	print(str(s))
-	s = SMBTargetProxy.from_connection_string(t2)
-	print(str(s))
+	t = ['socks5://10.10.10.1',
+			'socks5+ssl://10.10.10.1',
+			'socks5+ssl://admin:password@10.10.10.1',
+			'multiplexor+ssl://admin:password@10.10.10.1/alma',
+	]
+	for x in t:
+		s = SMBTargetProxy.from_connection_string(x)
+		print(str(s))
 
 	
 if __name__ == '__main__':

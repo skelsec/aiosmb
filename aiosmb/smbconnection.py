@@ -202,7 +202,7 @@ class SMBConnection:
 		except asyncio.CancelledError:
 			#the SMB connection is terminating
 			return
-		except Exception as e:
+		except:
 			logger.exception('__handle_smb_in')
 			
 			
@@ -232,9 +232,9 @@ class SMBConnection:
 		"""
 		Establishes socket connection to the remote endpoint. Also starts the internal reading procedures.
 		"""
-		self.network_transport = NetworkSelector.select(self.target)
+		self.network_transport = await NetworkSelector.select(self.target)
 		
-		res = await asyncio.gather(*[self.network_transport.connect(self.target)], return_exceptions=True)
+		res = await asyncio.gather(*[self.network_transport.connect()], return_exceptions=True)
 		if isinstance(res[0], Exception):
 			raise res[0]
 		
@@ -256,9 +256,12 @@ class SMBConnection:
 			return
 		
 		self.status = SMBConnectionStatus.CLOSED
-		await self.netbios_transport.stop()
-		await self.network_transport.disconnect()
-		self.incoming_task.cancel()		
+		if self.netbios_transport:
+			await self.netbios_transport.stop()
+		if self.network_transport:
+			await self.network_transport.disconnect()
+		if self.incoming_task:
+			self.incoming_task.cancel()		
 		
 	async def negotiate(self):
 		"""
@@ -776,7 +779,7 @@ class SMBConnection:
 			del self.FileHandleTable[file_id]
 			
 			
-	async def flush(tree_id, file_id):
+	async def flush(self, tree_id, file_id):
 		"""
 		Flushes all cached data that may be on the server for the given file.
 		"""
@@ -869,8 +872,8 @@ class SMBConnection:
 		command = CANCEL_REQ()
 		header = SMB2Header_SYNC()
 		header.Command  = SMB2Command.CANCEL
-		msg.header.MessageId = message_id
 		msg = SMB2Message(header, command)
+		msg.header.MessageId = message_id
 		message_id = await self.sendSMB(msg)
 		rply = await self.recvSMB(message_id)
 		
@@ -883,26 +886,30 @@ class SMBConnection:
 		try:
 			logger.debug('Terminate called!')			
 			if self.session_closed == True or self.status == SMBConnectionStatus.CLOSED:
+				logger.debug('Terminate 1!')
 				return
 			
 			if self.status == SMBConnectionStatus.RUNNING:
+				logger.debug('Terminate 2!')
 				#only doing the proper disconnection if the connection was already running
 				for tree_id in list(self.TreeConnectTable_id.keys()):
 					try:
-						await self.tree_diconnect(tree_id)
+						await asyncio.wait_for(self.tree_diconnect(tree_id), timeout = self.target.timeout)
 					except:
 						pass
-				
+				logger.debug('Terminate 3!')
 				#logging off
 				try:
 					await asyncio.wait_for(self.logoff(), timeout = self.target.timeout)
 				except Exception as e:
 					pass
-				
+			
+			logger.debug('Terminate 4!')
 			#terminating TCP connection
-			results = await asyncio.gather(*[self.disconnect()], return_exceptions=True)
+			await asyncio.wait_for(self.disconnect(), timeout = self.target.timeout)
+			logger.debug('Terminate finished!')	
 		except:
-			logger.exception()
+			logger.exception('')
 			
 async def test(target):
 	#setting up NTLM auth

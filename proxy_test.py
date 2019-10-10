@@ -1,4 +1,5 @@
 import asyncio
+import logging
 
 from aiosmb.commons.smbcredential import SMBCredential
 from aiosmb.commons.smbtarget import SMBTarget
@@ -40,10 +41,12 @@ async def filereader_test(connection_string, filename, proxy = None):
 			"""
 	
 if __name__ == '__main__':
-	#connection_string = 'TEST/victim/ntlm/password:Passw0rd!1@10.10.10.2'	
-	connection_string = 'TEST/victim/ntlm/password:Passw0rd!1@win2019ad.test.corp/10.10.10.2'
+	logging.basicConfig(level=logging.DEBUG) 
+	connection_string = 'TEST/victim/ntlm/password:Passw0rd!1@10.10.10.2'	
+	#connection_string = 'TEST/victim/ntlm/password:Passw0rd!1@win2019ad.test.corp/10.10.10.2'
 	filename = '\\\\10.10.10.2\\Users\\Administrator\\Desktop\\smb_test\\testfile1.txt'
-	proxy = 'SOCKS5///none:@127.0.0.1:1080'
+	#proxy = 'socks5://127.0.0.1:32903'
+	proxy = 'multiplexor://127.0.0.1:9999/2e454cee-b046-466c-a2b4-d33149835218'
 	
 	
 	asyncio.run(filereader_test(connection_string, filename, proxy))
