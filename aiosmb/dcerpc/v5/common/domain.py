@@ -3,10 +3,11 @@ import logging
 import json
 
 import aiosmb
-from aiosmb.commons.smbcredential import SMBCredential
-from aiosmb.commons.smbtarget import SMBTarget
+from aiosmb.commons.connection.credential import SMBCredential
+from aiosmb.commons.connection.target import SMBTarget
+from aiosmb.commons.connection.authbuilder import AuthenticatorBuilder
 from aiosmb.smbconnection import SMBConnection
-from aiosmb.commons.authenticator_builder import AuthenticatorBuilder
+
 from aiosmb.dcerpc.v5.transport.smbtransport import SMBTransport
 from aiosmb.dcerpc.v5.interfaces.samrmgr import SMBSAMR
 from aiosmb.dcerpc.v5 import samr

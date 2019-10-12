@@ -1,14 +1,33 @@
 import ipaddress
+import enum
+
+class SMBConnectionDialect(enum.Enum):
+	SMB = 'SMB' #any
+
+class SMBConnectionProtocol(enum.Enum):
+	TCP = 'TCP'
+	UDP = 'UDP'
 
 class SMBTarget:
-	def __init__(self):
-		self.ip = None
-		self.port = 445
-		self.hostname = None
-		self.timeout = 1
-		self.dc_ip = None
-		self.domain = None
-		self.proxy = None
+	def __init__(self, ip = None, 
+						port = 445, 
+						hostname = None, 
+						timeout = 1, 
+						dc_ip=None, 
+						domain = None, 
+						proxy = None,
+						dialect = SMBConnectionDialect.SMB,
+						protocol = SMBConnectionProtocol.TCP):
+		self.ip = ip
+		self.port = port
+		self.hostname = hostname
+		self.timeout = timeout
+		self.dc_ip = dc_ip
+		self.domain = domain
+		self.proxy = proxy
+		self.dialect = dialect
+		self.protocol = protocol
+
 		
 	def to_target_string(self):
 		return 'cifs/%s@%s' % (self.hostname, self.domain)
@@ -56,7 +75,6 @@ class SMBTarget:
 	def __str__(self):
 		t = '==== SMBTarget ====\r\n'
 		for k in self.__dict__:
-			print(k)
 			t += '%s: %s\r\n' % (k, self.__dict__[k])
 			
 		return t

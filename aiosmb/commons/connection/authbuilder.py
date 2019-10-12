@@ -1,7 +1,7 @@
 import enum
 import platform
 
-from aiosmb.commons.smbcredential import *
+from aiosmb.commons.connection.credential import *
 from aiosmb.spnego.spnego import SPNEGO
 from aiosmb.ntlm.auth_handler import NTLMAUTHHandler, NTLMHandlerSettings
 from aiosmb.kerberos.kerberos import SMBKerberos
@@ -19,13 +19,15 @@ class AuthenticatorBuilder:
 	
 	@staticmethod
 	def to_spnego_cred(creds, target = None):
-		if creds.authentication_type == SMBCredentialsAuthType.NTLM:
+		if creds.authentication_type == SMBAuthProtocol.NTLM:
 			ntlmcred = SMBNTLMCredential()
 			ntlmcred.username = creds.username
 			ntlmcred.domain = creds.domain if creds.domain is not None else ''
 			ntlmcred.workstation = None
 			ntlmcred.is_guest = False
 			
+			if creds.secret is None:
+				raise Exception('NTLM authentication requres password!')
 			if creds.secret_type == SMBCredentialsSecretType.NT:
 				ntlmcred.nt_hash = creds.secret
 			elif creds.secret_type == SMBCredentialsSecretType.PASSWORD:
@@ -40,7 +42,7 @@ class AuthenticatorBuilder:
 			
 			return spneg
 			
-		elif creds.authentication_type == SMBCredentialsAuthType.KERBEROS:
+		elif creds.authentication_type == SMBAuthProtocol.KERBEROS:
 			if target is None:
 				raise Exception('Target must be specified with Kerberos!')
 				
@@ -85,7 +87,7 @@ class AuthenticatorBuilder:
 			spneg.add_auth_context('MS KRB5 - Microsoft Kerberos 5', handler)
 			return spneg
 			
-		elif creds.authentication_type == SMBCredentialsAuthType.SSPI_KERBEROS:
+		elif creds.authentication_type == SMBAuthProtocol.SSPI_KERBEROS:
 			if target is None:
 				raise Exception('Target must be specified with Kerberos SSPI!')
 				
@@ -100,7 +102,7 @@ class AuthenticatorBuilder:
 			spneg.add_auth_context('MS KRB5 - Microsoft Kerberos 5', handler)
 			return spneg
 		
-		elif creds.authentication_type == SMBCredentialsAuthType.SSPI_NTLM:
+		elif creds.authentication_type == SMBAuthProtocol.SSPI_NTLM:
 			ntlmcred = SMBNTLMSSPICredential()
 			ntlmcred.client = creds.username #here we could submit the domain as well for impersonation? TODO!
 			ntlmcred.password = creds.secret
@@ -110,4 +112,55 @@ class AuthenticatorBuilder:
 			spneg = SPNEGO()
 			spneg.add_auth_context('NTLMSSP - Microsoft NTLM Security Support Provider', handler)
 			return spneg
+
+		elif creds.authentication_type.value.startswith('MULTIPLEXOR'):
+			if creds.authentication_type in [SMBAuthProtocol.MULTIPLEXOR_SSL_NTLM, SMBAuthProtocol.MULTIPLEXOR_NTLM]:
+				from aiosmb.ntlm.multiplexor import SMBNTLMMultiplexor
+
+				ntlmcred = SMBMultiplexorCredential()
+				ntlmcred.type = 'NTLM'
+				if creds.username is not None:
+					ntlmcred.username = '<CURRENT>'
+				if creds.domain is not None:
+					ntlmcred.domain = '<CURRENT>'
+				if creds.secret is not None:
+					ntlmcred.password = '<CURRENT>'
+				ntlmcred.is_guest = False
+				ntlmcred.is_ssl = True if creds.authentication_type == SMBAuthProtocol.MULTIPLEXOR_SSL_NTLM else False
+				ntlmcred.parse_settings(creds.settings)
+				
+				handler = SMBNTLMMultiplexor(ntlmcred)
+				#setting up SPNEGO
+				spneg = SPNEGO()
+				spneg.add_auth_context('NTLMSSP - Microsoft NTLM Security Support Provider', handler)
+				return spneg
+
+			elif creds.authentication_type in [SMBAuthProtocol.MULTIPLEXOR_SSL_KERBEROS, SMBAuthProtocol.MULTIPLEXOR_KERBEROS]:
+				from aiosmb.kerberos.multiplexor import SMBKerberosMultiplexor
+
+				ntlmcred = SMBMultiplexorCredential()
+				ntlmcred.type = 'KERBEROS'
+				if creds.username is not None:
+					ntlmcred.username = '<CURRENT>'
+				if creds.domain is not None:
+					ntlmcred.domain = '<CURRENT>'
+				if creds.password is not None:
+					ntlmcred.password = '<CURRENT>'
+				ntlmcred.is_guest = False
+				ntlmcred.is_ssl = True if creds.authentication_type == SMBAuthProtocol.MULTIPLEXOR_SSL_NTLM else False
+				ntlmcred.mp_host = creds.settings['host']
+				ntlmcred.mp_port = creds.settings['port']
+				ntlmcred.mp_username = creds.settings.get('user')
+				ntlmcred.mp_domain = creds.settings.get('domain')
+				ntlmcred.mp_password = creds.settings.get('password')
+
+				handler = SMBKerberosMultiplexor(ntlmcred)
+				#setting up SPNEGO
+				spneg = SPNEGO()
+				spneg.add_auth_context('MS KRB5 - Microsoft Kerberos 5', handler)
+				return spneg
+
+			
+			
+			
 		

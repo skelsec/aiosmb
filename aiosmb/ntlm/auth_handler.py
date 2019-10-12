@@ -4,7 +4,7 @@ import struct
 import hmac
 import copy
 
-from aiosmb.commons.smbcredential import SMBNTLMCredential
+from aiosmb.commons.connection.credential import SMBNTLMCredential
 from aiosmb.commons.serverinfo import NTLMServerInfo
 from aiosmb.ntlm.templates.server import NTLMServerTemplates
 from aiosmb.ntlm.templates.client import NTLMClientTemplates

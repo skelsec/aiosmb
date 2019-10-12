@@ -5,7 +5,7 @@ import copy
 
 from aiosmb import logger
 from aiosmb.exceptions import *
-from aiosmb.commons.smbtargetproxy import SMBTargetProxy, SMBTargetProxyServerType
+from aiosmb.commons.connection.targetproxy import SMBTargetProxy, SMBTargetProxyServerType
 from aiosmb.network.socks5network import Socks5ProxyConnection
 
 from multiplexor.operator import MultiplexorOperator
@@ -21,7 +21,7 @@ class MultiplexorProxyConnection:
 		
 		"""
 		#creating connection string
-		if self.target.proxy.proxy_type == SMBTargetProxyServerType.MULTIPLEXOR:
+		if self.target.proxy.type == SMBTargetProxyServerType.MULTIPLEXOR:
 			con_str = 'ws://%s:%s' % (self.target.proxy.ip, self.target.proxy.port)
 		else:
 			con_str = 'wss://%s:%s' % (self.target.proxy.ip, self.target.proxy.port)
@@ -37,7 +37,7 @@ class MultiplexorProxyConnection:
 		tp.ip = server_info['listen_ip']
 		tp.port = server_info['listen_port']
 		tp.timeout = self.target.proxy.timeout
-		tp.proxy_type = SMBTargetProxyServerType.SOCKS5
+		tp.type = SMBTargetProxyServerType.SOCKS5
 
 		newtarget = copy.deepcopy(self.target)
 		newtarget.proxy = tp

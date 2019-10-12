@@ -8,14 +8,16 @@ class SMBCredentialsSecretType(enum.Enum):
 	RC4 = 'RC4'
 	CCACHE = 'CCACHE'
 	NONE = 'NONE'
-	
-	
-class SMBCredentialsAuthType(enum.Enum):
+
+class SMBAuthProtocol(enum.Enum):
 	NTLM = 'NTLM'
 	KERBEROS = 'KERBEROS'
-	SSPI_KERBEROS = 'SSPI-KERBEROS'
-	SSPI_NTLM = 'SSPI-NTLM'
-	MULTIPLEXOR = 'MULTIPLEXOR'
+	SSPI_KERBEROS = 'SSPI_KERBEROS'
+	SSPI_NTLM = 'SSPI_NTLM'
+	MULTIPLEXOR_NTLM = 'MULTIPLEXOR_NTLM'
+	MULTIPLEXOR_KERBEROS = 'MULTIPLEXOR_KERBEROS'
+	MULTIPLEXOR_SSL_NTLM = 'MULTIPLEXOR_SSL_NTLM'
+	MULTIPLEXOR_SSL_KERBEROS = 'MULTIPLEXOR_SSL_KERBEROS'
 
 
 class SMBCredential:
@@ -29,6 +31,13 @@ class SMBCredential:
 		self.settings = settings
 			
 		#domain/user/auth_type/secret_type:secret@target_ip_hostname_fqdn:target_port/dc_ip
+
+	def __str__(self):
+		t = '==== SMBCredential ====\r\n'
+		for k in self.__dict__:
+			t += '%s: %s\r\n' % (k, self.__dict__[k])
+			
+		return t
 	
 	@staticmethod
 	def from_credential_string(s):
@@ -51,7 +60,7 @@ class SMBCredential:
 		else:
 			auth_type = t
 			creds.secret_type = SMBCredentialsSecretType.NONE
-		creds.authentication_type = SMBCredentialsAuthType(auth_type.upper())
+		creds.authentication_type = SMBAuthProtocol(auth_type.upper().replace('-','_'))
 		
 		#sanity check
 		if creds.secret_type == [SMBCredentialsSecretType.NT, SMBCredentialsSecretType.RC4]:
@@ -78,15 +87,15 @@ class SMBCredential:
 				raise Exception('Could not open CCACHE file!')
 		
 		
-		if creds.authentication_type == SMBCredentialsAuthType.NTLM:
+		if creds.authentication_type == SMBAuthProtocol.NTLM:
 			if creds.secret_type not in [SMBCredentialsSecretType.NT, SMBCredentialsSecretType.RC4, SMBCredentialsSecretType.PASSWORD]:
 				raise Exception('NTLM authentication requires either password or NT hash or RC4 key to be specified as secret!')
 				
-		elif creds.authentication_type == SMBCredentialsAuthType.KERBEROS:
+		elif creds.authentication_type == SMBAuthProtocol.KERBEROS:
 			if creds.secret_type not in [SMBCredentialsSecretType.NT, SMBCredentialsSecretType.RC4, SMBCredentialsSecretType.PASSWORD, SMBCredentialsSecretType.AES, SMBCredentialsSecretType.CCACHE]:
 				raise Exception('KERBEROS authentication requires either password or NT hash or RC4 key or AES key or CCACHE file to be specified as secret!')
 		
-		elif creds.authentication_type in [SMBCredentialsAuthType.SSPI_NTLM,  SMBCredentialsAuthType.SSPI_KERBEROS]:
+		elif creds.authentication_type in [SMBAuthProtocol.SSPI_NTLM,  SMBAuthProtocol.SSPI_KERBEROS]:
 			if platform.system() != 'Windows':
 				raise Exception('SSPI authentication on works on windows!')
 		
@@ -122,6 +131,43 @@ class SMBNTLMCredential:
 		self.is_guest = False
 		self.nt_hash = None
 		self.lm_hash = None
+
+class SMBMultiplexorCredential:
+	def __init__(self):
+		self.mode = 'CLIENT'
+		self.type = 'NTLM'
+		self.username = '<CURRENT>'
+		self.domain = '<CURRENT>'
+		self.password = '<CURRENT>'
+		self.is_guest = False
+		self.is_ssl = False
+		self.mp_host = None
+		self.mp_port = None
+		self.mp_username = None
+		self.mp_domain = None
+		self.mp_password = None
+		self.agent_id = None
+
+	def get_url(self):
+		url_temp = 'ws://%s:%s'
+		if self.is_ssl is True:
+			url_temp = 'wss://%s:%s'
+		url = url_temp % (self.mp_host, self.mp_port)
+		return url
+
+	def parse_settings(self, settings):
+		self.mp_host = settings['host'][0]
+		self.mp_port = settings['port'][0]
+		if self.mp_port is None:
+			self.mp_port = '9999'
+		if 'user' in settings:
+			self.mp_username = settings.get('user')[0]
+		if 'domain' in settings:
+			self.mp_domain = settings.get('domain')[0]
+		if 'password' in settings:
+			self.mp_password = settings.get('password')[0]
+		self.agent_id = settings['agentid'][0]
+
 		
 def test():
 	s = 'TEST/victim/ntlm/nt:AAAAAAAA@10.10.10.2:445'

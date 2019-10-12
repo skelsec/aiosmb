@@ -29,7 +29,7 @@ from aiosmb.fscc.FileAttributes import FileAttributes
 from aiosmb.dtyp.constrcuted_security.security_descriptor import SECURITY_DESCRIPTOR
 
 from aiosmb.commons.smbcontainer import *
-from aiosmb.commons.smbtarget import *
+from aiosmb.commons.connection.target import *
 from aiosmb.filereader import SMBFileReader
 
 
