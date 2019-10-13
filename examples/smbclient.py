@@ -1,7 +1,9 @@
 import asyncio
 import traceback
+import ntpath
 
 from aiocmd import aiocmd
+from prompt_toolkit.completion import WordCompleter
 
 from aiosmb.commons.connection.url import SMBConnectionURL
 from aiosmb.commons.interfaces.machine import SMBMachine
@@ -118,7 +120,7 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			
 			print(self.__current_directory)
 			async for entry in self.machine.list_directory(self.__current_directory):
-				print(entry.name)
+				print(entry)
 		except Exception as e:
 			traceback.print_exc()
 
@@ -148,8 +150,35 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 		except Exception as e:
 			traceback.print_exc()
 
-	
+	async def do_put(self, file_name):
+		try:
+			basename = ntpath.basename(file_name)
+			dst = '\\\\%s\\%s\\%s\\%s' % (self.connection.target.get_hostname_or_ip(), self.__current_share.name, self.__current_directory.fullpath , basename)
+			print(basename)
+			print(dst)
+			await self.machine.put_file_raw(file_name, dst)
+			
+		except Exception as e:
+			traceback.print_exc()
 
+	async def do_get(self, file_name):
+		try:
+			if file_name not in self.__current_directory.files:
+				print('File with name %s is not present in the directory %s' % (file_name, self.__current_directory.name))
+				return
+			
+			out_path = file_name
+			await self.machine.get_file(out_path, self.__current_directory.files[file_name])
+
+		except Exception as e:
+			traceback.print_exc()
+
+	async def do_mkdir(self, directory_name):
+		try:
+			await self.machine.create_subdirectory(directory_name, self.__current_directory)
+
+		except Exception as e:
+			traceback.print_exc()
 
 
 

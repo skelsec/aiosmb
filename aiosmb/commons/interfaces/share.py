@@ -4,6 +4,7 @@ from aiosmb.commons.interfaces.directory import SMBDirectory
 class SMBShare:
 	def __init__(self, name = None, stype = None, remark = None, fullpath = None):
 		self.fullpath = fullpath
+		self.unc_path = None
 		self.name = name
 		self.type = stype
 		self.remark = remark
@@ -23,9 +24,11 @@ class SMBShare:
 		tree_entry = await connection.tree_connect(self.fullpath)
 		self.tree_id = tree_entry.tree_id
 		self.maximal_access = tree_entry.maximal_access
+		self.unc_path = '\\\\%s\\' % connection.target.get_hostname_or_ip()
 		init_dir = SMBDirectory()
 		init_dir.tree_id = self.tree_id
 		init_dir.fullpath = ''
+		init_dir.unc_path = self.unc_path
 		#init_dir.name = ''
 		self.subdirs[''] = init_dir
 		

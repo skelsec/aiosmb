@@ -112,7 +112,7 @@ class SMBFileReader:
 			share_mode = ShareAccess.FILE_SHARE_READ | ShareAccess.FILE_SHARE_WRITE
 			create_options = CreateOptions.FILE_NON_DIRECTORY_FILE | CreateOptions.FILE_SYNCHRONOUS_IO_NONALERT 
 			file_attrs = 0
-			create_disposition = CreateDisposition.FILE_OPEN
+			create_disposition = CreateDisposition.FILE_OPEN_IF #FILE_OPEN ? might cause an issue?
 			
 			self.file.file_id, smb_reply = await self.connection.create(self.share.tree_id, self.fullpath, desired_access, share_mode, create_options, create_disposition, file_attrs, return_reply = True)
 			self.file.size = smb_reply.EndofFile

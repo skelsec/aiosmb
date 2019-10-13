@@ -11,9 +11,9 @@ class FLUSH_REQ:
 		
 	def to_bytes(self):
 		t  = self.StructureSize.to_bytes(2, byteorder='little', signed = False)
-		t += self.Reserved1.value.to_bytes(2, byteorder='little', signed = False)
+		t += self.Reserved1.to_bytes(2, byteorder='little', signed = False)
 		t += self.Reserved2.to_bytes(4, byteorder='little', signed = False)
-		t += self.FileId.value.to_bytes(16, byteorder='little', signed = False)
+		t += self.FileId.to_bytes(16, byteorder='little', signed = False)
 		return t
 
 	@staticmethod

@@ -1,4 +1,5 @@
 
+import asyncio
 from aiosmb.filesystem import SMBFileSystem
 from aiosmb.commons.interfaces.share import SMBShare
 from aiosmb.commons.interfaces.session import SMBUserSession
@@ -6,6 +7,7 @@ from aiosmb.dcerpc.v5.interfaces.srvsmgr import SMBSRVS
 from aiosmb.dcerpc.v5.interfaces.samrmgr import SMBSAMR
 from aiosmb.dcerpc.v5.interfaces.lsatmgr import LSAD
 from aiosmb.dcerpc.v5.interfaces.servicemanager import SMBRemoteServieManager
+from aiosmb.filereader import SMBFileReader
 
 
 def req_srvs_gen(funct):
@@ -179,11 +181,39 @@ class SMBMachine:
 
 	async def list_directory(self, directory):
 		await directory.list(self.connection)
-		for subdir_name in directory.subdirs:
-			yield directory.subdirs[subdir_name]
-		for file_name in directory.files:
-			yield directory.files[file_name]
-	
+		for entry in directory.get_console_output():
+			yield entry
+
+	async def put_file_raw(self, local_path, remote_path):
+		"""
+		remote_path must be a full UNC path with the file name included!
+
+		"""
+		with open(local_path, 'rb') as f:
+			async with SMBFileReader(self.connection) as writer:
+				await writer.open(remote_path, 'w')
+				while True:
+					await asyncio.sleep(0)
+					data = f.read(1024)
+					if not data:
+						break
+					await writer.write(data)
+
+	async def get_file(self, out_path, file_obj):
+		with open(out_path, 'wb') as f:
+			try:
+				await file_obj.open(self.connection, 'r')
+				while True:
+					data = await file_obj.read(1024)
+					if not data:
+						break
+					f.write(data)
+			finally:
+				await file_obj.close()
+
+	async def create_subdirectory(self, directory_name, parent_directory_obj):
+		await parent_directory_obj.create_subdir(directory_name, self.connection)
+		
 
 	@req_servicemanager_gen
 	async def list_services(self):

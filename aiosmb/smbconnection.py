@@ -849,13 +849,13 @@ class SMBConnection:
 		rply = await self.recvSMB(message_id)
 		
 		if rply.header.Status == NTStatus.SUCCESS:
-			del_fiel_ids = []
+			del_file_ids = []
 			share_name = self.TreeConnectTable_id[tree_id].share_name
 			for fe in self.FileHandleTable:
-				if fe.tree_id == tree_id:
-					del_fiel_ids.append(fe.file_id)
+				if self.FileHandleTable[fe].tree_id == tree_id:
+					del_file_ids.append(self.FileHandleTable[fe].file_id)
 			
-			for file_id in del_fiel_ids:
+			for file_id in del_file_ids:
 				del self.FileHandleTable[file_id]
 			
 			del self.TreeConnectTable_id[tree_id]

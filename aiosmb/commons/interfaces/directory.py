@@ -1,4 +1,5 @@
 
+from pathlib import PureWindowsPath
 from aiosmb.commons.interfaces.file import SMBFile
 from aiosmb.commons.access_mask import *
 from aiosmb.fscc.FileAttributes import FileAttributes
@@ -10,6 +11,7 @@ class SMBDirectory:
 		#self.parent_share = None
 		self.tree_id = None #thisdescribes the share itself, not the directory!
 		self.fullpath = None
+		self.unc_path = None
 		self.parent_dir = None
 		self.name = None
 		self.creation_time = None
@@ -23,6 +25,53 @@ class SMBDirectory:
 		
 		self.files = {}
 		self.subdirs = {}
+	
+	def get_share_path(self):
+		unc = PureWindowsPath(self.unc_path)
+		return unc.drive
+
+	def get_console_output(self):
+		lines = []
+		for name in self.subdirs:
+			directory = self.subdirs[name]
+			entry = '%s\t%s\t%s\t%s' % ('drw-rw-rw-',  directory.allocation_size, directory.creation_time, directory.name)
+			lines.append(entry)
+		for name in self.files:
+			directory = self.files[name]
+			entry = '%s\t%s\t%s\t%s' % (' rw-rw-rw-',  directory.allocation_size, directory.creation_time, directory.name)
+			lines.append(entry)
+		return lines
+		
+	async def create_subdir(self, dir_name, connection):
+		should_close = False #dont close the tree_id only if the directory hasnt been connected to yet
+		if not self.tree_id:
+			should_close = True
+			tree_entry = await connection.tree_connect(self.get_share_path())
+			self.tree_id = tree_entry.tree_id
+
+		file_id = None
+		newpath = dir_name
+		if self.fullpath != '':
+			newpath = '%s\\%s' % (self.fullpath, dir_name)
+		print(newpath)
+		try:
+			file_id = await connection.create(
+				self.tree_id, 
+				newpath, 
+				FileAccessMask.GENERIC_ALL, 
+				ShareAccess.FILE_SHARE_READ | ShareAccess.FILE_SHARE_WRITE | ShareAccess.FILE_SHARE_DELETE,
+				CreateOptions.FILE_DIRECTORY_FILE | CreateOptions.FILE_SYNCHRONOUS_IO_NONALERT, 
+				CreateDisposition.FILE_CREATE, 
+				0
+			)
+		finally:
+			if file_id is not None:
+				await connection.close(self.tree_id, file_id)
+			if should_close is True:       
+				await connection.tree_disconnect(self.tree_id)
+	
+	async def delete_subdir(self, dir_name):
+		raise Exception('delete subdir not implemented!')
 
 	async def list(self, connection):
 		"""
@@ -54,6 +103,7 @@ class SMBDirectory:
 					subdir.tree_id = self.tree_id
 					if self.fullpath != '':
 						subdir.fullpath = '%s\\%s' % (self.fullpath, info.FileName)
+						subdir.unc_path = '%s\\%s' % (self.unc_path, info.FileName)
 					else:
 						subdir.fullpath = info.FileName
 					subdir.name = info.FileName
@@ -73,8 +123,10 @@ class SMBDirectory:
 					file.parent_dir = None
 					if self.fullpath != '':
 						file.fullpath = '%s\\%s' % (self.fullpath, info.FileName)
+						file.unc_path = '%s\\%s' % (self.unc_path, info.FileName)
 					else:
 						file.fullpath = info.FileName
+						file.unc_path = '%s\\%s' % (self.unc_path, info.FileName)
 					file.name = info.FileName
 					file.size = info.EndOfFile
 					file.creation_time = info.CreationTime
