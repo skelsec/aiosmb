@@ -3,6 +3,8 @@ from urllib.parse import urlparse, parse_qs
 from aiosmb.commons.connection.credential import SMBCredential, SMBCredentialsSecretType, SMBAuthProtocol
 from aiosmb.commons.connection.targetproxy import SMBTargetProxy
 from aiosmb.commons.connection.target import SMBTarget, SMBConnectionDialect, SMBConnectionProtocol
+from aiosmb.smbconnection import SMBConnection
+from aiosmb.commons.connection.authbuilder import AuthenticatorBuilder
 
 
 class SMBConnectionURL:
@@ -31,6 +33,13 @@ class SMBConnectionURL:
 		self.proxy= None
 
 		self.parse()
+
+	def get_connection(self):
+		credential = self.get_credential()
+		target = self.get_target()
+		spneg = AuthenticatorBuilder.to_spnego_cred(credential, target)
+		
+		return SMBConnection(spneg, target)
 
 	def get_proxy(self):
 		return self.proxy

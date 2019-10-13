@@ -9,8 +9,8 @@ class TCPSocket:
 	Generic asynchronous TCP socket class, nothing SMB related.
 	Creates the connection and channels incoming/outgoing bytes via asynchonous queues.
 	"""
-	def __init__(self, socket = None):
-		self.settings = None
+	def __init__(self, socket = None, target = None):
+		self.settings = target
 		self.socket = socket #for future, if we want a custom soscket
 		self.reader = None
 		self.writer = None
@@ -76,12 +76,13 @@ class TCPSocket:
 			await self.disconnect()
 			
 		
-	async def connect(self, settings):
+	#async def connect(self, settings): #not needed parameter because we have networkselector now...
+	async def connect(self):
 		"""
 		Main function to be called, connects to the target specified in settings, and starts reading/writing.
 		"""
 
-		self.settings = settings
+		#self.settings = settings
 		
 		con = asyncio.open_connection(self.settings.get_ip(), self.settings.get_port())
 		

@@ -51,45 +51,46 @@ class SMBKerberosMultiplexor:
 			await self.start_remote_kerberos()
 		try:
 			if is_rpc == True:
-				if self.iterations == 0:
-					flags = ISC_REQ.CONFIDENTIALITY | \
-							ISC_REQ.INTEGRITY | \
-							ISC_REQ.MUTUAL_AUTH | \
-							ISC_REQ.REPLAY_DETECT | \
-							ISC_REQ.SEQUENCE_DETECT|\
-							ISC_REQ.USE_DCE_STYLE
-							
-
-					#token = self.ksspi.get_ticket_for_spn(self.target, flags = flags, is_rpc = True, token_data = authData)
-					token = await self.ksspi.authenticate(self.settings.target, flags = flags, token_data = authData)
-					print(token.hex())
-					self.iterations += 1
-					return token, True
-				
-				elif self.iterations == 1:
-					flags = ISC_REQ.USE_DCE_STYLE
-					
-					#token = self.ksspi.get_ticket_for_spn(self.target, flags = flags, is_rpc = True, token_data = authData)
-					token = await self.ksspi.get_ticket_for_spn(self.settings.target, flags = flags, token_data = authData)
-					print(token.hex())
-					
-					
-					aprep = AP_REP.load(token).native
-					
-					subkey = Key(aprep['enc-part']['etype'], self.get_session_key())
-					
-					cipher_text = aprep['enc-part']['cipher']
-					cipher = _enctype_table[aprep['enc-part']['etype']]()
-					
-					plaintext = cipher.decrypt(subkey, 12, cipher_text)
-					
-					self.gssapi = get_gssapi(subkey)
-					
-					self.iterations += 1
-					return token, False
-					
-				else:
-					raise Exception('Multiplexor Kerberos authentication exceeded maximum iteration counts')
+				raise Exception('Multiplexor kerberos for RPC is not yet implemented!')
+				#if self.iterations == 0:
+				#	flags = ISC_REQ.CONFIDENTIALITY | \
+				#			ISC_REQ.INTEGRITY | \
+				#			ISC_REQ.MUTUAL_AUTH | \
+				#			ISC_REQ.REPLAY_DETECT | \
+				#			ISC_REQ.SEQUENCE_DETECT|\
+				#			ISC_REQ.USE_DCE_STYLE
+				#			
+				#
+				#	#token = self.ksspi.get_ticket_for_spn(self.target, flags = flags, is_rpc = True, token_data = authData)
+				#	token = await self.ksspi.authenticate(self.settings.target, flags = flags, token_data = authData)
+				#	print(token.hex())
+				#	self.iterations += 1
+				#	return token, True
+				#
+				#elif self.iterations == 1:
+				#	flags = ISC_REQ.USE_DCE_STYLE
+				#	
+				#	#token = self.ksspi.get_ticket_for_spn(self.target, flags = flags, is_rpc = True, token_data = authData)
+				#	token = await self.ksspi.get_ticket_for_spn(self.settings.target, flags = flags, token_data = authData)
+				#	print(token.hex())
+				#	
+				#	
+				#	aprep = AP_REP.load(token).native
+				#	
+				#	subkey = Key(aprep['enc-part']['etype'], self.get_session_key())
+				#	
+				#	cipher_text = aprep['enc-part']['cipher']
+				#	cipher = _enctype_table[aprep['enc-part']['etype']]()
+				#	
+				#	plaintext = cipher.decrypt(subkey, 12, cipher_text)
+				#	
+				#	self.gssapi = get_gssapi(subkey)
+				#	
+				#	self.iterations += 1
+				#	return token, False
+				#	
+				#else:
+				#	raise Exception('Multiplexor Kerberos authentication exceeded maximum iteration counts')
 				
 			else:
 				apreq, res = await self.ksspi.authenticate(self.settings.target)

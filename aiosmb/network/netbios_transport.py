@@ -66,7 +66,7 @@ class NetBIOSTransport:
 					raise Exception('Unknown SMB version!')
 					
 				#print('%s nbmsg! ' % (self.network_transport.writer.get_extra_info('peername')[0], ))
-				print('[NetBIOS] MSG dispatched')
+				#print('[NetBIOS] MSG dispatched')
 				await self.in_queue.put( (msg, None) )
 				await self.parse_buffer(buffer, total_size)
 		

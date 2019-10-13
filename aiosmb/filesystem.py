@@ -1,7 +1,9 @@
 
 import traceback
 import asyncio
-from aiosmb.commons.smbcontainer import *
+from aiosmb.commons.interfaces.directory import SMBDirectory
+from aiosmb.commons.interfaces.file import SMBFile
+
 from aiosmb.protocol.smb2.commands import *
 from aiosmb.commons.access_mask import *
 from aiosmb.fscc.FileAttributes import FileAttributes

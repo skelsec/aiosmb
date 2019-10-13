@@ -1,5 +1,6 @@
 
-from aiosmb.commons.smbcontainer import *
+from aiosmb.commons.interfaces.file import SMBFile
+from aiosmb.commons.interfaces.share import SMBShare
 from aiosmb.commons.access_mask import *
 from aiosmb.protocol.smb2.commands import *
 

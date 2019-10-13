@@ -11,7 +11,7 @@ class NetworkSelector:
     @staticmethod
     async def select(target):
         if target.proxy is None:
-            return TCPSocket()
+            return TCPSocket(target = target)
         elif target.proxy.type in [SMBTargetProxyServerType.SOCKS5, SMBTargetProxyServerType.SOCKS5_SSL]:
             return Socks5ProxyConnection(target = target)
 
