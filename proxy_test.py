@@ -57,7 +57,7 @@ if __name__ == '__main__':
 	#proxy = 'multiplexor://127.0.0.1:9999/2e454cee-b046-466c-a2b4-d33149835218'
 
 	#connection_url = 'smb+ntlm-password://TEST\\victim:Passw0rd!1@10.10.10.2/?proxytype=multiplexor&proxyhost=127.0.0.1&proxyport=9999&proxytimeout=10&authhost=127.0.0.1&authport=9999&proxyagentid=b326745f-2105-4a06-903b-c3ed39f44ce3&authagentid=b326745f-2105-4a06-903b-c3ed39f44ce3'
-	connection_url = 'smb+multiplexor://10.10.10.2/?proxytype=multiplexor&proxyhost=127.0.0.1&proxyport=9999&proxytimeout=10&authhost=127.0.0.1&authport=9999&proxyagentid=d9fefe0a-76e5-45e9-b1c5-0eeeea46a427&authagentid=d9fefe0a-76e5-45e9-b1c5-0eeeea46a427'
+	connection_url = 'smb+multiplexor-kerberos://WIN2019AD/?proxytype=multiplexor&proxyhost=127.0.0.1&proxyport=9999&proxytimeout=10&authhost=127.0.0.1&authport=9999&proxyagentid=1ec511e0-1c8a-4315-9cc4-129267287527&authagentid=1ec511e0-1c8a-4315-9cc4-129267287527'
 
 	
 	asyncio.run(filereader_test(connection_url, filename))

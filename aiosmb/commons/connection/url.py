@@ -53,7 +53,8 @@ class SMBConnectionURL:
 			secret = self.secret, 
 			secret_type = self.secret_type, 
 			authentication_type = self.authentication_protocol, 
-			settings = self.auth_settings
+			settings = self.auth_settings,
+			target = self.ip
 		)
 	
 
@@ -77,14 +78,20 @@ class SMBConnectionURL:
 		auth_tags = schemes[1].split('-')
 		#print(auth_tags)
 		if len(auth_tags) > 1:
-			if auth_tags[0] == 'MULTIPLEXOR' and auth_tags[1] == 'SSL':
-				if len(auth_tags) == 2:
-					self.authentication_protocol = SMBAuthProtocol.MULTIPLEXOR_SSL_NTLM
-				else:
-					if auth_tags[2] == 'NTLM':
+			if auth_tags[0] == 'MULTIPLEXOR':
+				if auth_tags[1] == 'SSL':
+					if len(auth_tags) == 2:
 						self.authentication_protocol = SMBAuthProtocol.MULTIPLEXOR_SSL_NTLM
-					elif auth_tags[2] == 'KERBEROS':
-						self.authentication_protocol = SMBAuthProtocol.MULTIPLEXOR_SSL_KERBEROS
+					else:
+						if auth_tags[2] == 'NTLM':
+							self.authentication_protocol = SMBAuthProtocol.MULTIPLEXOR_SSL_NTLM
+						elif auth_tags[2] == 'KERBEROS':
+							self.authentication_protocol = SMBAuthProtocol.MULTIPLEXOR_SSL_KERBEROS
+				else:
+					if auth_tags[1] == 'NTLM':
+						self.authentication_protocol = SMBAuthProtocol.MULTIPLEXOR_NTLM
+					elif auth_tags[1] == 'KERBEROS':
+						self.authentication_protocol = SMBAuthProtocol.MULTIPLEXOR_KERBEROS
 			else:
 				self.authentication_protocol = SMBAuthProtocol(auth_tags[0])
 				self.secret_type = SMBCredentialsSecretType(auth_tags[1])

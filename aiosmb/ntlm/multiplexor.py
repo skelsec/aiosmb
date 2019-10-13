@@ -1,7 +1,14 @@
 #
 #
-# This is just a simple interface to the winsspi library to support NTLM
+# Interface to support remote authentication via multiplexor
 # 
+# Connects to the multiplexor server, and starts an SSPI server locally for the specific agentid
+# SSPI server will be used to perform NTLM authentication remotely,
+# while constructing a local NTLM authentication object
+# After the auth finishes, it also grabs the sessionkey.
+# The NTLM object can be used in future operations (encrypt/decrypt/sign) locally 
+# without the need of future remote calls 
+#
 
 from aiosmb.ntlm.auth_handler import NTLMAUTHHandler, NTLMHandlerSettings
 from multiplexor.operator.external.sspi import SSPINTLMClient
@@ -49,11 +56,11 @@ class SMBNTLMMultiplexor:
 	def is_extended_security(self):
 		return self.ntlm_ctx.is_extended_security()
 		
-	async def encrypt(self, data, message_no):
-		return self.sspi.encrypt(data, message_no)
-		
-	async def decrypt(self, data, message_no):
-		return self.sspi.decrypt(data, message_no)
+	#async def encrypt(self, data, message_no):
+	#	return self.sspi.encrypt(data, message_no)
+	#	
+	#async def decrypt(self, data, message_no):
+	#	return self.sspi.decrypt(data, message_no)
 	
 	async def authenticate(self, authData = None, flags = None, seq_number = 0, is_rpc = False):
 		if self.sspi is None:
@@ -62,7 +69,7 @@ class SMBNTLMMultiplexor:
 		if self.settings.mode == 'CLIENT':
 			if authData is None:
 				data, res = await self.sspi.authenticate(is_rpc = is_rpc)
-				print('authenticatE: %s' % data)
+				print('authenticate: %s' % data)
 				if res is None:
 					self.ntlm_ctx.load_negotiate(data)
 				return data, res
@@ -90,16 +97,13 @@ class SMBNTLMMultiplexor:
 			print(self.settings.get_url())
 			self.operator = MultiplexorOperator(self.settings.get_url())
 			await self.operator.connect()
-			#creating socks5 proxy
+			#creating virtual sspi server
 			server_info = await self.operator.start_sspi(self.settings.agent_id)
 			#print(server_info)
-			#tp.ip = server_info['listen_ip']
-			#tp.port = server_info['listen_port']
-			#tp.timeout = self.target.proxy.timeout
 
 			sspi_url = 'ws://%s:%s' % (server_info['listen_ip'], server_info['listen_port'])
 
-			print(sspi_url)
+			#print(sspi_url)
 			self.sspi = SSPINTLMClient(sspi_url)
 			await self.sspi.connect()
 		except Exception as e:

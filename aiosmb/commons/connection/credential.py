@@ -21,11 +21,12 @@ class SMBAuthProtocol(enum.Enum):
 
 
 class SMBCredential:
-	def __init__(self, username = None, domain = None, secret = None, secret_type = None, authentication_type = None, settings = None):
+	def __init__(self, username = None, domain = None, secret = None, secret_type = None, authentication_type = None, settings = None, target = None):
 		self.username = username
 		self.domain = domain
 		self.secret = secret
 		self.secret_type = secret_type #SMBCredentialsSecretType
+		self.target = target #for kerberos authentication
 		
 		self.authentication_type = authentication_type #kerberos or NTLM or ...
 		self.settings = settings
@@ -139,6 +140,7 @@ class SMBMultiplexorCredential:
 		self.username = '<CURRENT>'
 		self.domain = '<CURRENT>'
 		self.password = '<CURRENT>'
+		self.target = None
 		self.is_guest = False
 		self.is_ssl = False
 		self.mp_host = None

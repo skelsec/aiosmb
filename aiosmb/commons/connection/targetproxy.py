@@ -13,8 +13,6 @@ class SMBTargetProxyServerType(enum.Enum):
 	MULTIPLEXOR = 'MULTIPLEXOR'
 	MULTIPLEXOR_SSL = 'MULTIPLEXOR_SSL'
 
-
-
 class SMBTargetProxy:
 	def __init__(self, ip = None,
 				port = None,

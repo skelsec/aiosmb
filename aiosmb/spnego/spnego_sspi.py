@@ -3,6 +3,9 @@
 # Author:
 #  Tamas Jos (@skelsec)
 #
+# This is a failed attempt to simplify the SSPI integration.
+# Sadly this doesnt work, as windows doesnt give the session key for some reason?
+#
 
 from winsspi.sspi import NegotiateSSPI, SSPIResult
 

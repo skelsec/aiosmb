@@ -140,19 +140,16 @@ class AuthenticatorBuilder:
 
 				ntlmcred = SMBMultiplexorCredential()
 				ntlmcred.type = 'KERBEROS'
+				ntlmcred.target = creds.target
 				if creds.username is not None:
 					ntlmcred.username = '<CURRENT>'
 				if creds.domain is not None:
 					ntlmcred.domain = '<CURRENT>'
-				if creds.password is not None:
+				if creds.secret is not None:
 					ntlmcred.password = '<CURRENT>'
 				ntlmcred.is_guest = False
 				ntlmcred.is_ssl = True if creds.authentication_type == SMBAuthProtocol.MULTIPLEXOR_SSL_NTLM else False
-				ntlmcred.mp_host = creds.settings['host']
-				ntlmcred.mp_port = creds.settings['port']
-				ntlmcred.mp_username = creds.settings.get('user')
-				ntlmcred.mp_domain = creds.settings.get('domain')
-				ntlmcred.mp_password = creds.settings.get('password')
+				ntlmcred.parse_settings(creds.settings)
 
 				handler = SMBKerberosMultiplexor(ntlmcred)
 				#setting up SPNEGO
