@@ -10,8 +10,8 @@ from minikerberos.aiocommunication import KerberosSocketAIO
 
 
 if platform.system().upper() == 'WINDOWS':
-	from aiosmb.kerberos.kerberos_sspi import SMBKerberosSSPI
-	from aiosmb.ntlm.ntlm_sspi import SMBNTLMSSPI
+	from aiosmb.authentication.kerberos.sspi import SMBKerberosSSPI
+	from aiosmb.authentication.ntlm.sspi import SMBNTLMSSPI
 
 class AuthenticatorBuilder:
 	def __init__(self):
