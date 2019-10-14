@@ -42,29 +42,33 @@ class SMBTargetProxy:
 			return None
 		
 		query = parse_qs(url_e.query)
-		if 'proxytype' not in query:
+		if 'proxytype' not in query and 'sametype' not in query:
 			return None
 
 		for k in query:
-			if k.startswith('proxy'):
-				if k == 'proxytype':
+			if k.startswith('proxy') or k.startswith('same'):
+				key = 'same'
+				if k.startswith('proxy'):
+					key = 'proxy'
+				
+				if k == key+'type':
 					proxy.type = SMBTargetProxyServerType(query[k][0].replace('-','_').upper())
-				elif k == 'proxyuser':
+				elif k == key+'user':
 					proxy.username = query[k][0]
-				elif k == 'proxydomain':
+				elif k == key+'domain':
 					proxy.domain = query[k][0]
-				elif k == 'proxypass':
+				elif k == key+'pass':
 					proxy.secret = query[k][0]
-				elif k == 'proxyhost':
+				elif k == key+'host':
 					proxy.ip = query[k][0]
-				elif k == 'proxyport':
+				elif k == key+'port':
 					proxy.port = int(query[k][0])
-				elif k == 'proxytimeout':
+				elif k == key+'timeout':
 					proxy.timeout = int(query[k][0])
-				elif k == 'proxyagentid':
+				elif k == key+'agentid':
 					proxy.agent_id = query[k][0]
 				else:
-					proxy.settings[k[len('proxy'):]] = query[k] #the result is a list for each entry because this preprocessor is not aware which elements should be lists!
+					proxy.settings[k[len(key):]] = query[k] #the result is a list for each entry because this preprocessor is not aware which elements should be lists!
 		
 		if proxy.secret is not None:
 			proxy.secret_type = SMBTargetProxySecretType.PLAIN

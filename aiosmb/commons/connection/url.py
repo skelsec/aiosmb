@@ -41,6 +41,17 @@ class SMBConnectionURL:
 		
 		return SMBConnection(spneg, target)
 
+	def create_connection_newtarget(self, ip):
+		credential = self.get_credential()
+		credential.target = ip
+
+		target = self.get_target()
+		target.ip = ip
+
+		spneg = AuthenticatorBuilder.to_spnego_cred(credential, target)
+		
+		return SMBConnection(spneg, target)
+
 	def get_proxy(self):
 		return self.proxy
 
@@ -178,6 +189,8 @@ class SMBConnectionURL:
 					self.dns = query[k] #multiple dns can be set, so not trimming here
 				elif k.startswith('auth'):
 					self.auth_settings[k[len('auth'):]] = query[k]
+				elif k.startswith('same'):
+					self.auth_settings[k[len('same'):]] = query[k]
 		
 		self.proxy = SMBTargetProxy.from_url(self.connection_url)
 			
