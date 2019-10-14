@@ -3,7 +3,7 @@
 # This is just a simple interface to the winsspi library to support NTLM
 # 
 from winsspi.sspi import NTLMSMBSSPI
-from aiosmb.ntlm.native import NTLMAUTHHandler, NTLMHandlerSettings
+from aiosmb.authentication.ntlm.native import NTLMAUTHHandler, NTLMHandlerSettings
 
 class SMBNTLMSSPI:
 	def __init__(self, settings):
