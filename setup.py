@@ -5,7 +5,7 @@ setup(
 	name="aiosmb",
 
 	# Version number (initial):
-	version="0.0.3",
+	version="0.1.0",
 
 	# Application author details:
 	author="Tamas Jos",
