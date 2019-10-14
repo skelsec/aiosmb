@@ -5,7 +5,7 @@
 #
 #
 
-from aiosmb.auhentication.spnego.asn1_structs import KRB5Token
+from aiosmb.authentication.spnego.asn1_structs import KRB5Token
 from winsspi.sspi import KerberosSMBSSPI
 from winsspi.common.function_defs import ISC_REQ
 from minikerberos.gssapi import get_gssapi
