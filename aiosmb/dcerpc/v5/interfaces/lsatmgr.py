@@ -2,7 +2,7 @@ from aiosmb.dcerpc.v5.transport.smbtransport import SMBTransport
 from aiosmb.dcerpc.v5 import lsad
 from aiosmb.dcerpc.v5 import lsat
 from aiosmb.dcerpc.v5.dtypes import MAXIMUM_ALLOWED
-from aiosmb.commons.ntstatus import NTStatus
+from aiosmb.wintypes.ntstatus import NTStatus
 from aiosmb import logger
 from aiosmb.dcerpc.v5.dtypes import NULL
 		

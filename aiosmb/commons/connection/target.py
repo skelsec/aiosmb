@@ -1,3 +1,12 @@
+#!/usr/bin/env python3
+#
+# Author:
+#  Tamas Jos (@skelsec)
+#
+# Comments:
+#
+
+
 import ipaddress
 import enum
 
@@ -9,6 +18,8 @@ class SMBConnectionProtocol(enum.Enum):
 	UDP = 'UDP'
 
 class SMBTarget:
+	"""
+	"""
 	def __init__(self, ip = None, 
 						port = 445, 
 						hostname = None, 
@@ -37,7 +48,7 @@ class SMBTarget:
 		port = 445
 		dc = None
 		
-		t, target = s.rsplit('@', 1)
+		_, target = s.rsplit('@', 1)
 		if target.find('/') != -1:
 			target, dc = target.split('/')
 			
@@ -47,7 +58,7 @@ class SMBTarget:
 		st = SMBTarget()
 		st.port = port
 		st.dc_ip = dc
-		st.domain, t = s.split('/', 1)
+		st.domain, _ = s.split('/', 1)
 		
 		try:
 			st.ip = str(ipaddress.ip_address(target))

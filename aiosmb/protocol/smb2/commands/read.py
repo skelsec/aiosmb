@@ -1,7 +1,7 @@
 import io
 import enum
 
-from aiosmb.commons.access_mask import *
+from aiosmb.wintypes.access_mask import *
 
 class ReadFlag(enum.IntFlag):
 	SMB2_READFLAG_READ_UNBUFFERED = 0x01 #The data is read directly from the underlying storage.

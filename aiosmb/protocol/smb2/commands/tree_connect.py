@@ -1,7 +1,7 @@
 import io
 import enum
 
-from aiosmb.commons.access_mask import *
+from aiosmb.wintypes.access_mask import *
 
 #SMB 3.1.1 ONLY! Otherwise it's 0 as reserved!
 class TreeConnectFlag(enum.IntFlag):

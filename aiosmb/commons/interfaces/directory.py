@@ -1,9 +1,9 @@
 
 from pathlib import PureWindowsPath
 from aiosmb.commons.interfaces.file import SMBFile
-from aiosmb.commons.access_mask import *
-from aiosmb.fscc.FileAttributes import FileAttributes
-from aiosmb.fscc.structures.fileinfoclass import FileInfoClass
+from aiosmb.wintypes.access_mask import *
+from aiosmb.wintypes.fscc.FileAttributes import FileAttributes
+from aiosmb.wintypes.fscc.structures.fileinfoclass import FileInfoClass
 from aiosmb.protocol.smb2.commands import *
 		
 class SMBDirectory:

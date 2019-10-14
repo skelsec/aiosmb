@@ -1,5 +1,5 @@
 from pathlib import PureWindowsPath
-from aiosmb.commons.access_mask import *
+from aiosmb.wintypes.access_mask import *
 from aiosmb.protocol.smb2.commands import *
 
 

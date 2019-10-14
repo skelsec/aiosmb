@@ -21,7 +21,7 @@ from struct import pack, unpack, calcsize
 from six import with_metaclass, PY3
 
 from aiosmb import logger as LOG
-from aiosmb.utils.hexdump import hexdump
+from aiosmb.commons.utils.hexdump import hexdump
 from aiosmb.dcerpc.v5.enum import Enum
 from aiosmb.dcerpc.v5.uuid import uuidtup_to_bin
 

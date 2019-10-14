@@ -1,7 +1,7 @@
 import io
 import enum
 
-from aiosmb.fscc.FileAttributes import *
+from aiosmb.wintypes.fscc.FileAttributes import *
 
 class CloseFlag(enum.IntFlag):
 	NONE = 0

@@ -1,7 +1,7 @@
 import io
 import enum
 
-from aiosmb.commons.access_mask import *
+from aiosmb.wintypes.access_mask import *
 from aiosmb.protocol.smb2.commands.read import Channel
 
 class WriteFlag(enum.IntFlag):

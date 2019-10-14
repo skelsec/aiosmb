@@ -2,9 +2,9 @@ import enum
 import platform
 
 from aiosmb.commons.connection.credential import *
-from aiosmb.spnego.spnego import SPNEGO
-from aiosmb.ntlm.auth_handler import NTLMAUTHHandler, NTLMHandlerSettings
-from aiosmb.kerberos.kerberos import SMBKerberos
+from aiosmb.authentication.spnego.native import SPNEGO
+from aiosmb.authentication.ntlm.native import NTLMAUTHHandler, NTLMHandlerSettings
+from aiosmb.authentication.kerberos.native import SMBKerberos
 from minikerberos.common import KerberosTarget, KerberosCredential
 from minikerberos.aiocommunication import KerberosSocketAIO
 

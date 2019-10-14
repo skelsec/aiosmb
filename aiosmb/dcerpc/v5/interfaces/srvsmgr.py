@@ -1,7 +1,7 @@
 from aiosmb.dcerpc.v5.transport.smbtransport import SMBTransport
 from aiosmb.dcerpc.v5 import srvs
 from aiosmb.dcerpc.v5.dtypes import RPC_SID
-from aiosmb.commons.ntstatus import NTStatus
+from aiosmb.wintypes.ntstatus import NTStatus
 from aiosmb import logger
 from aiosmb.dcerpc.v5.dtypes import NULL
 		

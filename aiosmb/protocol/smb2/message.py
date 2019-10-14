@@ -1,7 +1,7 @@
 import enum
 import io
 
-from aiosmb.commons.ntstatus import NTStatus
+from aiosmb.wintypes.ntstatus import NTStatus
 from aiosmb.protocol.smb2.headers import *
 from aiosmb.protocol.smb2.commands import *
 from aiosmb.protocol.smb2.command_codes import *

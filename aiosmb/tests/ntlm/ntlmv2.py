@@ -2,7 +2,7 @@ import unittest
 
 from aiosmb.ntlm.structures.negotiate_flags import NegotiateFlags
 from aiosmb.ntlm.structures.version import *
-from aiosmb.ntlm.auth_handler import *
+from aiosmb.ntlm.native import *
 
 
 class TestNTLMv2(unittest.TestCase):

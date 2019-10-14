@@ -3,7 +3,7 @@ import asyncio
 
 from aiosmb import logger
 from aiosmb.exceptions import *
-from aiosmb.network.netbios_transport import NetBIOSTransport
+from aiosmb.network.netbios import NetBIOSTransport
 from aiosmb.smbconnection_server import SMBServerConnection
 
 class TCPClient:

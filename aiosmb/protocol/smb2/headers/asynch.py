@@ -3,7 +3,7 @@ import enum
 import io
 
 from aiosmb.protocol.smb2.command_codes import SMB2Command
-from aiosmb.commons.ntstatus import NTStatus
+from aiosmb.wintypes.ntstatus import NTStatus
 from aiosmb.protocol.smb2.headers.common import SMB2HeaderFlag
 
 # https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-smb2/ea4560b7-90da-4803-82b5-344754b92a79

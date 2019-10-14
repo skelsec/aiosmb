@@ -2,7 +2,7 @@ import io
 import enum
 
 from aiosmb.protocol.smb.command_codes import SMBCommand
-from aiosmb.commons.ntstatus import NTStatus
+from aiosmb.wintypes.ntstatus import NTStatus
 
 
 class SMBHeaderFlagsEnum(enum.IntFlag):

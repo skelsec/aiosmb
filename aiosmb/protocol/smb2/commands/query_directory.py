@@ -1,7 +1,7 @@
 import io
 import enum
 
-from aiosmb.fscc.structures.fileinfoclass import *
+from aiosmb.wintypes.fscc.structures.fileinfoclass import *
 
 class QueryDirectoryFlag(enum.IntFlag):
 	SMB2_RESTART_SCANS = 0x01 #The server MUST restart the enumeration from the beginning as specified in section 3.3.5.18.

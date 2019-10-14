@@ -3,9 +3,9 @@ import io
 import datetime
 import uuid
 
-from aiosmb.utils.ts2dt import *
+from aiosmb.commons.utils.ts2dt import *
 from aiosmb.protocol.common import NegotiateDialects
-from aiosmb.dtyp.constrcuted_security.guid import *
+from aiosmb.wintypes.dtyp.constrcuted_security.guid import *
 
 
 # https://msdn.microsoft.com/en-us/library/cc246543.aspx

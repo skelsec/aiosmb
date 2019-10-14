@@ -4,11 +4,11 @@ import ipaddress
 import copy
 
 from aiosmb import logger
-from aiosmb.exceptions import *
-from aiosmb.commons.connection.targetproxy import SMBTargetProxy, SMBTargetProxyServerType
-from aiosmb.network.socks5network import Socks5ProxyConnection
+from aiosmb.commons.exceptions import *
+from aiosmb.commons.connection.proxy import SMBProxy, SMBProxyType
+from aiosmb.network.socks5 import Socks5ProxyConnection
 
-from multiplexor.operator import MultiplexorOperator
+
 
 class MultiplexorProxyConnection:
 	"""
@@ -20,8 +20,12 @@ class MultiplexorProxyConnection:
 		"""
 		
 		"""
+		#hiding the import, so you'll only need to install multiplexor when actually using it
+		from multiplexor.operator import MultiplexorOperator
+
+
 		#creating connection string
-		if self.target.proxy.type == SMBTargetProxyServerType.MULTIPLEXOR:
+		if self.target.proxy.type == SMBProxyType.MULTIPLEXOR:
 			con_str = 'ws://%s:%s' % (self.target.proxy.ip, self.target.proxy.port)
 		else:
 			con_str = 'wss://%s:%s' % (self.target.proxy.ip, self.target.proxy.port)
@@ -33,11 +37,11 @@ class MultiplexorProxyConnection:
 		print(server_info)
 
 		#copying the original target, then feeding it to socks5proxy object. it will hold the actual socks5 proxy server address we created before
-		tp = SMBTargetProxy()
+		tp = SMBProxy()
 		tp.ip = server_info['listen_ip']
 		tp.port = server_info['listen_port']
 		tp.timeout = self.target.proxy.timeout
-		tp.type = SMBTargetProxyServerType.SOCKS5
+		tp.type = SMBProxyType.SOCKS5
 
 		newtarget = copy.deepcopy(self.target)
 		newtarget.proxy = tp

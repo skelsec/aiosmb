@@ -1,10 +1,10 @@
 import enum
 from urllib.parse import urlparse, parse_qs
 from aiosmb.commons.connection.credential import SMBCredential, SMBCredentialsSecretType, SMBAuthProtocol
-from aiosmb.commons.connection.targetproxy import SMBTargetProxy
+from aiosmb.commons.connection.proxy import SMBProxy
 from aiosmb.commons.connection.target import SMBTarget, SMBConnectionDialect, SMBConnectionProtocol
-from aiosmb.smbconnection import SMBConnection
 from aiosmb.commons.connection.authbuilder import AuthenticatorBuilder
+from aiosmb.connection import SMBConnection
 
 
 class SMBConnectionURL:
@@ -95,35 +95,46 @@ class SMBConnectionURL:
 			self.secret_type = SMBCredentialsSecretType.NONE
 			return
 
-		auth_tags = schemes[1].split('-')
-		#print(auth_tags)
-		if len(auth_tags) > 1:
-			if auth_tags[0] == 'MULTIPLEXOR':
-				if auth_tags[1] == 'SSL':
-					if len(auth_tags) == 2:
-						self.authentication_protocol = SMBAuthProtocol.MULTIPLEXOR_SSL_NTLM
-					else:
-						if auth_tags[2] == 'NTLM':
+		auth_tags = schemes[1].replace('-','_')
+		try:
+			self.authentication_protocol = SMBAuthProtocol(auth_tags)
+		except:
+			auth_tags = schemes[1].split('-')
+			#print(auth_tags)
+			if len(auth_tags) > 1:
+				if auth_tags[0] == 'MULTIPLEXOR':
+					if auth_tags[1] == 'SSL':
+						if len(auth_tags) == 2:
 							self.authentication_protocol = SMBAuthProtocol.MULTIPLEXOR_SSL_NTLM
-						elif auth_tags[2] == 'KERBEROS':
-							self.authentication_protocol = SMBAuthProtocol.MULTIPLEXOR_SSL_KERBEROS
-				else:
+						else:
+							if auth_tags[2] == 'NTLM':
+								self.authentication_protocol = SMBAuthProtocol.MULTIPLEXOR_SSL_NTLM
+							elif auth_tags[2] == 'KERBEROS':
+								self.authentication_protocol = SMBAuthProtocol.MULTIPLEXOR_SSL_KERBEROS
+					else:
+						if auth_tags[1] == 'NTLM':
+							self.authentication_protocol = SMBAuthProtocol.MULTIPLEXOR_NTLM
+						elif auth_tags[1] == 'KERBEROS':
+							self.authentication_protocol = SMBAuthProtocol.MULTIPLEXOR_KERBEROS
+				elif auth_tags[0] == 'SSPI':
 					if auth_tags[1] == 'NTLM':
-						self.authentication_protocol = SMBAuthProtocol.MULTIPLEXOR_NTLM
+						self.authentication_protocol = SMBAuthProtocol.SSPI_NTLM
 					elif auth_tags[1] == 'KERBEROS':
-						self.authentication_protocol = SMBAuthProtocol.MULTIPLEXOR_KERBEROS
+						self.authentication_protocol = SMBAuthProtocol.SSPI_KERBEROS
+				else:
+					self.authentication_protocol = SMBAuthProtocol(auth_tags[0])
+					self.secret_type = SMBCredentialsSecretType(auth_tags[1])
 			else:
-				self.authentication_protocol = SMBAuthProtocol(auth_tags[0])
-				self.secret_type = SMBCredentialsSecretType(auth_tags[1])
-		else:
-			if auth_tags[0] == 'MULTIPLEXOR':
-				self.authentication_protocol = SMBAuthProtocol.MULTIPLEXOR_NTLM
-			elif auth_tags[0] == 'MULTIPLEXOR_SSL':
-				self.authentication_protocol = SMBAuthProtocol.MULTIPLEXOR_SSL_NTLM
-			else:
-				self.authentication_protocol = SMBAuthProtocol(auth_tags[0])
-			if self.authentication_protocol == SMBAuthProtocol.KERBEROS:
-				raise Exception('For kerberos auth you need to specify the secret type in the connection string!')
+				if auth_tags[0] == 'MULTIPLEXOR':
+					self.authentication_protocol = SMBAuthProtocol.MULTIPLEXOR_NTLM
+				elif auth_tags[0] == 'MULTIPLEXOR_SSL':
+					self.authentication_protocol = SMBAuthProtocol.MULTIPLEXOR_SSL_NTLM
+				if auth_tags[0] == 'SSPI':
+					self.authentication_protocol = SMBAuthProtocol.SSPI_NTLM
+				else:
+					self.authentication_protocol = SMBAuthProtocol(auth_tags[0])
+				if self.authentication_protocol == SMBAuthProtocol.KERBEROS:
+					raise Exception('For kerberos auth you need to specify the secret type in the connection string!')
 
 
 	def parse(self):
@@ -192,7 +203,7 @@ class SMBConnectionURL:
 				elif k.startswith('same'):
 					self.auth_settings[k[len('same'):]] = query[k]
 		
-		self.proxy = SMBTargetProxy.from_url(self.connection_url)
+		self.proxy = SMBProxy.from_url(self.connection_url)
 			
 if __name__ == '__main__':
 	url_tests = [

@@ -1,7 +1,7 @@
 import io
 import enum
 
-from aiosmb.fscc.FileAttributes import FileAttributes
+from aiosmb.wintypes.fscc.FileAttributes import FileAttributes
 
 class OplockLevel(enum.Enum):
 	SMB2_OPLOCK_LEVEL_NONE = 0x00 #No oplock is requested.
