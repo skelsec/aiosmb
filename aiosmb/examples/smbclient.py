@@ -5,6 +5,7 @@ import ntpath
 from aiocmd import aiocmd
 from prompt_toolkit.completion import WordCompleter
 
+from aiosmb import logger
 from aiosmb.commons.connection.url import SMBConnectionURL
 from aiosmb.commons.interfaces.machine import SMBMachine
 
@@ -20,9 +21,11 @@ def req_traceback(funct):
 	return wrapper
 
 class SMBClient(aiocmd.PromptToolkitCmd):
-	def __init__(self, url):
+	def __init__(self, url = None):
 		aiocmd.PromptToolkitCmd.__init__(self, ignore_sigint=False) #Setting this to false, since True doesnt work on windows...
-		self.conn_url = SMBConnectionURL(url)
+		self.conn_url = None
+		if url is not None:
+			self.conn_url = SMBConnectionURL(url)
 		self.connection = None
 		self.machine = None
 
@@ -30,17 +33,24 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 		self.__current_share = None
 		self.__current_directory = None
 
-	async def do_login(self):
-		print('Login!')
+	async def do_login(self, url = None):
 		try:
+			if self.conn_url is None and url is None:
+				print('No url was set, cant do logon')
+			if url is not None:
+				self.conn_url = SMBConnectionURL(url)
+			
 			self.connection  = self.conn_url.get_connection()
-			print(self.conn_url.get_credential())
-			print(self.conn_url.get_target())
+			
+			logger.debug(self.conn_url.get_credential())
+			logger.debug(self.conn_url.get_target())
 
 			await self.connection.login()
 			self.machine = SMBMachine(self.connection)
 		except Exception as e:
 			traceback.print_exc()
+		else:
+			print('Login success')
 
 	async def do_shares(self, show = True):
 		try:
@@ -180,6 +190,13 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 		except Exception as e:
 			traceback.print_exc()
 
+	async def do_dcsync(self):
+		try:
+			async for secret in self.machine.dcsync():
+				print(str(secret))
+		except Exception as e:
+			traceback.print_exc()
+
 def main():
 	import argparse
 	import platform
@@ -189,7 +206,7 @@ def main():
 	parser.add_argument('smb_url', help = 'Connection string that describes the authentication and target. Example: smb+ntlm-password://TEST\\Administrator:password@10.10.10.2')
 	
 	args = parser.parse_args()
-	
+
 	asyncio.get_event_loop().run_until_complete(SMBClient(args.smb_url).run())
 
 if __name__ == '__main__':

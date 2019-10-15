@@ -3,9 +3,9 @@ import logging
 from aiosmb import logger
 
 #from aiosmb.dtyp.constrcuted_security.guid import GUID
-from aiosmb.commons.smbcontainer import SMBUserSecrets
-from aiosmb.dtyp.structures.filetime import FILETIME
-from aiosmb.dtyp.constrcuted_security.sid import SID
+from aiosmb.dcerpc.v5.common.secrets import SMBUserSecrets
+from aiosmb.wintypes.dtyp.structures.filetime import FILETIME
+from aiosmb.wintypes.dtyp.constrcuted_security.sid import SID
 from aiosmb.dcerpc.v5.dtypes import NULL
 from aiosmb.dcerpc.v5.uuid import string_to_bin
 from aiosmb.dcerpc.v5.transport.smbtransport import SMBTransport
