@@ -308,7 +308,7 @@ class SMBConnection:
 					raise SMBUnsupportedDialectSelected()
 				
 				self.selected_dialect = rply.command.DialectRevision
-				self.signing_required = NegotiateSecurityMode.SMB2_NEGOTIATE_SIGNING_REQUIRED in rply.command.SecurityMode
+				self.signing_required = NegotiateSecurityMode.SMB2_NEGOTIATE_SIGNING_ENABLED in rply.command.SecurityMode
 				logger.log(1, 'Server selected dialect: %s' % self.selected_dialect)
 				
 				self.MaxTransactSize = min(0x100000, rply.command.MaxTransactSize)

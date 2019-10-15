@@ -21,7 +21,7 @@ def req_traceback(funct):
 
 class SMBClient(aiocmd.PromptToolkitCmd):
 	def __init__(self, url):
-		aiocmd.PromptToolkitCmd.__init__(self, ignore_sigint=True)
+		aiocmd.PromptToolkitCmd.__init__(self, ignore_sigint=False) #Setting this to false, since True doesnt work on windows...
 		self.conn_url = SMBConnectionURL(url)
 		self.connection = None
 		self.machine = None
@@ -180,11 +180,21 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 		except Exception as e:
 			traceback.print_exc()
 
-
+def main():
+	import argparse
+	import platform
+	
+	parser = argparse.ArgumentParser(description='Interactive SMB client')
+	#parser.add_argument('-v', '--verbose', action='count', default=0)
+	parser.add_argument('smb_url', help = 'Connection string that describes the authentication and target. Example: smb+ntlm-password://TEST\\Administrator:password@10.10.10.2')
+	
+	args = parser.parse_args()
+	
+	asyncio.get_event_loop().run_until_complete(SMBClient(args.smb_url).run())
 
 if __name__ == '__main__':
+	main()
 	
-	url = 'smb+ntlm-password://TEST\\Administrator:QLFbT8zkiFGlJuf0B3Qq@10.10.10.2'
-	asyncio.get_event_loop().run_until_complete(SMBClient(url).run())
+	
 
 	
