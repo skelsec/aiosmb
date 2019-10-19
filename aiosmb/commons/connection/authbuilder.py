@@ -115,7 +115,7 @@ class AuthenticatorBuilder:
 
 		elif creds.authentication_type.value.startswith('MULTIPLEXOR'):
 			if creds.authentication_type in [SMBAuthProtocol.MULTIPLEXOR_SSL_NTLM, SMBAuthProtocol.MULTIPLEXOR_NTLM]:
-				from aiosmb.ntlm.multiplexor import SMBNTLMMultiplexor
+				from aiosmb.authentication.ntlm.multiplexor import SMBNTLMMultiplexor
 
 				ntlmcred = SMBMultiplexorCredential()
 				ntlmcred.type = 'NTLM'

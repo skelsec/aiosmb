@@ -1028,7 +1028,8 @@ class DCERPC_v5(DCERPC):
 				#seal flag MUST be turned on in the handshake flags!!!!!!!
 				#it is "signaled via the is_rpc variable"
 				auth, res = await self._transport._ntlm_ctx.authenticate(None, is_rpc = True)
-				
+				if res is not None:
+					raise res
 			
 			elif self.__auth_type == RPC_C_AUTHN_NETLOGON:
 				raise Exception('Not implemented!')
@@ -1045,7 +1046,8 @@ class DCERPC_v5(DCERPC):
 																							GSSAPIFlags.GSS_C_MUTUAL_FLAG | \
 																							GSSAPIFlags.GSS_C_DCE_STYLE,
 																					seq_number = 0, is_rpc = True)
-
+				if res is not None:
+					raise res
 				#auth, res  = await self._transport._kerberos_ctx.authenticate(None)
 				
 				#self.__cipher, self.__sessionKey, auth = kerberosv5.getKerberosType1(self.__username, self.__password,

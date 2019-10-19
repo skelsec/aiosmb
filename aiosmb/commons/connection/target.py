@@ -9,6 +9,7 @@
 
 import ipaddress
 import enum
+import copy
 
 class SMBConnectionDialect(enum.Enum):
 	SMB = 'SMB' #any
@@ -42,6 +43,20 @@ class SMBTarget:
 		
 	def to_target_string(self):
 		return 'cifs/%s@%s' % (self.hostname, self.domain)
+
+	def get_copy(self, ip, port, hostname = None):
+		return SMBTarget(
+			ip = ip, 
+			port = port, 
+			hostname = hostname, 
+			timeout = self.timeout, 
+			dc_ip= self.dc_ip, 
+			domain = self.domain, 
+			proxy = copy.deepcopy(self.proxy),
+			dialect = self.dialect,
+			protocol = self.protocol
+		)
+
 	
 	@staticmethod
 	def from_connection_string(s):

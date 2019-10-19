@@ -30,7 +30,7 @@ class MultiplexorProxyConnection:
 		else:
 			con_str = 'wss://%s:%s' % (self.target.proxy.ip, self.target.proxy.port)
 		#creating operator and connecting to multiplexor server
-		self.operator = MultiplexorOperator(con_str)
+		self.operator = MultiplexorOperator(con_str, logging_sink = logger)
 		await self.operator.connect()
 		#creating socks5 proxy
 		server_info = await self.operator.start_socks5(self.target.proxy.agent_id)

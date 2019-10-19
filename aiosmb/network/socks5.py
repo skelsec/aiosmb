@@ -61,29 +61,32 @@ class Socks5ProxyConnection:
 			while not self.disconnected.is_set():			
 				data = await asyncio.gather(*[asyncio.wait_for(self.reader.read(4096), int(self.target.proxy.timeout))], return_exceptions = True)
 				if isinstance(data[0], bytes):
+					if data[0] == b'':
+						await self.in_queue.put( (None, Exception('Socks5 server terminated the connection!')) )
+						await self.disconnect()
 					#print('%s : %s' % (self.writer.get_extra_info('peername')[0], data[0]))
-					print('SOCKS5 data in %s' % data[0])
+					#print('SOCKS5 data in %s' % data[0])
 					await self.in_queue.put( (data[0], None) )
 				
 				elif isinstance(data[0], asyncio.CancelledError):
-					print('SOCKS5 data in CANCELLED')
+					#print('SOCKS5 data in CANCELLED')
 					return
 					
 				elif isinstance(data[0], Exception):
-					print('SOCKS5 data in exception')
-					logger.exception('[TCPSocket] handle_incoming %s' % str(data[0]))
+					#print('SOCKS5 data in exception')
+					logger.exception('[SOCKS5] handle_incoming %s' % str(data[0]))
 					await self.in_queue.put( (None, data[0]) )
 					await self.disconnect()
 					return
 			
-			print('SOCKS5 data in EXITING')
+			#print('SOCKS5 data in EXITING')
 		except asyncio.CancelledError:
 			await self.in_queue.put( (None, asyncio.CancelledError) )
 
 		except Exception as e:
 			import traceback
 			traceback.print_exc()
-			print('SOCKS5 data in ERROR!')
+			#print('SOCKS5 data in ERROR!')
 			await self.in_queue.put( (None, e) )
 
 	async def handle_outgoing(self):
@@ -93,7 +96,7 @@ class Socks5ProxyConnection:
 		try:
 			while not self.disconnected.is_set():
 				data = await self.out_queue.get()
-				print('SOCKS5 data out %s' % data)
+				#print('SOCKS5 data out %s' % data)
 				self.writer.write(data)
 				await self.writer.drain()
 		except asyncio.CancelledError:
@@ -101,7 +104,7 @@ class Socks5ProxyConnection:
 			return
 			
 		except Exception as e:
-			logger.exception('[TCPSocket] handle_outgoing %s' % str(e))
+			logger.exception('[SOCKS5] handle_outgoing %s' % str(e))
 			await self.disconnect()
 			
 		
@@ -134,66 +137,96 @@ class Socks5ProxyConnection:
 		if self.target.proxy.username is not None:
 			authmethods.append(SOCKS5Method.PLAIN)
 		
-		#logger.debug('Sending negotiation command to %s:%d' % proxy_writer.get_extra_info('peername'))
-		self.proxy_writer.write(SOCKS5Nego.construct(authmethods).to_bytes())
-		await asyncio.wait_for(self.proxy_writer.drain(), timeout = int(self.target.proxy.timeout))
+		try:
+			#logger.debug('Sending negotiation command to %s:%d' % proxy_writer.get_extra_info('peername'))
+			self.proxy_writer.write(SOCKS5Nego.construct(authmethods).to_bytes())
+			await asyncio.wait_for(self.proxy_writer.drain(), timeout = int(self.target.proxy.timeout))
 
-		rep_nego = await asyncio.wait_for(SOCKS5NegoReply.from_streamreader(self.proxy_reader), timeout = int(self.target.proxy.timeout))
-		logger.debug('Got negotiation reply from %s: %s' % (self.proxy_writer.get_extra_info('peername'), repr(rep_nego)))
-		
-		if rep_nego.METHOD == SOCKS5Method.PLAIN:
-			logger.debug('Preforming plaintext auth to %s:%d' % self.proxy_writer.get_extra_info('peername'))
-			self.proxy_writer.write(SOCKS5PlainAuth.construct(self.target.proxy.username, self.target.proxy.secret).to_bytes())
+			rep_nego = await asyncio.wait_for(SOCKS5NegoReply.from_streamreader(self.proxy_reader), timeout = int(self.target.proxy.timeout))
+			logger.debug('Got negotiation reply from %s: %s' % (self.proxy_writer.get_extra_info('peername'), repr(rep_nego)))
+			
+			if rep_nego.METHOD == SOCKS5Method.PLAIN:
+				logger.debug('Preforming plaintext auth to %s:%d' % self.proxy_writer.get_extra_info('peername'))
+				self.proxy_writer.write(SOCKS5PlainAuth.construct(self.target.proxy.username, self.target.proxy.secret).to_bytes())
+				await asyncio.wait_for(self.proxy_writer.drain(), timeout=int(self.target.proxy.timeout))
+				rep_auth_nego = await asyncio.wait_for(SOCKS5NegoReply.from_streamreader(self.proxy_reader), timeout = int(self.target.proxy.timeout))
+
+				if rep_auth_nego.METHOD != SOCKS5Method.NOAUTH:
+					raise Exception('Failed to connect to proxy %s:%d! Authentication failed!' % self.proxy_writer.get_extra_info('peername'))
+
+			logger.debug('Sending connect request to %s:%d' % self.proxy_writer.get_extra_info('peername'))
+			self.proxy_writer.write(SOCKS5Request.construct(SOCKS5Command.CONNECT, self.target.get_hostname_or_ip(), self.target.port).to_bytes())
 			await asyncio.wait_for(self.proxy_writer.drain(), timeout=int(self.target.proxy.timeout))
-			rep_auth_nego = await asyncio.wait_for(SOCKS5NegoReply.from_streamreader(self.proxy_reader), timeout = int(self.target.proxy.timeout))
 
-			if rep_auth_nego.METHOD != SOCKS5Method.NOAUTH:
-				raise Exception('Failed to connect to proxy %s:%d! Authentication failed!' % self.proxy_writer.get_extra_info('peername'))
-
-		logger.debug('Sending connect request to %s:%d' % self.proxy_writer.get_extra_info('peername'))
-		self.proxy_writer.write(SOCKS5Request.construct(SOCKS5Command.CONNECT, self.target.get_hostname_or_ip(), self.target.port).to_bytes())
-		await asyncio.wait_for(self.proxy_writer.drain(), timeout=int(self.target.proxy.timeout))
-
-		rep = await asyncio.wait_for(SOCKS5Reply.from_streamreader(self.proxy_reader), timeout=int(self.target.proxy.timeout))
-		if rep.REP != SOCKS5ReplyType.SUCCEEDED:
-			logger.info('Failed to connect to proxy %s! Server replied: %s' % (self.proxy_writer.get_extra_info('peername'), repr(rep.REP)))
-			raise Exception('Authentication failure!')
+			rep = await asyncio.wait_for(SOCKS5Reply.from_streamreader(self.proxy_reader), timeout=int(self.target.proxy.timeout))
+			if rep.REP != SOCKS5ReplyType.SUCCEEDED:
+				logger.info('Failed to connect to proxy %s! Server replied: %s' % (self.proxy_writer.get_extra_info('peername'), repr(rep.REP)))
+				raise Exception('Authentication failure!')
+			
+			logger.debug('Server reply from %s : %s' % (self.proxy_writer.get_extra_info('peername'),repr(rep)))
 		
-		logger.debug('Server reply from %s : %s' % (self.proxy_writer.get_extra_info('peername'),repr(rep)))
-
-		if rep.BIND_ADDR == ipaddress.IPv6Address('::') or rep.BIND_ADDR == ipaddress.IPv4Address('0.0.0.0') or rep.BIND_PORT == self.proxy_writer.get_extra_info('peername')[1]:
+		except asyncio.TimeoutError:
+			logger.debug('[Socks5Proxy] Proxy Connection timeout')
+			raise SMBConnectionTimeoutException()
+		
+		except asyncio.CancelledError:
+			#the SMB connection is terminating
+			raise asyncio.CancelledError
+				
+		except Exception as e:
+			logger.debug('[Socks5Proxy] connect generic exception')
+			raise e
+		
+		else:
 			logger.debug('Same socket can be used now on %s:%d' % (self.proxy_writer.get_extra_info('peername')))
 			#this means that the communication can continue on the same socket!
 			logger.info('Proxy connection succeeded')
 			self.reader = self.proxy_reader
 			self.writer = self.proxy_writer
+			self.incoming_task = asyncio.create_task(self.handle_incoming())
+			self.outgoing_task = asyncio.create_task(self.handle_outgoing())
+			return
 
-		else:
-			#this case, the server created the socket, but expects a second connection to a different ip/port
-			con = asyncio.open_connection(str(rep.BIND_ADDR), rep.BIND_PORT)
-			try:
-				self.reader, self.writer = await asyncio.wait_for(con, int(self.target.proxy.timeout))
-			except asyncio.TimeoutError:
-				logger.debug('[Socks5Proxy] Proxy Connection timeout')
-				raise SMBConnectionTimeoutException()
-				
-			except ConnectionRefusedError:
-				logger.debug('[Socks5Proxy] Proxy Connection refused')
-				raise SMBConnectionRefusedException()
-				
-			except asyncio.CancelledError:
-				#the SMB connection is terminating
-				raise asyncio.CancelledError
-				
-			except Exception as e:
-				logger.debug('[Socks5Proxy] connect generic exception')
-				raise e
-		
-		self.incoming_task = asyncio.create_task(self.handle_incoming())
-		self.outgoing_task = asyncio.create_task(self.handle_outgoing())
+			###
+			### These lines below are implemented to follow the actual FRC. sadly, I haven't found a single server implementation that does follow the RFC.
+			### Namely, no rebinding ever happens....
+			###
+			#if rep.BIND_ADDR == ipaddress.IPv6Address('::') or rep.BIND_ADDR == ipaddress.IPv4Address('0.0.0.0') or rep.BIND_PORT == self.proxy_writer.get_extra_info('peername')[1]:
+			#	logger.debug('Same socket can be used now on %s:%d' % (self.proxy_writer.get_extra_info('peername')))
+			#	#this means that the communication can continue on the same socket!
+			#	logger.info('Proxy connection succeeded')
+			#	self.reader = self.proxy_reader
+			#	self.writer = self.proxy_writer
+			#
+			#else:
+			#
+			#	#this case, the server created the socket, but expects a second connection to a different ip/port
+			#	print('SOCKS5 rebinding! %s:%s' % (str(rep.BIND_ADDR), rep.BIND_PORT))
+			#	#self.proxy_writer.close()
+			#	con = asyncio.open_connection(str(rep.BIND_ADDR), rep.BIND_PORT)
+			#	try:
+			#		self.reader, self.writer = await asyncio.wait_for(con, int(self.target.proxy.timeout))
+			#	except asyncio.TimeoutError:
+			#		logger.debug('[Socks5Proxy] Proxy Connection timeout')
+			#		raise SMBConnectionTimeoutException()
+			#		
+			#	except ConnectionRefusedError:
+			#		logger.debug('[Socks5Proxy] Proxy Connection refused')
+			#		raise SMBConnectionRefusedException()
+			#		
+			#	except asyncio.CancelledError:
+			#		#the SMB connection is terminating
+			#		raise asyncio.CancelledError
+			#		
+			#	except Exception as e:
+			#		logger.debug('[Socks5Proxy] connect generic exception')
+			#		raise e
+			#
+			#self.incoming_task = asyncio.create_task(self.handle_incoming())
+			#self.outgoing_task = asyncio.create_task(self.handle_outgoing())
 
 
-		return
+		#return
 
 			
 

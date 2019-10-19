@@ -4,6 +4,9 @@ from aiosmb import logger
 from aiosmb.filereader import SMBFileReader
 from aiosmb.dcerpc.v5.transport.common import *
 from aiosmb.commons.exceptions import *
+from aiosmb.commons.connection.proxy import SMBProxyType
+from aiosmb.network.socks5 import Socks5ProxyConnection
+from aiosmb.network.multiplexornetwork import MultiplexorProxyConnection
 
 class DCERPCTCPConnection:
 	def __init__(self, ip, port):
@@ -17,6 +20,9 @@ class DCERPCTCPConnection:
 		
 		self.disconnected = asyncio.Event()
 		self.shutdown_evt = asyncio.Event()
+
+		self.__incoming_task = None
+		self.__outgoing_task = None
 		
 		
 	async def handle_incoming(self):
@@ -26,7 +32,7 @@ class DCERPCTCPConnection:
 		try:
 			while not self.disconnected.is_set() or not self.shutdown_evt.is_set():
 				data = await self.reader.read(4096)
-				await self.in_queue.put(data)
+				await self.in_queue.put((data, None))
 		
 		except asyncio.CancelledError:
 			#the SMB connection is terminating
@@ -34,6 +40,7 @@ class DCERPCTCPConnection:
 			
 		except Exception as e:	
 			logger.exception('[DCERPCTCPConnection] handle_incoming %s' % str(e))
+			await self.in_queue.put((None, e))
 			await self.disconnect()
 			
 		
@@ -72,8 +79,11 @@ class DCERPCTCPConnection:
 			logger.exception('[DCERPCTCPConnection] connect generic exception')
 			raise e
 		
-		asyncio.ensure_future(self.handle_incoming())
-		asyncio.ensure_future(self.handle_outgoing())
+
+		self.__incoming_task = asyncio.create_task(self.handle_incoming())
+		self.__outgoing_task = asyncio.create_task(self.handle_outgoing())
+		
+		
 		return
 		
 	async def disconnect(self):
@@ -81,6 +91,11 @@ class DCERPCTCPConnection:
 		Disconnects from the socket.
 		Stops the reader and writer streams.
 		"""
+		if self.__incoming_task:
+			self.__incoming_task.cancel()
+		if self.__outgoing_task:
+			self.__outgoing_task.cancel()
+
 		self.reader = None
 		try:
 			self.writer.close()
@@ -88,38 +103,90 @@ class DCERPCTCPConnection:
 			pass
 		self.writer = None
 		self.disconnected.set()
+
+
 		
 
 class TCPTransport(DCERPCTransport):
+	"""
+	Heavily modified to support proxying.
+	Problem: too many inheritance would require a complete rewrite to the transport layer of the DCERPC protocol.
+	        Current solution is not the best one, as exceptions are propagated in a really bad manner :(
+	"""
 	def __init__(self, connection, remote_name, dstport = 135):
 		DCERPCTransport.__init__(self, connection, remote_name, dstport)
 		self.transport_type = 'TCP'
 		self.address = remote_name
 		self.port = dstport
 		
-		self.connection = DCERPCTCPConnection(remote_name, dstport)
+		self.__original_connection = connection  #this veriable holds the original connection parameters, as submitted by the user
+		
 		self.buffer = b''
 		self.data_in_evt = asyncio.Event()
+		self.exception_evt = asyncio.Event()
+		self.connection = None
+
+		self.__last_exception = None
+		self.__incoming_task = None
+		self.__outgoing_task = None
+
+	async def get_connection_layer(self):
+		try:
+			target = self.__original_connection.target.get_copy(self.address, self.port)
+
+			if target.proxy is None:
+				return DCERPCTCPConnection(self.address, self.port)
+			
+			elif target.proxy.type in [SMBProxyType.SOCKS5, SMBProxyType.SOCKS5_SSL]:
+				return Socks5ProxyConnection(target = target)
+
+			elif target.proxy.type in [SMBProxyType.MULTIPLEXOR, SMBProxyType.MULTIPLEXOR_SSL]:
+				mpc = MultiplexorProxyConnection(target)
+				socks_proxy = await mpc.connect()
+				return socks_proxy
+
+			else:
+				raise Exception('Unknown proxy type %s' % target.proxy.type)
+		except Exception as e:
+			logger.exception('get_connection_layer')
+
 
 	async def __handle_incoming(self):
-		while True:
-			data = await self.connection.in_queue.get()
-			self.buffer += data
-			self.data_in_evt.set()
+		try:
+			while True:
+				data, res = await self.connection.in_queue.get()
+				if data is None:
+					self.__last_exception = res
+					self.exception_evt.set()
+					return
+				self.buffer += data
+				self.data_in_evt.set()
+		except asyncio.CancelledError:
+			return
+		except Exception as e:
+			logger.exception('__handle_incoming')
+			return
 		
 	async def connect(self):
-		asyncio.ensure_future(self.__handle_incoming())
+		self.connection = await self.get_connection_layer()
 		await self.connection.connect()
+
+		self.__incoming_task = asyncio.create_task(self.__handle_incoming())
 		
 		return 1
 	
 	async def disconnect(self):
 		try:
-			await self.connection.close()
+			if self.__incoming_task:
+				self.__incoming_task.cancel()
+			await self.connection.disconnect()
 		except:
 			pass
 		
 	async def send(self, data, forceWriteAndx = 0, forceRecv = 0):
+		if self.__last_exception is not None:
+			raise self.__last_exception
+		
 		if self._max_send_frag:
 			offset = 0
 			while 1:
@@ -134,9 +201,13 @@ class TCPTransport(DCERPCTransport):
 	
 	async def recv(self, count, forceRecv = 0):
 		while len(self.buffer) < count:
+			#waiting until buffer has enough data
 			self.data_in_evt.clear()
 			await self.data_in_evt.wait()
-			
+		
+		if self.__last_exception is not None:
+			raise self.__last_exception
+
 		data = self.buffer[:count]
 		self.buffer = self.buffer[count:]
 		return data

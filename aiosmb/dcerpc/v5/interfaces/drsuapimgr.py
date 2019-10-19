@@ -1,6 +1,7 @@
 
 import logging
 from aiosmb import logger
+import traceback
 
 #from aiosmb.dtyp.constrcuted_security.guid import GUID
 from aiosmb.dcerpc.v5.common.secrets import SMBUserSecrets
@@ -91,6 +92,7 @@ class SMBDRSUAPI:
 		try:
 			await self.dce.bind(drsuapi.MSRPC_UUID_DRSUAPI)
 		except Exception as e:
+			traceback.print_exc()
 			print('!!!!!!!!!!!!!! Exc! %s' % e)
 		request = drsuapi.DRSBind()
 		request['puuidClientDsa'] = drsuapi.NTDSAPI_CLIENT_GUID
@@ -382,7 +384,8 @@ class SMBDRSUAPI:
 		request['pmsgIn']['V8']['PrefixTableDest']['pPrefixEntry'] = self.__prefixTable
 		request['pmsgIn']['V8']['pPartialAttrSetEx1'] = NULL
 
-		return await self.dce.request(request)
+		data, res = await self.dce.request(request)
+		return  data
 		
 	async def close(self):
 		if self.handle:

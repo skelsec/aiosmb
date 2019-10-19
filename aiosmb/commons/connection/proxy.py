@@ -14,7 +14,8 @@ class SMBProxyType(enum.Enum):
 	MULTIPLEXOR_SSL = 'MULTIPLEXOR_SSL'
 
 class SMBProxy:
-	def __init__(self, ip = None,
+	def __init__(self, 
+				ip = None,
 				port = None,
 				timeout = 5,
 				proxy_type = None,
