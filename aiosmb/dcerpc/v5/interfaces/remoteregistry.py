@@ -19,6 +19,7 @@ class SMBRemoteRegistryService:
 		
 	async def __aexit__(self, exc_type, exc, traceback):
 		await self.close()
+		return True,None
 	
 	@red
 	async def connect(self, open = False):

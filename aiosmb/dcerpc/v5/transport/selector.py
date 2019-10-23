@@ -8,10 +8,7 @@ class DCERPCTransportSelector:
 
 	async def select(self, target):
 		if target.type == DCERPCTargetType.TCP:
-			if target.proxy is None:
-				return DCERPCTCPTransport(target)
-			else:
-				raise Exception('Not implemented!')
+			return DCERPCTCPTransport(target)
 		
 		elif target.type == DCERPCTargetType.SMB:
 			return DCERPCSMBTransport(target)

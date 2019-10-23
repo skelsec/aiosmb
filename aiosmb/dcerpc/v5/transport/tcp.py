@@ -177,6 +177,8 @@ class DCERPCTCPTransport:
 			await self.connection.disconnect()
 		except:
 			pass
+
+		return True, None
 	
 	@red
 	async def send(self, data, forceWriteAndx = 0, forceRecv = 0):

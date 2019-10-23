@@ -1,9 +1,5 @@
 from aiosmb.dcerpc.v5.epm import *
 from aiosmb.dcerpc.v5.common.connection.connectionstring import DCERPCStringBinding
-#from aiosmb.dcerpc.v5.transport.connectionfactory import DCERPCConnectionFactory
-
-#from aiosmb.dcerpc.v5.common.connection.authbuilder import DCERPCAuthenticatorBuilder
-
 from aiosmb.dcerpc.v5.connection import DCERPC5Connection
 from aiosmb.dcerpc.v5.common.connection.target import DCERPCTarget
 from aiosmb.dcerpc.v5.common.connection.authentication import DCERPCAuth
@@ -32,6 +28,7 @@ class EPM:
 		auth = DCERPCAuth.from_smb_gssapi(self.smb_connection.gssapi)
 		return DCERPC5Connection(auth, target)
 
+
 	@red
 	async def connect(self):
 		dcerpc_target_str = r'%s:%s[%s]' % (self.protocol, self.smb_connection.target.get_hostname_or_ip(), self.port)
@@ -39,6 +36,8 @@ class EPM:
 
 		await rr(self.dce.connect())
 		await rr(self.dce.bind(MSRPC_UUID_PORTMAP))
+
+		return True,None
 
 	@red
 	async def map(self, remoteIf):

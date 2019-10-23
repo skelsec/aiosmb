@@ -19,10 +19,10 @@ def req_srvs_gen(funct):
 		try:
 			if this.srvs is None:
 				await rr(this.connect_rpc('SRVS'))
-			async for x, err in  funct(*args, **kwargs):
-				if err is not None:
-					raise err
-				yield x, err
+			async for x in  funct(*args, **kwargs):
+				if x[-1] is not None:
+					raise x[-1]
+				yield x
 		except Exception as e:
 			raise e
 	return wrapper
@@ -33,13 +33,11 @@ def req_samr_gen(funct):
 		try:
 			if this.srvs is None:
 				await rr(this.connect_rpc('SAMR'))
-			async for x, err in  funct(*args, **kwargs):
-				if err is not None:
-					raise err
-				yield x, err
+			async for x in funct(*args, **kwargs):
+				if x[-1] is not None:
+					raise x[-1]
+				yield x
 		except Exception as e:
-			print(str(e))
-			input()
 			raise e
 	return wrapper
 
@@ -49,10 +47,10 @@ def req_lsad_gen(funct):
 		try:
 			if this.srvs is None:
 				await rr(this.connect_rpc('LSAD'))
-			async for x, err in  funct(*args, **kwargs):
-				if err is not None:
-					raise err
-				yield x, err
+			async for x in  funct(*args, **kwargs):
+				if x[-1] is not None:
+					raise x[-1]
+				yield x
 		except Exception as e:
 			raise e
 	return wrapper
@@ -62,11 +60,11 @@ def req_servicemanager_gen(funct):
 		this = args[0]
 		try:
 			if this.filesystem is None:
-				await this.connect_servicemanager()
-			async for x, err in funct(*args, **kwargs):
-				if err is not None:
-					raise err
-				yield x, err
+				await rr(this.connect_servicemanager())
+			async for x in funct(*args, **kwargs):
+				if x[-1] is not None:
+					raise x[-1]
+				yield x
 		except Exception as e:
 			raise e
 	return wrapper
@@ -100,15 +98,17 @@ class SMBMachine:
 			await rr(self.lsad.connect())
 		else:
 			raise Exception('Unknown service name : %s' % service_name)
+		return True, None
 	
 	@red
 	async def connect_servicemanager(self):
 		self.servicemanager = SMBRemoteServieManager(self.connection)
 		await self.servicemanager.connect()
+		return True, None
 
 	@req_srvs_gen
 	async def list_shares(self):
-		async for name, share_type, remark in self.srvs.list_shares():
+		async for name, share_type, remark, _ in rr_gen(self.srvs.list_shares()):
 			share = SMBShare(
 				name = name, 
 				stype = share_type, 
@@ -116,25 +116,25 @@ class SMBMachine:
 				fullpath = '\\\\%s\\%s' % (self.connection.target.get_hostname_or_ip(), name)
 			)
 			self.shares.append(share)
-			yield share
+			yield share, None
 
 	@req_srvs_gen
 	async def list_sessions(self, level = 1):
-		async for username, ip_addr in self.srvs.list_sessions(level = level):
+		async for username, ip_addr, _ in rr_gen(self.srvs.list_sessions(level = level)):
 			sess = SMBUserSession(username = username, ip_addr = ip_addr.replace('\\','').strip())
 			self.sessions.append(sess)
-			yield sess
+			yield sess, None
 
 	@req_samr_gen
 	async def list_domains(self):
-		async for domain in self.samr.list_domains():
+		async for domain, _ in rr_gen(self.samr.list_domains()):
 			self.domains.append(domain)
-			yield domain
+			yield domain, None
 	
 	@req_samr_gen
 	async def list_localgroups(self):
-		async for group in self.list_groups('Builtin'):
-			yield group
+		async for name, sid, _ in rr_gen(self.list_groups('Builtin')):
+			yield name, sid, None
 
 	@req_samr_gen
 	async def list_groups(self, domain_name, ret_sid = True):
@@ -142,29 +142,33 @@ class SMBMachine:
 		Lists all groups in a given domain.
 		domain_name: string
 		"""
-		domain_sid = await self.samr.get_domain_sid(domain_name)
-		domain_handle = await self.samr.open_domain(domain_sid)
+		domain_sid, _ = await rr(self.samr.get_domain_sid(domain_name))
+		domain_handle, _ = await rr(self.samr.open_domain(domain_sid))
 		#target_group_rids = {}
-		async for name, rid in self.samr.list_aliases(domain_handle):
+		async for name, rid, _ in rr_gen(self.samr.list_aliases(domain_handle)):
 			sid = '%s-%s' % (domain_sid, rid)
-			yield name, sid
+			yield name, sid, None
 
 	@req_samr_gen
 	@req_lsad_gen
 	async def list_group_members(self, domain_name, group_name):
-		policy_handle = await self.lsad.open_policy2()
-		domain_sid = await self.samr.get_domain_sid(domain_name)
-		domain_handle = await self.samr.open_domain(domain_sid)
+		policy_handle, _ = await rr(self.lsad.open_policy2())
+		domain_sid, _ = await rr(self.samr.get_domain_sid(domain_name))
+		domain_handle, _ = await rr(self.samr.open_domain(domain_sid))
 		target_group_rid = None
-		async for name, rid in self.samr.list_aliases(domain_handle):
+		async for name, rid, _ in rr_gen(self.samr.list_aliases(domain_handle)):
+			print(name)
 			if name == group_name:
 				target_group_rid = rid
 				break
+
+		if target_group_rid is None:
+			raise Exception('No group found with name "%s"' % group_name)
 		
-		alias_handle = await self.samr.open_alias(domain_handle, target_group_rid)
-		async for sid in self.samr.list_alias_members(alias_handle):
-			async for domain_name, user_name in self.lsad.lookup_sids(policy_handle, [sid]):
-				yield (domain_name, user_name, sid)
+		alias_handle, _ = await rr(self.samr.open_alias(domain_handle, target_group_rid))
+		async for sid, _ in rr_gen(self.samr.list_alias_members(alias_handle)):
+			async for domain_name, user_name, _ in rr_gen(self.lsad.lookup_sids(policy_handle, [sid])):
+				yield domain_name, user_name, sid, None
 
 
 	async def list_directory(self, directory):
@@ -205,10 +209,10 @@ class SMBMachine:
 
 	@req_servicemanager_gen
 	async def list_services(self):
-		async for service in self.servicemanager.list():
-			yield service
+		async for service, _ in rr_gen(self.servicemanager.list()):
+			yield service, None
 
-
+	@red_gen
 	@req_samr_gen
 	async def dcsync(self, target_domain = None, target_users = []):		
 		
@@ -241,7 +245,6 @@ class SMBMachine:
 			else:
 				domain_sid, _ = await self.samr.get_domain_sid(target_domain)
 				domain_handle, _ = await self.samr.open_domain(domain_sid)
-				print(111111)
 				async for username, user_sid, _ in rr_gen(self.samr.list_domain_users(domain_handle)):
 					secrets = await drsuapi.get_user_secrets(username)
 					yield secrets

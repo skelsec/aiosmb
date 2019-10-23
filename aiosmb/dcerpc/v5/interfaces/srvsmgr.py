@@ -22,6 +22,7 @@ class SMBSRVS:
 		
 	async def __aexit__(self, exc_type, exc, traceback):
 		await self.close()
+		return True,None
 	
 	@red
 	async def connect(self, open = True):
@@ -29,6 +30,8 @@ class SMBSRVS:
 		self.dce = rpctransport.get_dce_rpc()
 		await rr(self.dce.connect())
 		await rr(self.dce.bind(srvs.MSRPC_UUID_SRVS))
+
+		return True,None
 	
 	@red
 	async def close(self):
@@ -38,6 +41,8 @@ class SMBSRVS:
 			except:
 				pass
 			return
+		
+		return True,None
 	
 	@red_gen
 	async def list_shares(self, level = 1):
@@ -48,7 +53,7 @@ class SMBSRVS:
 			resp, _ = await rr(srvs.hNetrShareEnum(self.dce, level, resumeHandle = resumeHandle))
 			
 			for entry in resp['InfoStruct']['ShareInfo'][level_name]['Buffer']:
-				yield entry['shi1_netname'][:-1], entry['shi1_type'], entry['shi1_remark']
+				yield entry['shi1_netname'][:-1], entry['shi1_type'], entry['shi1_remark'], None
 			
 			resumeHandle = resp['ResumeHandle'] 
 			status = NTStatus(resp['ErrorCode'])	
@@ -67,14 +72,14 @@ class SMBSRVS:
 				for entry in resp['InfoStruct']['SessionInfo'][level_name]['Buffer']:
 					username = entry['sesi1_username'][:-1]
 					ip_addr = entry['sesi1_cname'][:-1]					
-					yield username, ip_addr
+					yield username, ip_addr, None
 
 			elif level == 10:
 				for entry in resp['InfoStruct']['SessionInfo'][level_name]['Buffer']:
 					username = entry['sesi10_username'][:-1]
 					ip_addr = entry['sesi10_cname'][:-1]
 					
-					yield username, ip_addr
+					yield username, ip_addr, None
 			
 			resumeHandle = resp['ResumeHandle'] 
 			status = NTStatus(resp['ErrorCode'])	

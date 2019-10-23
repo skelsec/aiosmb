@@ -23,6 +23,7 @@ class LSAD:
 	
 	async def __aexit__(self, exc_type, exc, traceback):
 		await self.close()
+		return True,None
 
 	@red
 	async def connect(self, open = True):
@@ -30,6 +31,7 @@ class LSAD:
 		self.dce = rpctransport.get_dce_rpc()
 		await rr(self.dce.connect())
 		await rr(self.dce.bind(lsad.MSRPC_UUID_LSAD))
+		return True,None
 	
 	@red
 	async def close(self):		
@@ -81,7 +83,7 @@ class LSAD:
 
 			for entry in resp['TranslatedNames']['Names']:
 				domain = domains[entry['DomainIndex']]
-				yield (domain, entry['Name']), None
+				yield domain, entry['Name'], None
 		else:
 			yield resp, None
 		

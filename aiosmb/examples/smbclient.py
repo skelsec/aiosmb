@@ -8,6 +8,7 @@ from prompt_toolkit.completion import WordCompleter
 from aiosmb import logger
 from aiosmb.commons.connection.url import SMBConnectionURL
 from aiosmb.commons.interfaces.machine import SMBMachine
+from aiosmb.commons.utils.decorators import rr, rr_gen, red, red_gen, ef_gen
 
 def req_traceback(funct):
 	async def wrapper(*args, **kwargs):
@@ -54,7 +55,7 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 
 	async def do_shares(self, show = True):
 		try:
-			async for share in self.machine.list_shares():
+			async for share, _ in ef_gen(self.machine.list_shares()):
 				self.shares[share.name] = share
 				if show is True:
 					print(share.name)
@@ -64,42 +65,42 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 
 	async def do_sessions(self):
 		try:
-			async for sess in self.machine.list_sessions():
+			async for sess, _ in ef_gen(self.machine.list_sessions()):
 				print("%s : %s" % (sess.username, sess.ip_addr))
 		except Exception as e:
 			traceback.print_exc()
 
 	async def do_domains(self):
 		try:
-			async for domain in self.machine.list_domains():
+			async for domain, _ in self.machine.list_domains():
 				print(domain)
 		except Exception as e:
 			traceback.print_exc()
 
 	async def do_localgroups(self):
 		try:
-			async for name, sid in self.machine.list_localgroups():
+			async for name, sid, _ in self.machine.list_localgroups():
 				print("%s : %s" % (name, sid))
 		except Exception as e:
 			traceback.print_exc()
 	
 	async def do_domaingroups(self, domain_name):
 		try:
-			async for name, sid in self.machine.list_groups(domain_name):
+			async for name, sid, _ in self.machine.list_groups(domain_name):
 				print("%s : %s" % (name, sid))
 		except Exception as e:
 			traceback.print_exc()
 	
 	async def do_groupmembers(self, domain_name, group_name):
 		try:
-			async for domain, username, sid in self.machine.list_group_members(domain_name, group_name):
+			async for domain, username, sid, _ in self.machine.list_group_members(domain_name, group_name):
 				print("%s\\%s : %s" % (domain, username, sid))
 		except Exception as e:
 			traceback.print_exc()
 
 	async def do_localgroupmembers(self, group_name):
 		try:
-			async for domain, username, sid in self.machine.list_group_members('Builtin', group_name):
+			async for domain, username, sid, _ in self.machine.list_group_members('Builtin', group_name):
 				print("%s\\%s : %s" % (domain, username, sid))
 		except Exception as e:
 			traceback.print_exc()
@@ -154,7 +155,7 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 
 	async def do_services(self):
 		try:
-			async for service in self.machine.list_services():
+			async for service, _ in self.machine.list_services():
 				print(service)
 			
 		except Exception as e:
@@ -192,7 +193,7 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 
 	async def do_dcsync(self):
 		try:
-			async for secret in self.machine.dcsync():
+			async for secret, _ in rr_gen(self.machine.dcsync()):
 				print(str(secret))
 		except Exception as e:
 			traceback.print_exc()

@@ -39,6 +39,9 @@ class DCERPC5Connection:
 		self.__clientSealingHandle = None
 		self.__serverSealingHandle = None
 
+	def get_session_key(self):
+		return self.__sessionKey
+
 	def set_auth_level(self, auth_level):
 		self.auth_level = auth_level
 
@@ -49,6 +52,8 @@ class DCERPC5Connection:
 	async def disconnect(self):
 		if self.transport is not None:
 			await self.transport.disconnect()
+
+		return True, None
 
 	@red
 	async def connect(self):
@@ -524,14 +529,14 @@ class DCERPC5Connection:
 			# At least give me the MSRPCRespHeader, especially important for 
 			# TCP/UDP Transports
 			response_data, _ = await rr(self.transport.recv(MSRPCRespHeader._SIZE))
-			print('DATA: %s' % repr(response_data))
+			#print('DATA: %s' % repr(response_data))
 			response_header = MSRPCRespHeader(response_data)
 			# Ok, there might be situation, especially with large packets, that 
 			# the transport layer didn't send us the full packet's contents
 			# So we gotta check we received it all
 			while len(response_data) < response_header['frag_len']:
 				data, _ = await rr(self.transport.recv(response_header['frag_len']-len(response_data)))
-				print('DATA1: %s' % repr(response_data))
+				#print('DATA1: %s' % repr(response_data))
 				response_data += data
 
 			off = response_header.get_header_size()

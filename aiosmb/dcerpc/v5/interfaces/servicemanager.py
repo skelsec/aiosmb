@@ -21,6 +21,7 @@ class SMBRemoteServieManager:
 		
 	async def __aexit__(self, exc_type, exc, traceback):
 		await self.close()
+		return True,None
 	
 	@red
 	async def connect(self, open = True):
@@ -31,6 +32,8 @@ class SMBRemoteServieManager:
 
 		if open == True:
 			await rr(self.open())
+		
+		return True,None
 	
 	@red
 	async def open(self):
@@ -39,6 +42,8 @@ class SMBRemoteServieManager:
 		
 		ans, _ = await rr(scmr.hROpenSCManagerW(self.dce))
 		self.handle = ans['lpScHandle']
+
+		return True,None
 	
 	@red
 	async def close(self):
@@ -58,6 +63,8 @@ class SMBRemoteServieManager:
 			except:
 				pass
 			return
+		
+		return True,None
 
 	@red_gen
 	async def list(self):
@@ -88,10 +95,12 @@ class SMBRemoteServieManager:
 	@red
 	async def open_service(self, service_name):
 		if service_name in self.service_handles:
-			return
+			return False, None
 			
 		ans = await rr(scmr.hROpenServiceW(self.dce, self.handle, service_name))
 		self.service_handles[service_name] = ans['lpServiceHandle']
+
+		return True,None
 	
 	@red
 	async def close_service(self, service_name):
@@ -102,6 +111,8 @@ class SMBRemoteServieManager:
 		
 		await rr(scmr.hRCloseServiceHandle(self.dce, self.service_handles[service_name]))
 		del self.service_handles[service_name]
+
+		return True,None
 	
 	@red
 	async def check_service_status(self, service_name):
@@ -128,6 +139,8 @@ class SMBRemoteServieManager:
 			return SMBServiceStatus.RUNNING, None
 		else:
 			raise Exception('Unknown service state 0x%x - Aborting' % ans['CurrentState'])
+
+		return False, None
 	
 	@red
 	async def stop_service(self, service_name):
@@ -139,6 +152,8 @@ class SMBRemoteServieManager:
 			await rr(self.open())
 		resp, _ = await rr(scmr.hRCreateServiceW(self.dce, self.handle, service_name, service_name, lpBinaryPathName=command))
 		self.service_handles[service_name] = resp['lpServiceHandle']
+
+		return True,None
 	
 	@red
 	async def delete_service(self, service_name):
@@ -148,6 +163,7 @@ class SMBRemoteServieManager:
 			await rr(self.open_service(service_name))
 		
 		await rr(scmr.hRDeleteService(self.dce, self.service_handles[service_name]))
+		return True,None
 	
 	@red
 	async def start_service(self, service_name):
@@ -158,6 +174,8 @@ class SMBRemoteServieManager:
 
 			await rr(scmr.hRStartServiceW(self.dce , self.service_handles[service_name]))
 			await asyncio.sleep(1) #service takes time to start up...
+		
+		return True,None
 	
 	@red
 	async def enable_service(self, service_name):
@@ -167,3 +185,4 @@ class SMBRemoteServieManager:
 			await rr(self.open_service(service_name))
 			
 		await rr(scmr.hRChangeServiceConfigW(self.dce, self.service_handles[service_name]))
+		return True,None

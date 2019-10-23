@@ -1282,7 +1282,7 @@ async def hREnumServicesStatusW(dce, hSCManager, dwServiceType=SERVICE_WIN32_OWN
 		if e.get_error_code() == system_errors.ERROR_MORE_DATA:
 			resp = e.get_packet()
 			enumServicesStatus['cbBufSize'] = resp['pcbBytesNeeded']
-			resp = await dce.request(enumServicesStatus)
+			resp, e = await dce.request(enumServicesStatus)
 	else:
 		return None, e
 	

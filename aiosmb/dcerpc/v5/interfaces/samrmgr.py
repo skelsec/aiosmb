@@ -28,6 +28,7 @@ class SMBSAMR:
 		
 	async def __aexit__(self, exc_type, exc, traceback):
 		await self.close()
+		return True,None
 	
 	@red
 	async def connect(self, open = True):
@@ -37,7 +38,9 @@ class SMBSAMR:
 		await rr(self.dce.bind(samr.MSRPC_UUID_SAMR))
 		
 		if open == True:
-			await rr(self.open())		
+			await rr(self.open())
+
+		return True,None	
 	
 	@red
 	async def open(self):
@@ -46,6 +49,8 @@ class SMBSAMR:
 		
 		ans, _= await rr(samr.hSamrConnect(self.dce))
 		self.handle = ans['ServerHandle']
+
+		return True,None
 	
 	@red
 	async def close(self):
@@ -72,15 +77,17 @@ class SMBSAMR:
 			except:
 				pass
 		
+		return True,None
+		
 	@red
 	async def close_handle(self, handle):
 		resp, _ = await rr(samr.hSamrCloseHandle(self.dce, handle))
-		return resp
+		return resp, None
 	
 	@red
 	async def get_info(self, domain_handle, domainInformationClass = samr.DOMAIN_INFORMATION_CLASS.DomainGeneralInformation2):
 		resp, _ = await rr(samr.hSamrQueryInformationDomain(self.dce, domain_handle, domainInformationClass = domainInformationClass))
-		return resp
+		return resp, None
 	
 	@red_gen
 	async def list_domains(self):
@@ -123,7 +130,7 @@ class SMBSAMR:
 
 			for user in resp['Buffer']['Buffer']:
 				user_sid = '%s-%s' % (self.domain_handles[domain_handle], user['RelativeId'])
-				yield (user['Name'], user_sid), None
+				yield user['Name'], user_sid, None
 
 			enumerationContext = resp['EnumerationContext'] 
 			status = NTStatus(resp['ErrorCode'])
@@ -137,7 +144,7 @@ class SMBSAMR:
 
 			for group in resp['Buffer']['Buffer']:
 				group_sid = '%s-%s' % (self.domain_handles[domain_handle], group['RelativeId'])
-				yield (group['Name'], group_sid), None
+				yield group['Name'], group_sid, None
 			enumerationContext = resp['EnumerationContext'] 
 			status = NTStatus(resp['ErrorCode'])
 			
@@ -150,7 +157,7 @@ class SMBSAMR:
 			
 			for user in resp['Buffer']['Buffer']:
 				user_sid = '%s-%s' % (self.domain_handles[domain_handle], user['RelativeId'])
-				yield (user['Name'], user_sid), None
+				yield user['Name'], user_sid, None
 			enumerationContext = resp['EnumerationContext'] 
 			status = NTStatus(resp['ErrorCode'])
 
@@ -170,7 +177,7 @@ class SMBSAMR:
 		resp, _ = await rr(samr.hSamrGetGroupsForUser(self.dce, user_handle))
 		
 		for group in resp['Groups']['Groups']:
-			yield ('%s-%s' % (self.user_handles[user_handle], group['RelativeId'])) , None
+			yield '%s-%s' % (self.user_handles[user_handle], group['RelativeId']) , None
 
 	@red_gen
 	async def list_aliases(self, domain_handle):
@@ -178,9 +185,9 @@ class SMBSAMR:
 		enumerationContext = 0
 		while status == NTStatus.MORE_ENTRIES:
 			resp, _ = await rr(samr.hSamrEnumerateAliasesInDomain(self.dce, domain_handle, enumerationContext=enumerationContext))
-		
+
 			for alias in resp['Buffer']['Buffer']:
-				yield (alias['Name'] , alias['RelativeId']), None
+				yield alias['Name'] , alias['RelativeId'], None
 			
 			enumerationContext = resp['EnumerationContext'] 
 			status = NTStatus(resp['ErrorCode'])

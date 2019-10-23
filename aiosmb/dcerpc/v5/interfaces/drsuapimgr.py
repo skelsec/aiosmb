@@ -67,31 +67,32 @@ class SMBDRSUAPI:
 	@red
 	async def __aexit__(self, exc_type, exc, traceback):
 		await self.close()
+		return True,None
+		
 	
 	@red
 	async def connect(self, open = False):
-		print(1)
 		epm = EPM(self.connection, protocol = 'ncacn_ip_tcp')
 		await rr(epm.connect())
 		stringBinding, _ = await rr(epm.map(drsuapi.MSRPC_UUID_DRSUAPI))
-		print(2)
 		self.dce = epm.get_connection_from_stringbinding(stringBinding)
-		print(repr(self.dce))
+
 		#the line below must be set!
 		self.dce.set_auth_level(RPC_C_AUTHN_LEVEL_PKT_PRIVACY)
-		print(3)
+
 		await rr(self.dce.connect())
 			
 		if open == True:
 			await rr(self.open())
+
+		return True,None
 	
 	@red
 	async def open(self):
 		if not self.dce:
 			await rr(self.connect())
-		print(4)
+
 		await rr(self.dce.bind(drsuapi.MSRPC_UUID_DRSUAPI))
-		print(5)
 		request = drsuapi.DRSBind()
 		request['puuidClientDsa'] = drsuapi.NTDSAPI_CLIENT_GUID
 		drs = drsuapi.DRS_EXTENSIONS_INT()
@@ -140,6 +141,8 @@ class SMBDRSUAPI:
 		else:
 			logger.error("Couldn't get DC info for domain %s" % self.domainname)
 			raise Exception('Fatal, aborting!')
+
+		return True,None
 	
 	@red
 	async def get_user_secrets(self, username):
@@ -387,7 +390,7 @@ class SMBDRSUAPI:
 		request['pmsgIn']['V8']['pPartialAttrSetEx1'] = NULL
 
 		data, _ = await rr(self.dce.request(request))
-		return  data
+		return data, None
 	
 	@red
 	async def close(self):
@@ -401,3 +404,5 @@ class SMBDRSUAPI:
 				await rr(self.dce.disconnect())
 			except:
 				pass
+		
+		return True,None
