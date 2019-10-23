@@ -21,6 +21,12 @@ class SPNEGO:
 		self.selected_authentication_context = None
 		self.selected_mechtype = None
 		self.iteration_ctr = 0
+	
+	def get_copy(self):
+		spnego = SPNEGO()
+		for ctx_name in self.list_original_conexts():
+			spnego.add_auth_context(ctx_name, self.get_original_context(ctx_name))
+		return spnego
 		
 	def list_original_conexts(self):
 		"""

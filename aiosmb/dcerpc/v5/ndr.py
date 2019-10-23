@@ -147,6 +147,8 @@ class NDR(object):
             self.fields[key] = value
 
     def __getitem__(self, key):
+        #print(self.fields)
+        #print(self.fields.keys())
         if isinstance(self.fields[key], NDR):
             if 'Data' in self.fields[key].fields:
                 return self.fields[key]['Data']

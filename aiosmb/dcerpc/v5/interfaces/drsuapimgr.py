@@ -9,12 +9,14 @@ from aiosmb.wintypes.dtyp.structures.filetime import FILETIME
 from aiosmb.wintypes.dtyp.constrcuted_security.sid import SID
 from aiosmb.dcerpc.v5.dtypes import NULL
 from aiosmb.dcerpc.v5.uuid import string_to_bin
-from aiosmb.dcerpc.v5.transport.smbtransport import SMBTransport
-from aiosmb.dcerpc.v5.transport.factory import DCERPCTransportFactory
-from aiosmb.dcerpc.v5 import epm, drsuapi, samr
+from aiosmb.dcerpc.v5.common.connection.smbdcefactory import SMBDCEFactory
+from aiosmb.dcerpc.v5 import drsuapi, samr
+from aiosmb.dcerpc.v5.interfaces.endpointmgr import EPM
 from aiosmb.dcerpc.v5.interfaces.servicemanager import *
 from aiosmb.dcerpc.v5.rpcrt import RPC_C_AUTHN_LEVEL_PKT_INTEGRITY, RPC_C_AUTHN_LEVEL_PKT_PRIVACY, DCERPCException, RPC_C_AUTHN_GSS_NEGOTIATE
-		
+
+from aiosmb.commons.utils.decorators import red, rr
+
 class SMBDRSUAPI:
 	def __init__(self, connection, domainname = None):
 		self.connection = connection	
@@ -61,39 +63,35 @@ class SMBDRSUAPI:
 		
 	async def __aenter__(self):
 		return self
-		
+	
+	@red
 	async def __aexit__(self, exc_type, exc, traceback):
 		await self.close()
-		
+	
+	@red
 	async def connect(self, open = False):
-		stringBinding = await epm.hept_map(self.connection, drsuapi.MSRPC_UUID_DRSUAPI, protocol='ncacn_ip_tcp')
-		#print(stringBinding)
-		rpc = DCERPCTransportFactory(stringBinding, self.connection)
-		
-		rpc.setRemoteHost(self.connection.target.get_ip())
-		rpc.setRemoteName(self.connection.target.get_ip())
-		
-		self.dce = rpc.get_dce_rpc()
+		print(1)
+		epm = EPM(self.connection, protocol = 'ncacn_ip_tcp')
+		await rr(epm.connect())
+		stringBinding, _ = await rr(epm.map(drsuapi.MSRPC_UUID_DRSUAPI))
+		print(2)
+		self.dce = epm.get_connection_from_stringbinding(stringBinding)
+		print(repr(self.dce))
 		#the line below must be set!
 		self.dce.set_auth_level(RPC_C_AUTHN_LEVEL_PKT_PRIVACY)
-		
-		try:
-			await self.dce.connect()
-		except  Exception as e:
-			print(e)
+		print(3)
+		await rr(self.dce.connect())
 			
 		if open == True:
-			await self.open()
-			
+			await rr(self.open())
+	
+	@red
 	async def open(self):
 		if not self.dce:
-			await self.connect()
-		
-		try:
-			await self.dce.bind(drsuapi.MSRPC_UUID_DRSUAPI)
-		except Exception as e:
-			traceback.print_exc()
-			print('!!!!!!!!!!!!!! Exc! %s' % e)
+			await rr(self.connect())
+		print(4)
+		await rr(self.dce.bind(drsuapi.MSRPC_UUID_DRSUAPI))
+		print(5)
 		request = drsuapi.DRSBind()
 		request['puuidClientDsa'] = drsuapi.NTDSAPI_CLIENT_GUID
 		drs = drsuapi.DRS_EXTENSIONS_INT()
@@ -109,7 +107,7 @@ class SMBDRSUAPI:
 		drs['dwExtCaps'] = 0xffffffff
 		request['pextClient']['cb'] = len(drs)
 		request['pextClient']['rgb'] = list(drs.getData())
-		resp = await self.dce.request(request)
+		resp,_ = await rr(self.dce.request(request))
 		
 		# Let's dig into the answer to check the dwReplEpoch. This field should match the one we send as part of
 		# DRSBind's DRS_EXTENSIONS_INT(). If not, it will fail later when trying to sync data.
@@ -128,12 +126,12 @@ class SMBDRSUAPI:
 			drs['dwReplEpoch'] = drsExtensionsInt['dwReplEpoch']
 			request['pextClient']['cb'] = len(drs)
 			request['pextClient']['rgb'] = list(drs.getData())
-			resp = await self.dce.request(request)
+			resp,_ = await rr(self.dce.request(request))
 
 		self.handle = resp['phDrs']
 
 		# Now let's get the NtdsDsaObjectGuid UUID to use when querying NCChanges
-		resp = await drsuapi.hDRSDomainControllerInfo(self.dce, self.handle, self.domainname, 2)
+		resp, _ = await rr(drsuapi.hDRSDomainControllerInfo(self.dce, self.handle, self.domainname, 2))
 		if logger.level == logging.DEBUG:
 			logger.debug('DRSDomainControllerInfo() answer %s' % resp.dump())
 
@@ -143,6 +141,7 @@ class SMBDRSUAPI:
 			logger.error("Couldn't get DC info for domain %s" % self.domainname)
 			raise Exception('Fatal, aborting!')
 	
+	@red
 	async def get_user_secrets(self, username):
 		ra = {
 			'userPrincipalName': '1.2.840.113556.1.4.656',
@@ -158,10 +157,12 @@ class SMBDRSUAPI:
 		}
 		formatOffered = drsuapi.DS_NT4_ACCOUNT_NAME_SANS_DOMAIN
 		
-		crackedName = await self.DRSCrackNames(
-			formatOffered,
-			drsuapi.DS_NAME_FORMAT.DS_UNIQUE_ID_NAME,
-			name=username
+		crackedName, _ = await rr(
+			self.DRSCrackNames(
+				formatOffered,
+				drsuapi.DS_NAME_FORMAT.DS_UNIQUE_ID_NAME,
+				name=username
+			)
 		)
 		
 		###### TODO: CHECKS HERE
@@ -169,7 +170,7 @@ class SMBDRSUAPI:
 		#guid = GUID.from_string(crackedName['pmsgOut']['V1']['pResult']['rItems'][0]['pName'][:-1][1:-1])
 		guid = crackedName['pmsgOut']['V1']['pResult']['rItems'][0]['pName'][:-1][1:-1]
 		
-		userRecord = await self.DRSGetNCChanges(guid, ra)
+		userRecord, _ = await rr(self.DRSGetNCChanges(guid, ra))
 		
 		replyVersion = 'V%d' % userRecord['pdwOutVersion']
 		if userRecord['pmsgOut'][replyVersion]['cNumObjects'] == 0:
@@ -328,20 +329,21 @@ class SMBDRSUAPI:
 					us.cleartext_pwds.append(answer)
 			
 		
-		return us
+		return us, None
 			
-		
+	@red	
 	async def DRSCrackNames(self, formatOffered=drsuapi.DS_NAME_FORMAT.DS_DISPLAY_NAME, formatDesired=drsuapi.DS_NAME_FORMAT.DS_FQDN_1779_NAME, name=''):
 		if self.handle is None:
-			await self.open()
+			await rr(self.open())
 
 		logger.debug('Calling DRSCrackNames for %s' % name)
-		resp = await drsuapi.hDRSCrackNames(self.dce, self.handle, 0, formatOffered, formatDesired, (name,))
-		return resp
-		
+		resp, _ = await rr(drsuapi.hDRSCrackNames(self.dce, self.handle, 0, formatOffered, formatDesired, (name,)))
+		return resp, None
+	
+	@red
 	async def DRSGetNCChanges(self, guid, req_attributes = {}):
 		if self.handle is None:
-			self.open()
+			await rr(self.open())
 
 		logger.debug('Calling DRSGetNCChanges for %s ' % guid)
 		request = drsuapi.DRSGetNCChanges()
@@ -384,17 +386,18 @@ class SMBDRSUAPI:
 		request['pmsgIn']['V8']['PrefixTableDest']['pPrefixEntry'] = self.__prefixTable
 		request['pmsgIn']['V8']['pPartialAttrSetEx1'] = NULL
 
-		data, res = await self.dce.request(request)
+		data, _ = await rr(self.dce.request(request))
 		return  data
-		
+	
+	@red
 	async def close(self):
 		if self.handle:
 			try:
-				await drsuapi.hDRSUnbind(self.dce, self.handle)
+				await rr(drsuapi.hDRSUnbind(self.dce, self.handle))
 			except:
 				pass
 		if self.dce:
 			try:
-				await self.dce.disconnect()
+				await rr(self.dce.disconnect())
 			except:
 				pass

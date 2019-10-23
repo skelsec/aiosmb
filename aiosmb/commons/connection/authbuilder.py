@@ -136,7 +136,7 @@ class AuthenticatorBuilder:
 				return spneg
 
 			elif creds.authentication_type in [SMBAuthProtocol.MULTIPLEXOR_SSL_KERBEROS, SMBAuthProtocol.MULTIPLEXOR_KERBEROS]:
-				from aiosmb.kerberos.multiplexor import SMBKerberosMultiplexor
+				from aiosmb.authentication.kerberos.multiplexor import SMBKerberosMultiplexor
 
 				ntlmcred = SMBMultiplexorCredential()
 				ntlmcred.type = 'KERBEROS'

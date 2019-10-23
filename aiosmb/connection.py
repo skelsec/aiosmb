@@ -193,10 +193,14 @@ class SMBConnection:
 					#but for now we just thropw exception bc encryption is not implemented
 					raise Exception('Encrypted SMBv2 message recieved, but encryption is not yet supported!')
 				
+				#if msg.header.Status == NTStatus.PENDING:
+				#	continue
+
 				self.OutstandingResponses[msg.header.MessageId] = msg
 				if msg.header.MessageId in self.OutstandingResponsesEvent:
 					self.OutstandingResponsesEvent[msg.header.MessageId].set()
 				else:
+
 					#here we are loosing messages, the functionality for "PENDING" and "SHARING_VIOLATION" should be implemented
 					continue
 		except asyncio.CancelledError:

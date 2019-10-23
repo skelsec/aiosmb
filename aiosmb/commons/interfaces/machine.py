@@ -10,6 +10,7 @@ from aiosmb.dcerpc.v5.interfaces.lsatmgr import LSAD
 from aiosmb.dcerpc.v5.interfaces.drsuapimgr import SMBDRSUAPI
 from aiosmb.dcerpc.v5.interfaces.servicemanager import SMBRemoteServieManager
 from aiosmb.filereader import SMBFileReader
+from aiosmb.commons.utils.decorators import red, rr, red_gen, rr_gen
 
 
 def req_srvs_gen(funct):
@@ -17,9 +18,11 @@ def req_srvs_gen(funct):
 		this = args[0]
 		try:
 			if this.srvs is None:
-				await this.connect_rpc('SRVS')
-			async for x in  funct(*args, **kwargs):
-				yield x
+				await rr(this.connect_rpc('SRVS'))
+			async for x, err in  funct(*args, **kwargs):
+				if err is not None:
+					raise err
+				yield x, err
 		except Exception as e:
 			raise e
 	return wrapper
@@ -29,10 +32,14 @@ def req_samr_gen(funct):
 		this = args[0]
 		try:
 			if this.srvs is None:
-				await this.connect_rpc('SAMR')
-			async for x in  funct(*args, **kwargs):
-				yield x
+				await rr(this.connect_rpc('SAMR'))
+			async for x, err in  funct(*args, **kwargs):
+				if err is not None:
+					raise err
+				yield x, err
 		except Exception as e:
+			print(str(e))
+			input()
 			raise e
 	return wrapper
 
@@ -41,33 +48,11 @@ def req_lsad_gen(funct):
 		this = args[0]
 		try:
 			if this.srvs is None:
-				await this.connect_rpc('LSAD')
-			async for x in  funct(*args, **kwargs):
-				yield x
-		except Exception as e:
-			raise e
-	return wrapper
-
-def req_filesystem_gen(funct):
-	async def wrapper(*args, **kwargs):
-		this = args[0]
-		try:
-			if this.filesystem is None:
-				await this.connect_filesystem()
-			async for x in  funct(*args, **kwargs):
-				yield x
-		except Exception as e:
-			raise e
-	return wrapper
-
-def req_filesystem(funct):
-	async def wrapper(*args, **kwargs):
-		this = args[0]
-		try:
-			if this.filesystem is None:
-				await this.connect_filesystem()
-			x = await funct(*args, **kwargs)
-			return x
+				await rr(this.connect_rpc('LSAD'))
+			async for x, err in  funct(*args, **kwargs):
+				if err is not None:
+					raise err
+				yield x, err
 		except Exception as e:
 			raise e
 	return wrapper
@@ -78,8 +63,10 @@ def req_servicemanager_gen(funct):
 		try:
 			if this.filesystem is None:
 				await this.connect_servicemanager()
-			async for x in funct(*args, **kwargs):
-				yield x
+			async for x, err in funct(*args, **kwargs):
+				if err is not None:
+					raise err
+				yield x, err
 		except Exception as e:
 			raise e
 	return wrapper
@@ -100,22 +87,21 @@ class SMBMachine:
 		self.filesystem = None
 		self.servicemanager = None
 
+	@red
 	async def connect_rpc(self, service_name):
 		if service_name.upper() == 'SRVS':
 			self.srvs = SMBSRVS(self.connection)
-			await self.srvs.connect()
+			await rr(self.srvs.connect())
 		elif service_name.upper() == 'SAMR':
 			self.samr = SMBSAMR(self.connection)
-			await self.samr.connect()
+			await rr(self.samr.connect())
 		elif service_name.upper() == 'LSAD':
 			self.lsad = LSAD(self.connection)
-			await self.lsad.connect()
+			await rr(self.lsad.connect())
 		else:
 			raise Exception('Unknown service name : %s' % service_name)
-
-	async def connect_filesystem(self):
-		self.filesystem = SMBFileSystem(self.connection)
 	
+	@red
 	async def connect_servicemanager(self):
 		self.servicemanager = SMBRemoteServieManager(self.connection)
 		await self.servicemanager.connect()
@@ -231,7 +217,7 @@ class SMBMachine:
 					
 							
 			logger.debug('Fetching domains...')
-			async for domain in self.samr.list_domains():
+			async for domain, _ in rr_gen(self.samr.list_domains()):
 				if domain == 'Builtin':
 					continue
 				if target_domain is None: #using th first available
@@ -240,8 +226,8 @@ class SMBMachine:
 		
 		async with SMBDRSUAPI(self.connection, target_domain) as drsuapi:
 			try:
-				await drsuapi.connect()
-				await drsuapi.open()
+				await rr(drsuapi.connect())
+				await rr(drsuapi.open())
 			except Exception as e:
 				logger.exception('Failed to connect to DRSUAPI!')
 				raise e
@@ -249,13 +235,14 @@ class SMBMachine:
 			logger.debug('Using domain: %s' % target_domain)
 			if len(target_users) > 0:
 				for username in target_users:
-					secrets = await drsuapi.get_user_secrets(username)
+					secrets, _ = await drsuapi.get_user_secrets(username)
 					yield secrets
 							
 			else:
-				domain_sid = await self.samr.get_domain_sid(target_domain)
-				domain_handle = await self.samr.open_domain(domain_sid)
-				async for username, user_sid in self.samr.list_domain_users(domain_handle):
+				domain_sid, _ = await self.samr.get_domain_sid(target_domain)
+				domain_handle, _ = await self.samr.open_domain(domain_sid)
+				print(111111)
+				async for username, user_sid, _ in rr_gen(self.samr.list_domain_users(domain_handle)):
 					secrets = await drsuapi.get_user_secrets(username)
 					yield secrets
 

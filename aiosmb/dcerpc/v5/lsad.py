@@ -36,7 +36,7 @@ from aiosmb.dcerpc.v5.ndr import NDRCALL, NDRSTRUCT, NDRPOINTER, NDRUniConforman
 from aiosmb.dcerpc.v5.dtypes import DWORD, UUID, ULONG, LPULONG, BOOLEAN, SECURITY_INFORMATION, PFILETIME, \
     RPC_UNICODE_STRING, FILETIME, NULL, MAXIMUM_ALLOWED, OWNER_SECURITY_INFORMATION, PWCHAR, PRPC_UNICODE_STRING
 
-
+from aiosmb.commons.utils.decorators import red, rr
 
 MSRPC_UUID_LSAD  = uuidtup_to_bin(('12345778-1234-ABCD-EF00-0123456789AB','0.0'))
 
@@ -1635,11 +1635,12 @@ async def hLsarLookupPrivilegeName(dce, policyHandle, luid):
     request['Value'] = luid
     return await dce.request(request)
 
+@red
 async def hLsarQuerySecurityObject(dce, policyHandle, securityInformation = OWNER_SECURITY_INFORMATION):
     request = LsarQuerySecurityObject()
     request['PolicyHandle'] = policyHandle
     request['SecurityInformation'] = securityInformation
-    retVal =  await dce.request(request)
+    retVal, _ =  await rr(dce.request(request))
     return b''.join(retVal['SecurityDescriptor']['SecurityDescriptor'])
 
 async def hLsarSetSecurityObject(dce, policyHandle, securityInformation, securityDescriptor):

@@ -24,7 +24,7 @@ class DCERPCStringBinding:
 						+'([^\[]*)' # Network Address (opt.)
 						+'(?:\[([^\]]*)\])?') # Endpoint and options (opt.)
 
-	def __init__(self, stringbinding, connection):
+	def __init__(self, stringbinding):
 		match = DCERPCStringBinding.parser.match(stringbinding)
 		self.__uuid = match.group(1)
 		self.__ps = match.group(2)

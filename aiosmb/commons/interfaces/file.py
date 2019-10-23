@@ -70,6 +70,7 @@ class SMBFile:
 		self.mode = mode
 		if 'p' in self.mode:
 			self.is_pipe = True
+			self.size = 0
 		
 		if not self.tree_id:
 			tree_entry = await connection.tree_connect(self.share_path)
@@ -125,13 +126,17 @@ class SMBFile:
 				raise Exception('Seeking outside of file size!')
 		
 	async def read(self, size = -1):
+		if self.is_pipe is True:
+			data = await self.__read(self.size - self.__position, self.__position)
+			return data
+			
 		if size == 0:
 			raise Exception('Cant read 0 bytes')
 			
 		elif size == -1:
 			data = await self.__read(self.size - self.__position, self.__position)
-			if self.is_pipe == False:
-				self.__position += len(data)
+			self.__position += len(data)
+			
 			return data
 			
 		elif size > 0:

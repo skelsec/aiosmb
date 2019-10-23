@@ -31,6 +31,8 @@ from aiosmb.dcerpc.v5.dtypes import NULL, RPC_UNICODE_STRING, ULONG, USHORT, UCH
 from aiosmb.dcerpc.v5.rpcrt import DCERPCException
 from aiosmb.dcerpc.v5.uuid import uuidtup_to_bin
 
+from aiosmb.commons.utils.decorators import red, rr
+
 MSRPC_UUID_SAMR   = uuidtup_to_bin(('12345778-1234-ABCD-EF00-0123456789AC', '1.0'))
 
 class DCERPCSessionError(DCERPCException):
@@ -2722,6 +2724,7 @@ async def hSamrGetAliasMembership(dce, domainHandle, sidArray):
 	request['SidArray']['Count'] = len(sidArray['Sids'])
 	return await dce.request(request)
 
+@red
 async def hSamrChangePasswordUser(dce, userHandle, oldPassword, newPassword):
 	raise Exception('Not implemented, needs additional work!')
 	request = SamrChangePasswordUser()
@@ -2746,6 +2749,7 @@ async def hSamrChangePasswordUser(dce, userHandle, oldPassword, newPassword):
 
 	return await dce.request(request)
 
+@red
 async def hSamrUnicodeChangePasswordUser2(dce, serverName='\x00', userName='', oldPassword='', newPassword='', oldPwdHashLM = '', oldPwdHashNT = ''):
 	raise Exception('Not implemented, needs additional work!')
 	request = SamrUnicodeChangePasswordUser2()

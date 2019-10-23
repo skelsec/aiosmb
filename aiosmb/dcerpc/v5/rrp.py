@@ -28,6 +28,7 @@ from aiosmb.dcerpc.v5.dtypes import DWORD, UUID, ULONG, LPULONG, BOOLEAN, SECURI
     RPC_UNICODE_STRING, FILETIME, NULL, MAXIMUM_ALLOWED, OWNER_SECURITY_INFORMATION, PWCHAR, PRPC_UNICODE_STRING
 from aiosmb.dcerpc.v5.rpcrt import DCERPCException
 from aiosmb.dcerpc.v5.uuid import uuidtup_to_bin
+from aiosmb.commons.utils.decorators import red, rr
 
 MSRPC_UUID_RRP = uuidtup_to_bin(('338CD001-2244-31F1-AAAA-900038001003', '1.0'))
 
@@ -790,7 +791,9 @@ async def hBaseRegEnumKey(dce, hKey, dwIndex, lpftLastWriteTime = NULL):
 
     return await dce.request(request)
 
+@red
 async def hBaseRegEnumValue(dce, hKey, dwIndex, dataLen=256):
+    raise Exception('MODIFICATION ASD TEST NEEDED!!!')
     request = BaseRegEnumValue()
     request['hKey'] = hKey
     request['dwIndex'] = dwIndex
@@ -808,7 +811,7 @@ async def hBaseRegEnumValue(dce, hKey, dwIndex, dataLen=256):
             request['lpData'] = b' ' * dataLen
             request['lpcbData'] = dataLen
             request['lpcbLen'] = dataLen
-            resp = await dce.request(request)
+            resp, e = await dce.request(request)
         except DCERPCSessionError as e:
             if retries > 1:
                 LOG.debug('Too many retries when calling hBaseRegEnumValue, aborting')
@@ -869,7 +872,9 @@ async def hBaseRegQueryInfoKey(dce, hKey):
     request.fields['lpClassIn'].fields['Data'].fields['Data'].fields['MaximumCount'] = 1024//2
     return await dce.request(request)
 
+@red
 async def hBaseRegQueryValue(dce, hKey, lpValueName, dataLen=512):
+    raise Exception('MODIFICATION ASD TEST NEEDED!!!')
     request = BaseRegQueryValue()
     request['hKey'] = hKey
     request['lpValueName'] = checkNullString(lpValueName)
@@ -941,7 +946,9 @@ async def hOpenCurrentConfig(dce, samDesired = MAXIMUM_ALLOWED):
     request['samDesired'] = samDesired
     return await dce.request(request)
 
+@red
 async def hBaseRegQueryMultipleValues(dce, hKey, val_listIn):
+    raise Exception('MODIFICATION ASD TEST NEEDED!!!')
     # ToDo, check the result to see whether we need to 
     # have a bigger buffer for the data to receive
     request = BaseRegQueryMultipleValues()

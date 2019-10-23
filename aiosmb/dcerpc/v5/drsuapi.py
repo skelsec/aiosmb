@@ -1378,14 +1378,14 @@ def deriveKey(baseKey):
 			return expand_DES_key(bytes(key1)),expand_DES_key(bytes(key2))
 
 def removeDESLayer(cryptedHash, rid):
-		Key1,Key2 = deriveKey(rid)
+	Key1,Key2 = deriveKey(rid)
 
-		Crypt1 = DES(Key1, cipherMODE.ECB)
-		Crypt2 = DES(Key2, cipherMODE.ECB)
+	Crypt1 = DES(Key1, cipherMODE.ECB)
+	Crypt2 = DES(Key2, cipherMODE.ECB)
 
-		decryptedHash = Crypt1.decrypt(cryptedHash[:8]) + Crypt2.decrypt(cryptedHash[8:])
+	decryptedHash = Crypt1.decrypt(cryptedHash[:8]) + Crypt2.decrypt(cryptedHash[8:])
 
-		return decryptedHash
+	return decryptedHash
 
 def DecryptAttributeValue(sessionKey, attribute):
 
