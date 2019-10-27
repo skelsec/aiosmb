@@ -9,6 +9,7 @@ from aiosmb.dcerpc.v5.interfaces.samrmgr import SMBSAMR
 from aiosmb.dcerpc.v5.interfaces.lsatmgr import LSAD
 from aiosmb.dcerpc.v5.interfaces.drsuapimgr import SMBDRSUAPI
 from aiosmb.dcerpc.v5.interfaces.servicemanager import SMBRemoteServieManager
+from aiosmb.dcerpc.v5.interfaces.remoteregistry import RRP
 from aiosmb.filereader import SMBFileReader
 from aiosmb.commons.utils.decorators import red, rr, red_gen, rr_gen
 
@@ -27,11 +28,23 @@ def req_srvs_gen(funct):
 			raise e
 	return wrapper
 
+def req_rrp(funct):
+	async def wrapper(*args, **kwargs):
+		this = args[0]
+		try:
+			if this.rrp is None:
+				await rr(this.connect_rpc('RRP'))
+			x = await funct(*args, **kwargs)
+			return x
+		except Exception as e:
+			raise e
+	return wrapper
+
 def req_samr_gen(funct):
 	async def wrapper(*args, **kwargs):
 		this = args[0]
 		try:
-			if this.srvs is None:
+			if this.samr is None:
 				await rr(this.connect_rpc('SAMR'))
 			async for x in funct(*args, **kwargs):
 				if x[-1] is not None:
@@ -45,7 +58,7 @@ def req_lsad_gen(funct):
 	async def wrapper(*args, **kwargs):
 		this = args[0]
 		try:
-			if this.srvs is None:
+			if this.lsad is None:
 				await rr(this.connect_rpc('LSAD'))
 			async for x in  funct(*args, **kwargs):
 				if x[-1] is not None:
@@ -59,12 +72,24 @@ def req_servicemanager_gen(funct):
 	async def wrapper(*args, **kwargs):
 		this = args[0]
 		try:
-			if this.filesystem is None:
+			if this.servicemanager is None:
 				await rr(this.connect_servicemanager())
 			async for x in funct(*args, **kwargs):
 				if x[-1] is not None:
 					raise x[-1]
 				yield x
+		except Exception as e:
+			raise e
+	return wrapper
+
+def req_servicemanager(funct):
+	async def wrapper(*args, **kwargs):
+		this = args[0]
+		try:
+			if this.servicemanager is None:
+				await rr(this.connect_servicemanager())
+			x = await funct(*args, **kwargs)
+			return x
 		except Exception as e:
 			raise e
 	return wrapper
@@ -81,6 +106,7 @@ class SMBMachine:
 		self.srvs = None
 		self.samr = None
 		self.lsad = None
+		self.rrp = None
 
 		self.filesystem = None
 		self.servicemanager = None
@@ -96,6 +122,9 @@ class SMBMachine:
 		elif service_name.upper() == 'LSAD':
 			self.lsad = LSAD(self.connection)
 			await rr(self.lsad.connect())
+		elif service_name.upper() == 'RRP':
+			self.rrp = RRP(self.connection)
+			await rr(self.rrp.connect())
 		else:
 			raise Exception('Unknown service name : %s' % service_name)
 		return True, None
@@ -203,6 +232,11 @@ class SMBMachine:
 			finally:
 				await file_obj.close()
 
+	async def get_file_data(self, file_obj):
+		await file_obj.open(self.connection, 'r')
+		async for data in file_obj.read_chunked():
+			yield data
+
 	async def create_subdirectory(self, directory_name, parent_directory_obj):
 		await parent_directory_obj.create_subdir(directory_name, self.connection)
 		
@@ -211,6 +245,11 @@ class SMBMachine:
 	async def list_services(self):
 		async for service, _ in rr_gen(self.servicemanager.list()):
 			yield service, None
+
+	@req_servicemanager
+	async def enable_service(self, service_name):
+		res, exc = await rr(self.servicemanager.enable_service(service_name))
+		return res, exc
 
 	@red_gen
 	@req_samr_gen
@@ -249,9 +288,19 @@ class SMBMachine:
 					secrets = await drsuapi.get_user_secrets(username)
 					yield secrets
 
+	
+	@req_rrp
+	async def save_registry_hive(self, hive_name, remote_path):
+		#SAM C:\aaaa\sam.reg
+		res, _ = await rr(self.rrp.save_hive(hive_name, remote_path))
+		return True, None
+
+	#@req_servicemanager
+	#async def deploy_service(self, command, local_binary):
+	#	pass
+	
 	#placeholder for later implementations...
-	async def save_registry(self, hive_name):
-		pass
+
 	async def stop_service(self):
 		pass
 	async def deploy_service(self):

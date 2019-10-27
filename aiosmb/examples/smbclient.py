@@ -1,14 +1,18 @@
 import asyncio
 import traceback
 import ntpath
+import fnmatch
 
+import tqdm
 from aiocmd import aiocmd
-from prompt_toolkit.completion import WordCompleter
+from aiosmb.examples.smbpathcompleter import SMBPathCompleter
 
 from aiosmb import logger
 from aiosmb.commons.connection.url import SMBConnectionURL
 from aiosmb.commons.interfaces.machine import SMBMachine
 from aiosmb.commons.utils.decorators import rr, rr_gen, red, red_gen, ef_gen
+#from aiosmb.commons.utils.glob2re import glob2re
+
 
 def req_traceback(funct):
 	async def wrapper(*args, **kwargs):
@@ -110,17 +114,22 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			if len(self.shares) == 0:
 				await self.do_shares(show = False)
 
-			if share_name in self.shares:
-				self.__current_share = self.shares[share_name]
-				await self.__current_share.connect(self.connection)
-				self.__current_directory = self.__current_share.subdirs[''] #this is the entry directory
-				
-			else:
-				print('Error! Uknown share name %s' % share_name)
+			if share_name not in self.shares:
+				if share_name.upper() not in self.shares:
+					print('Error! Uknown share name %s' % share_name)
+					return
+				share_name = share_name.upper()
+
+			self.__current_share = self.shares[share_name]
+			await self.__current_share.connect(self.connection)
+			self.__current_directory = self.__current_share.subdirs[''] #this is the entry directory
+			self.prompt = '[%s] $' % self.__current_directory.unc_path
+			await self.do_ls(False)
+
 		except Exception as e:
 			traceback.print_exc()
 	
-	async def do_ls(self):
+	async def do_ls(self, show = True):
 		try:
 			if self.__current_share is None:
 				print('No share selected!')
@@ -129,9 +138,10 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 				print('No directory selected!')
 				return
 			
-			print(self.__current_directory)
+			#print(self.__current_directory)
 			async for entry in self.machine.list_directory(self.__current_directory):
-				print(entry)
+				if show == True:
+					print(entry)
 		except Exception as e:
 			traceback.print_exc()
 
@@ -145,19 +155,49 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 				return
 			
 			if directory_name not in self.__current_directory.subdirs:
-				print('The directory "%s" is not in parent directory "%s"' % (directory_name, self.__current_directory.fullpath))
+				if directory_name == '..':
+					self.__current_directory = self.__current_directory.parent_dir
+					self.prompt = '[%s] $' % (self.__current_directory.unc_path)
+					return
+				else:
+					print('The directory "%s" is not in parent directory "%s"' % (directory_name, self.__current_directory.fullpath))
 			
 			else:
 				self.__current_directory = self.__current_directory.subdirs[directory_name]
+				self.prompt = '[%s] $' % (self.__current_directory.unc_path)
+				await self.do_ls(False)
 			
 		except Exception as e:
 			traceback.print_exc()
+
+	def get_current_dirs(self):
+		if self.__current_directory is None:
+			return []
+		return list(self.__current_directory.subdirs.keys())
+
+	def get_current_files(self):
+		if self.__current_directory is None:
+			return []
+		return list(self.__current_directory.files.keys())
+
+	def _cd_completions(self):
+		return SMBPathCompleter(get_current_dirs = self.get_current_dirs)
+
+	def _get_completions(self):
+		return SMBPathCompleter(get_current_dirs = self.get_current_files)
 
 	async def do_services(self):
 		try:
 			async for service, _ in self.machine.list_services():
 				print(service)
 			
+		except Exception as e:
+			traceback.print_exc()
+
+	async def do_serviceen(self, service_name):
+		try:
+			x = await self.machine.enable_service(service_name)
+			print(x)
 		except Exception as e:
 			traceback.print_exc()
 
@@ -172,18 +212,37 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 		except Exception as e:
 			traceback.print_exc()
 
-	async def do_get(self, file_name):
+	async def do_regsave(self, hive_name, file_path):
 		try:
-			if file_name not in self.__current_directory.files:
-				print('File with name %s is not present in the directory %s' % (file_name, self.__current_directory.name))
-				return
-			
-			out_path = file_name
-			await self.machine.get_file(out_path, self.__current_directory.files[file_name])
-
+			await rr(self.machine.save_registry_hive(hive_name, file_path))
 		except Exception as e:
 			traceback.print_exc()
 
+	async def do_get(self, file_name):
+		try:
+			matched = []
+			if file_name not in self.__current_directory.files:
+				
+				for fn in fnmatch.filter(list(self.__current_directory.files.keys()), file_name):
+					matched.append(fn)
+				if len(matched) == 0:
+					print('File with name %s is not present in the directory %s' % (file_name, self.__current_directory.name))
+					return
+			else:
+				matched.append(file_name)
+			
+			for file_name in matched:
+				file_obj = self.__current_directory.files[file_name]
+				with tqdm.tqdm(desc = 'Downloading %s' % file_name, total=file_obj.size, unit='B', unit_scale=True, unit_divisor=1024) as pbar:
+					async for data in self.machine.get_file_data(file_obj):
+						if data is None:
+							break
+						pbar.update(len(data))
+	
+		except Exception as e:
+			traceback.print_exc()
+
+	
 	async def do_mkdir(self, directory_name):
 		try:
 			await self.machine.create_subdirectory(directory_name, self.__current_directory)

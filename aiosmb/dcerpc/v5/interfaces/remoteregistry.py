@@ -4,7 +4,7 @@ from aiosmb.dcerpc.v5 import rrp
 from aiosmb.dcerpc.v5.interfaces.servicemanager import *
 from aiosmb.commons.utils.decorators import red, rr
 		
-class SMBRemoteRegistryService:
+class RRP:
 	def __init__(self, connection):
 		self.connection = connection
 		self.service_manager = None
@@ -30,6 +30,8 @@ class SMBRemoteRegistryService:
 	
 		if open == True:
 			await rr(self.open())
+
+		return True, None
 				
 	@red
 	async def open(self):
@@ -38,6 +40,8 @@ class SMBRemoteRegistryService:
 		
 		ans, _ = await rr(rrp.hOpenLocalMachine(self.dce))
 		self.handle = ans['phKey']
+
+		return True, None
 	
 	@red
 	async def close(self):
@@ -67,10 +71,12 @@ class SMBRemoteRegistryService:
 			except Exception as e:
 				print(e)
 				pass
+				
+		return True, None
 			
-	@red
-	async def enable(self):
-		self.service_manager = ServieManager(self.connection)
+	#@red
+	#async def enable(self):
+	#	self.service_manager = ServieManager(self.connection)
 		
 	@red
 	async def open_hive(self, hive_name):
@@ -82,6 +88,8 @@ class SMBRemoteRegistryService:
 		ans, _ = await rr(rrp.hBaseRegCreateKey(self.dce, self.handle, hive_name))
 			
 		self.hive_handles[hive_name] = ans['phkResult']
+
+		return True, None
 	
 	@red
 	async def save_hive(self, hive_name, remote_path):
@@ -94,6 +102,8 @@ class SMBRemoteRegistryService:
 			await rr(self.open_hive(hive_name))
 			
 		await rr(rrp.hBaseRegSaveKey(self.dce, self.hive_handles[hive_name], remote_path))
+
+		return True, None
 	
 	@red
 	async def close_hive(self, hive_name):
@@ -103,3 +113,5 @@ class SMBRemoteRegistryService:
 			await rr(self.open_hive(hive_name))
 		
 		await rr(rrp.hBaseRegCloseKey(self.dce, self.hive_handles[hive_name]))
+
+		return True, None

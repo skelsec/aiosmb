@@ -97,7 +97,7 @@ class SMBRemoteServieManager:
 		if service_name in self.service_handles:
 			return False, None
 			
-		ans = await rr(scmr.hROpenServiceW(self.dce, self.handle, service_name))
+		ans, _ = await rr(scmr.hROpenServiceW(self.dce, self.handle, service_name))
 		self.service_handles[service_name] = ans['lpServiceHandle']
 
 		return True,None

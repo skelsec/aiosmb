@@ -129,7 +129,7 @@ class SMBFile:
 		if self.is_pipe is True:
 			data = await self.__read(self.size - self.__position, self.__position)
 			return data
-			
+
 		if size == 0:
 			raise Exception('Cant read 0 bytes')
 			
@@ -147,7 +147,54 @@ class SMBFile:
 			data = await self.__read(size, self.__position)
 			self.__position += len(data)
 			return data
+
+	async def read_chunked(self, size = -1, chunksize = -1):
+		"""
+		Much like read, but yields chauks of chunksize untill the full size is read
+		Use this when reading large files as a whole, as this method doesn't caches 
+		the whole data read in memory, only chunskize
+		chunksize -1 will use the maximum chunk allowed by the underlying connection layer, it is advised to not set manually!
+		"""
+		if self.is_pipe is True:
+			raise Exception('Cant stream pipes!')
+
+		if chunksize == -1:
+			chunksize = self.__connection.MaxReadSize
+
+		if size == 0:
+			yield None
 			
+		elif size == -1:
+			while True:
+				req_size = chunksize
+				if self.size - self.__position < chunksize:
+					req_size = self.size - self.__position
+					if req_size == 0:
+						#consumed all data
+						yield None
+						raise StopIteration
+
+				data = await self.__read(req_size, self.__position)
+				self.__position += len(data)
+				yield data
+			
+		elif size > 0:
+			if self.__position == self.size:
+				yield None
+				raise StopIteration
+			if size + self.__position > self.size:
+				size = self.size - self.__position
+
+			while True:
+				req_size = chunksize
+				if size - self.__position < chunksize:
+					req_size = size - self.__position
+				if req_size == 0:
+					yield None
+					raise StopIteration
+				data = await self.__read(req_size, self.__position)
+				self.__position += len(data)
+				yield data
 			
 	async def write(self, data):
 		count = await self.__write(data, self.__position)

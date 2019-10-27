@@ -102,10 +102,11 @@ class SMBDirectory:
 					subdir = SMBDirectory()
 					subdir.tree_id = self.tree_id
 					if self.fullpath != '':
-						subdir.fullpath = '%s\\%s' % (self.fullpath, info.FileName)
-						subdir.unc_path = '%s\\%s' % (self.unc_path, info.FileName)
+						subdir.fullpath = '%s\\%s' % (self.fullpath, info.FileName)	
 					else:
 						subdir.fullpath = info.FileName
+					subdir.unc_path = '%s\\%s' % (self.unc_path, info.FileName)
+					subdir.parent_dir = self
 					subdir.name = info.FileName
 					subdir.creation_time = info.CreationTime
 					subdir.last_access_time = info.LastAccessTime
@@ -138,7 +139,9 @@ class SMBDirectory:
 					self.files[file.name] = file
 		
 	def __str__(self):
-		t = '===== DIRECTORY =====\r\n'
+		import traceback
+		traceback.print_stack()
+		t = '===== DIRECTORY ===== \r\n'
 		for k in self.__dict__:
 			if k.startswith('parent_'):
 				continue
