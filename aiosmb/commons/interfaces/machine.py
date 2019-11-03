@@ -186,7 +186,6 @@ class SMBMachine:
 		domain_handle, _ = await rr(self.samr.open_domain(domain_sid))
 		target_group_rid = None
 		async for name, rid, _ in rr_gen(self.samr.list_aliases(domain_handle)):
-			print(name)
 			if name == group_name:
 				target_group_rid = rid
 				break
