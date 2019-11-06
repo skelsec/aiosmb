@@ -19,24 +19,28 @@ A lot of bugs and weird crashes. That aside, I believe I can bring this project 
   - Interface for controlling drsuapi: in plans. First I want to get DCERPC to support Kerberos and or SPNEGO. Only NTLM works for now.
   - Any other RPC interfaces: not started or not even ready for testing.
   
-# Connection string
-This section describes the connection string format that will be used with this library's examples.
-I have been thinking on what would be the ideal format for the connection tring that would be both somewhat user firendly and allow to leverage all capabilities of the authentication and came up with the following.  
+# Connection url
+I managed to condense all information needed to specify an SMB connection into an URL format.  
+It looks like this:  
   
-`<domain>/<user>/<auth_type>/<secret_type>:<secret>@<target_ip_or_hostname>/<dc_ip>`  
+`dialect+authmethod://user:secret@target:port/?param1=value1`  
   
-`auth_type` can be one of the following:
-- `ntlm`
-- `kerberos`
-- `sspi-ntlm`
-- `sspi-kerberos`
+`dialect` fomat:  `smbX_version`  
+Where `X`: `1` or `2`  
+Where `version`: `200` or `201` or `300`...  
   
-`secret_type` can be one of the following:
-- `password`
-- `nt`
-- `aes`
-- `rc4`
-- `ccache`
+`authmethod` format: `auth-type`  
+Where `auth`: `ntlm` or `kerberos` or `sspi`  
+Where `type`: `password` or `nt` or `aes` or `rc4` or `ccache` ...  
+  
+`user` format: `DOMAIN\username`  
+Where `DOMAIN`: your domain  
+Where `username`: your username  
+  
+`secret` format: Depends on the `authmethod`'s `type` value  
+`target` format: IP address or hostname of the target  
+`port` format: integer describing the port  
+
 
 ### Example
 The following parameters are used (the user victim is trying to log in to the domain controller):
@@ -47,14 +51,14 @@ DC IP address: `10.10.10.2`
 DC hostname: `win2019ad`  
 
 #### Example 1 - NTLM with password
-`TEST/victim/ntlm/password:Passw0rd!1@10.10.10.2`
+`smb+ntlm-password://TEST\victim:Passw0rd!1@10.10.10.2`
 #### Example 2 - NTLM with NT hash
-`TEST/victim/ntlm/nt:f8963568a1ec62a3161d9d6449baba93@10.10.10.2`
+`smb+ntlm-nt://TEST\victim:f8963568a1ec62a3161d9d6449baba93@10.10.10.2`
 #### Example 3 - NTLM using the SSPI in Windows
-`TEST/victim/sspi-ntlm@10.10.10.2`
+`smb+sspi-ntlm://10.10.10.2`
 #### Example 4 - KERBEROS with password
-`TEST/victim/kerberos/password:Passw0rd!1@win2019ad.test.corp/10.10.10.2`
+`smb+kerberos-password://TEST\victim:Passw0rd!1@10.10.10.2`
 #### Example 5 - KERBEROS with NT hash
-`TEST/victim/kerberos/nt:f8963568a1ec62a3161d9d6449baba93@win2019ad.test.corp/10.10.10.2`
+`smb+kerberos-nt://TEST\victim:f8963568a1ec62a3161d9d6449baba93@win2019ad.test.corp`
 #### Example 6 - KERBEROS using the SSPI in Windows
-`TEST/victim/sspi-kerberos@win2019ad.test.corp/10.10.10.2`
+`smb+sspi-kerberos://win2019ad.test.corp`
