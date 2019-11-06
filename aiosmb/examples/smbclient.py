@@ -234,10 +234,12 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			for file_name in matched:
 				file_obj = self.__current_directory.files[file_name]
 				with tqdm.tqdm(desc = 'Downloading %s' % file_name, total=file_obj.size, unit='B', unit_scale=True, unit_divisor=1024) as pbar:
-					async for data in self.machine.get_file_data(file_obj):
-						if data is None:
-							break
-						pbar.update(len(data))
+					with open(file_name, 'wb') as outfile:
+						async for data in self.machine.get_file_data(file_obj):
+							if data is None:
+								break
+							outfile.write(data)
+							pbar.update(len(data))
 	
 		except Exception as e:
 			traceback.print_exc()
