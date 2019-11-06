@@ -5,7 +5,7 @@ setup(
 	name="aiosmb",
 
 	# Version number (initial):
-	version="0.1.1",
+	version="0.1.2",
 
 	# Application author details:
 	author="Tamas Jos",
@@ -29,7 +29,7 @@ setup(
 	# long_description=open("README.txt").read(),
 	python_requires='>=3.7',
 	install_requires=[
-		'minikerberos>=0.0.10',
+		'minikerberos>=0.0.11',
 		'winsspi>=0.0.2',
 		'six',
 		'aiocmd',

@@ -13,10 +13,14 @@ class DCERPCTargetType:
 
 class DCERPCTarget:
 	def __init__(self, connection_string, ttype, proxy = None, timeout = 1):
+		self.ip = None
 		self.connection_string = connection_string
 		self.type = ttype
 		self.timeout = timeout
 		self.proxy = None
+
+	def get_hostname_or_ip(self):
+		return self.ip
 
 	@staticmethod
 	def from_connection_string(s, smb_connection = None, timeout = 1):

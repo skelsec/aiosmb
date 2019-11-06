@@ -25,6 +25,7 @@ class EPM:
 
 	def get_connection_from_stringbinding(self, s):
 		target = DCERPCTarget.from_connection_string(s, smb_connection = self.smb_connection)
+		target.proxy = self.smb_connection.target.proxy
 		auth = DCERPCAuth.from_smb_gssapi(self.smb_connection.gssapi)
 		return DCERPC5Connection(auth, target)
 

@@ -112,7 +112,7 @@ class Socks5ProxyConnection:
 		"""
 		Main function to be called, connects to the target specified in target, and starts reading/writing.
 		"""
-		con = asyncio.open_connection(self.target.proxy.ip, self.target.proxy.port)
+		con = asyncio.open_connection(self.target.proxy.ip, int(self.target.proxy.port))
 		try:
 			self.proxy_reader, self.proxy_writer = await asyncio.wait_for(con, int(self.target.proxy.timeout))
 		except asyncio.TimeoutError:
@@ -155,7 +155,7 @@ class Socks5ProxyConnection:
 					raise Exception('Failed to connect to proxy %s:%d! Authentication failed!' % self.proxy_writer.get_extra_info('peername'))
 
 			logger.debug('Sending connect request to %s:%d' % self.proxy_writer.get_extra_info('peername'))
-			self.proxy_writer.write(SOCKS5Request.construct(SOCKS5Command.CONNECT, self.target.get_hostname_or_ip(), self.target.port).to_bytes())
+			self.proxy_writer.write(SOCKS5Request.construct(SOCKS5Command.CONNECT, self.target.get_hostname_or_ip(), int(self.target.port)).to_bytes())
 			await asyncio.wait_for(self.proxy_writer.drain(), timeout=int(self.target.proxy.timeout))
 
 			rep = await asyncio.wait_for(SOCKS5Reply.from_streamreader(self.proxy_reader), timeout=int(self.target.proxy.timeout))
