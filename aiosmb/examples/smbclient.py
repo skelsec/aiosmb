@@ -196,18 +196,43 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 
 	async def do_serviceen(self, service_name):
 		try:
-			x = await self.machine.enable_service(service_name)
-			print(x)
+			res, _ = await self.machine.enable_service(service_name)
+			print(res)
 		except Exception as e:
 			traceback.print_exc()
+
+	async def do_servicecreate(self, service_name, command, display_name = None):
+		try:
+			res, _ = await self.machine.create_service(service_name, command, display_name)
+		except Exception as e:
+			traceback.print_exc()
+
+	async def do_servicedeploy(self, path_to_exec, remote_path):
+		#servicedeploy /home/devel/Desktop/cmd.exe /shared/a.exe
+		try:
+			basename = ntpath.basename(remote_path)
+			remote_path = '\\\\%s\\%s\\%s\\%s' % (self.connection.target.get_hostname_or_ip(), self.__current_share.name, self.__current_directory.fullpath , basename)
+			await rr(self.machine.deploy_service(path_to_exec, remote_path = remote_path))
+		except Exception as e:
+			traceback.print_exc()		
 
 	async def do_put(self, file_name):
 		try:
 			basename = ntpath.basename(file_name)
-			dst = '\\\\%s\\%s\\%s\\%s' % (self.connection.target.get_hostname_or_ip(), self.__current_share.name, self.__current_directory.fullpath , basename)
+			dst = '\\%s\\%s\\%s' % (self.__current_share.name, self.__current_directory.fullpath , basename)
 			print(basename)
 			print(dst)
-			await self.machine.put_file_raw(file_name, dst)
+			await self.machine.put_file(file_name, dst)
+			
+		except Exception as e:
+			traceback.print_exc()
+
+	async def do_del(self, file_name):
+		try:
+			basename = ntpath.basename(file_name)
+			dst = '\\%s\\%s\\%s' % (self.__current_share.name, self.__current_directory.fullpath , basename)
+			print(dst)
+			await self.machine.del_file(dst)
 			
 		except Exception as e:
 			traceback.print_exc()

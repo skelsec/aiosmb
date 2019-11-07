@@ -58,8 +58,9 @@ class Socks5ProxyConnection:
 		Reads data bytes from the socket and dispatches it to the incoming queue
 		"""
 		try:
+			timeout = int(self.target.proxy.timeout)
 			while not self.disconnected.is_set():			
-				data = await asyncio.gather(*[asyncio.wait_for(self.reader.read(4096), int(self.target.proxy.timeout))], return_exceptions = True)
+				data = await asyncio.gather(*[asyncio.wait_for(self.reader.read(4096), timeout)], return_exceptions = True)
 				if isinstance(data[0], bytes):
 					if data[0] == b'':
 						await self.in_queue.put( (None, Exception('Socks5 server terminated the connection!')) )
@@ -82,12 +83,14 @@ class Socks5ProxyConnection:
 			#print('SOCKS5 data in EXITING')
 		except asyncio.CancelledError:
 			await self.in_queue.put( (None, asyncio.CancelledError) )
+			return
 
 		except Exception as e:
 			import traceback
 			traceback.print_exc()
 			#print('SOCKS5 data in ERROR!')
 			await self.in_queue.put( (None, e) )
+			return
 
 	async def handle_outgoing(self):
 		"""

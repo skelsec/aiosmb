@@ -30,7 +30,6 @@ from aiosmb.dtyp.constrcuted_security.security_descriptor import SECURITY_DESCRI
 
 from aiosmb.commons.smbcontainer import *
 from aiosmb.commons.smbtarget import *
-from aiosmb.filereader import SMBFileReader
 
 
 

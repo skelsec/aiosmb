@@ -147,12 +147,14 @@ class SMBRemoteServieManager:
 		raise NotImplementedError('stop_service')
 	
 	@red
-	async def create_service(self, service_name, command):
+	async def create_service(self, service_name, display_name, command):
 		if not self.handle:
 			await rr(self.open())
-		resp, _ = await rr(scmr.hRCreateServiceW(self.dce, self.handle, service_name, service_name, lpBinaryPathName=command))
+		print(service_name)
+		print(display_name)
+		print(command)
+		resp, _ = await rr(scmr.hRCreateServiceW(self.dce, self.handle, service_name + '\x00', display_name + '\x00', lpBinaryPathName=command + '\x00'))
 		self.service_handles[service_name] = resp['lpServiceHandle']
-
 		return True,None
 	
 	@red

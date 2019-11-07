@@ -1,6 +1,7 @@
 from pathlib import PureWindowsPath
 from aiosmb.wintypes.access_mask import *
 from aiosmb.protocol.smb2.commands import *
+import io
 
 
 class SMBFile:
@@ -28,12 +29,48 @@ class SMBFile:
 
 	@staticmethod
 	def from_uncpath(unc_path):
+		"""
+		Creates SMBFile object from the UNC path supplied.
+		Example uncpath: \\\\127.0.0.1\\C$\\temp\\test.exe
+		"""
 		unc = PureWindowsPath(unc_path)
 		f = SMBFile()
 		f.share_path = unc.drive
 		f.fullpath = '\\'.join(unc.parts[1:])
 		
 		return f
+
+	@staticmethod
+	def from_remotepath(connection, remotepath):
+		"""
+		Creates SMBFile object from the connection and the remote path supplied.
+		Example remotepath: \\C$\\temp\\test.exe
+		"""
+		temp = '\\\\%s\\%s'
+		if remotepath[0] == '\\':
+			temp = '\\\\%s%s'
+		unc = temp % (connection.target.get_hostname_or_ip(), remotepath)
+		print(unc)
+		return SMBFile.from_uncpath(unc)
+
+	@staticmethod
+	async def delete(connection, remotepath):
+		remfile = SMBFile.from_remotepath(connection, remotepath)
+		tree_entry = await connection.tree_connect(remfile.share_path)
+		tree_id = tree_entry.tree_id
+
+		desired_access = FileAccessMask.DELETE | FileAccessMask.FILE_READ_ATTRIBUTES
+		share_mode = ShareAccess.FILE_SHARE_DELETE
+		create_options = CreateOptions.FILE_NON_DIRECTORY_FILE | CreateOptions.FILE_DELETE_ON_CLOSE 
+		create_disposition = CreateDisposition.FILE_OPEN
+		file_attrs = 0
+
+		file_id = await connection.create(tree_id, remfile.fullpath, desired_access, share_mode, create_options, create_disposition, file_attrs, return_reply = False)
+		if file_id is not None:
+			await connection.close(tree_id, file_id)
+
+		await connection.tree_disconnect(tree_id)
+		return True
 
 	async def __read(self, size, offset):
 		"""
@@ -53,12 +90,16 @@ class SMBFile:
 			
 		return buffer[:size]
 
-	async def __write(self, data, offset = 0):
+	async def __write(self, data, position_in_file = 0):
+		"""
+		Data must be bytes
+		"""
 		remaining = len(data)
 		total_bytes_written = 0
+		offset = 0
 		
 		while remaining != 0:
-			bytes_written = await self.__connection.write(self.tree_id, self.file_id, data[offset:len(data)], offset = offset)
+			bytes_written = await self.__connection.write(self.tree_id, self.file_id, data[offset:len(data)], offset = position_in_file + offset)
 			total_bytes_written += bytes_written
 			remaining -= bytes_written
 			offset += bytes_written
@@ -197,9 +238,38 @@ class SMBFile:
 				yield data
 			
 	async def write(self, data):
-		count = await self.__write(data, self.__position)
-		if self.is_pipe == False:
-			self.__position += count
+		if len(data) < self.__connection.MaxWriteSize:
+			count = await self.__write(data, self.__position)
+			if self.is_pipe == False:
+				self.__position += count
+			return count
+
+		total_writen = 0
+
+		while total_writen != len(data) :
+			count = await self.__write(data[total_writen:total_writen+self.__connection.MaxWriteSize], self.__position)
+			total_writen += count
+			if self.is_pipe == False:
+				self.__position += count		
+
+		return total_writen
+
+	async def write_buffer(self, buffer):
+		"""
+		Doesnt work with pipes!
+		"""
+		if self.is_pipe == True:
+			raise Exception('Doesnt work with pipes!')
+		
+		total_writen = 0
+		while True:
+			chunk = buffer.read(self.__connection.MaxWriteSize)
+			if len(chunk) == 0:
+				return total_writen
+			bytes_written = await self.__write(chunk, self.__position)
+
+			self.__position += bytes_written
+			total_writen += bytes_written
 		
 	async def flush(self):
 		if 'r' in self.mode:

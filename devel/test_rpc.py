@@ -6,7 +6,6 @@ import os
 from aiosmb.commons.smbcredential import SMBCredential
 from aiosmb.commons.smbtarget import SMBTarget
 from aiosmb.smbconnection import SMBConnection
-from aiosmb.filereader import SMBFileReader
 from aiosmb.commons.authenticator_builder import AuthenticatorBuilder
 from aiosmb.dcerpc.v5.transport.smbtransport import SMBTransport
 from aiosmb.dcerpc.v5.interfaces.drsuapimgr import SMBDRSUAPI

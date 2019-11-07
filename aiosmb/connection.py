@@ -5,6 +5,7 @@ import hashlib
 import platform
 import copy
 import traceback
+import datetime
 
 from aiosmb import logger
 from aiosmb.commons.exceptions import *
@@ -108,6 +109,8 @@ class SMBConnection:
 		self.network_transport = None 
 		self.netbios_transport = None #this class is used by the netbios transport class, keeping it here also maybe you like to go in raw
 		self.incoming_task = None
+		self.keepalive_task = None
+		self.activity_at = None
 		self.dialects = dialects #list of SMBDialect
 		
 		self.selected_dialect = None
@@ -175,6 +178,7 @@ class SMBConnection:
 		try:
 			while not self.shutdown_evt.is_set():
 				msg, err = await self.netbios_transport.in_queue.get()
+				self.activity_at = datetime.datetime.utcnow()
 				if err is not None:
 					logger.error('__handle_smb_in got error from transport layer %s' % err)
 					#setting all outstanding events to finished
@@ -222,6 +226,7 @@ class SMBConnection:
 			raise results[0]
 		await self.negotiate()
 		await self.session_setup()
+		self.keepalive_task = asyncio.create_task(self.keepalive())
 		
 	async def fake_login(self):
 		if 'NTLMSSP - Microsoft NTLM Security Support Provider' not in self.gssapi.authentication_contexts:
@@ -265,7 +270,33 @@ class SMBConnection:
 		if self.network_transport:
 			await self.network_transport.disconnect()
 		if self.incoming_task:
-			self.incoming_task.cancel()		
+			self.incoming_task.cancel()
+		
+		if self.keepalive_task:
+			self.keepalive_task.cancel()
+
+	async def keepalive(self):
+		"""
+		Sends an echo message every X seconds to the server to keep the channel open
+		"""
+		try:
+			sleep_time = 10
+			if self.target.timeout < 0:
+				return
+			elif self.target.timeout > 0:
+				sleep_time = max(self.target.timeout - 1, sleep_time)
+			while True:
+				await asyncio.sleep(sleep_time)
+				if (datetime.datetime.utcnow() - self.activity_at).seconds > sleep_time: 
+					await self.echo()
+				
+		except asyncio.CancelledError:
+			return
+		except Exception as e:
+			logger.error('Keepalive failed! Server probably disconnected!')
+			await self.disconnect()
+
+
 		
 	async def negotiate(self):
 		"""
@@ -436,6 +467,7 @@ class SMBConnection:
 		msg: SMB2Message or SMBMessage
 		Returns: MessageId integer
 		"""
+		self.activity_at = datetime.datetime.utcnow()
 		if self.status == SMBConnectionStatus.NEGOTIATING:
 			if isinstance(msg, SMBMessage):
 				#creating an event for outstanding response
@@ -516,7 +548,7 @@ class SMBConnection:
 		
 		
 		else:
-			raise SMBGenericException()
+			raise SMBException('', rply.header.Status)
 		
 	async def create(self, tree_id, file_path, desired_access, share_mode, create_options, create_disposition, file_attrs, impresonation_level = ImpersonationLevel.Impersonation, oplock_level = OplockLevel.SMB2_OPLOCK_LEVEL_NONE, create_contexts = None, return_reply = False):
 		if self.session_closed == True:
@@ -558,7 +590,7 @@ class SMBConnection:
 			raise SMBCreateAccessDenied()
 			
 		else:
-			raise SMBGenericException()
+			raise SMBException('', rply.header.Status)
 	
 	async def read(self, tree_id, file_id, offset = 0, length = 0):
 		"""
@@ -609,7 +641,7 @@ class SMBConnection:
 			return b'', 0
 			
 		else:
-			raise SMBGenericException()
+			raise SMBException('', rply.header.Status)
 			
 			
 	async def write(self, tree_id, file_id, data, offset = 0):
@@ -655,7 +687,7 @@ class SMBConnection:
 			return rply.command.Count
 		
 		else:
-			raise SMBGenericException()
+			SMBException('', rply.header.Status)
 		
 	async def query_info(self, tree_id, file_id, info_type = QueryInfoType.FILE, information_class = FileInfoClass.FileStandardInformation, additional_information = 0, flags = 0, data_in = ''):
 		"""
@@ -714,7 +746,7 @@ class SMBConnection:
 				return rply.command.Data
 			
 		else:
-			raise SMBGenericException()
+			raise SMBException('', rply.header.Status)
 			
 		
 	async def query_directory(self, tree_id, file_id, search_pattern = '*', resume_index = 0, information_class = FileInfoClass.FileFullDirectoryInformation, maxBufferSize = None, flags = 0):

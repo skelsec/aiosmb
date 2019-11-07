@@ -1,8 +1,6 @@
 import asyncio
 
 from aiosmb import logger
-from aiosmb.filereader import SMBFileReader
-#from aiosmb.dcerpc.v5.transport.common import *
 from aiosmb.commons.exceptions import *
 from aiosmb.commons.connection.proxy import SMBProxyType
 from aiosmb.network.socks5 import Socks5ProxyConnection

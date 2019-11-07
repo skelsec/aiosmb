@@ -1,16 +1,19 @@
 
-from aiosmb import logger
 import asyncio
+import ntpath
+import os
+
+from aiosmb import logger
 from aiosmb.filesystem import SMBFileSystem
 from aiosmb.commons.interfaces.share import SMBShare
 from aiosmb.commons.interfaces.session import SMBUserSession
+from aiosmb.commons.interfaces.file import SMBFile
 from aiosmb.dcerpc.v5.interfaces.srvsmgr import SMBSRVS
 from aiosmb.dcerpc.v5.interfaces.samrmgr import SMBSAMR
 from aiosmb.dcerpc.v5.interfaces.lsatmgr import LSAD
 from aiosmb.dcerpc.v5.interfaces.drsuapimgr import SMBDRSUAPI
 from aiosmb.dcerpc.v5.interfaces.servicemanager import SMBRemoteServieManager
 from aiosmb.dcerpc.v5.interfaces.remoteregistry import RRP
-from aiosmb.filereader import SMBFileReader
 from aiosmb.commons.utils.decorators import red, rr, red_gen, rr_gen
 
 
@@ -204,20 +207,17 @@ class SMBMachine:
 		for entry in directory.get_console_output():
 			yield entry
 
-	async def put_file_raw(self, local_path, remote_path):
+	async def put_file(self, local_path, remote_path):
 		"""
 		remote_path must be a full UNC path with the file name included!
 
 		"""
+		smbfile = SMBFile.from_remotepath(self.connection, remote_path)
+		await smbfile.open(self.connection, 'w')
 		with open(local_path, 'rb') as f:
-			async with SMBFileReader(self.connection) as writer:
-				await writer.open(remote_path, 'w')
-				while True:
-					await asyncio.sleep(0)
-					data = f.read(1024)
-					if not data:
-						break
-					await writer.write(data)
+			await smbfile.write_buffer(f)
+		await smbfile.close()
+		return True
 
 	async def get_file(self, out_path, file_obj):
 		with open(out_path, 'wb') as f:
@@ -235,6 +235,9 @@ class SMBMachine:
 		await file_obj.open(self.connection, 'r')
 		async for data in file_obj.read_chunked():
 			yield data
+
+	async def del_file(self, file_path):
+		await SMBFile.delete(self.connection, file_path)
 
 	async def create_subdirectory(self, directory_name, parent_directory_obj):
 		await parent_directory_obj.create_subdir(directory_name, self.connection)
@@ -294,16 +297,43 @@ class SMBMachine:
 		res, _ = await rr(self.rrp.save_hive(hive_name, remote_path))
 		return True, None
 
-	#@req_servicemanager
-	#async def deploy_service(self, command, local_binary):
-	#	pass
-	
-	#placeholder for later implementations...
+	@req_servicemanager
+	async def create_service(self, service_name, command, display_name = None):
+		"""
+		Creates a service and starts it.
+		Does not create files! there is a separate command for that!
+		"""
+		if display_name is None:
+			display_name = service_name
+		res, _ = await rr(self.servicemanager.create_service(service_name, display_name, command))
+		return True, None
+
+
+	@req_servicemanager
+	async def deploy_service(self, path_to_executable, remote_path = None, service_name = None):
+		"""
+
+		remote path must be UNC
+		"""
+		if service_name is None:
+			service_name = os.urandom(4).hex()
+		if remote_path is None:
+			raise NotImplementedError()
+
+		filename = ntpath.basename(path_to_executable)
+		remote_file_path = remote_path + filename
+		remote_file = SMBFile.from_uncpath(remote_file_path)
+		await self.put_file(path_to_executable, remote_file)
+		
+		command = remote_file_path
+
+		await self.create_service(service_name, command)
+
+		return True, None
 
 	async def stop_service(self):
 		pass
-	async def deploy_service(self):
-		pass
+	
 	async def list_mountpoints(self):
 		pass
 
