@@ -4,7 +4,6 @@ import ntpath
 import os
 
 from aiosmb import logger
-from aiosmb.filesystem import SMBFileSystem
 from aiosmb.commons.interfaces.share import SMBShare
 from aiosmb.commons.interfaces.session import SMBUserSession
 from aiosmb.commons.interfaces.file import SMBFile

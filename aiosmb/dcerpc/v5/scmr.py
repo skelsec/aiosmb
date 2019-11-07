@@ -27,6 +27,7 @@ from aiosmb.dcerpc.v5.rpcrt import DCERPCException
 from aiosmb.dcerpc.v5.uuid import uuidtup_to_bin
 from aiosmb.dcerpc.v5 import system_errors
 from aiosmb.commons.utils.decorators import red, rr
+from aiosmb.commons.exceptions import SMBException
 
 MSRPC_UUID_SCMR = uuidtup_to_bin(('367ABB81-9844-35F1-AD32-98F038001003', '2.0'))
 
@@ -1279,6 +1280,9 @@ async def hREnumServicesStatusW(dce, hSCManager, dwServiceType=SERVICE_WIN32_OWN
 	
 	resp, e = await dce.request(enumServicesStatus)
 	if e is not None:
+		if isinstance(e, SMBException):
+			#this case the exception is coming from the SMB connection itself, it's is dead Jim
+			return None, e
 		if e.get_error_code() == system_errors.ERROR_MORE_DATA:
 			resp = e.get_packet()
 			enumServicesStatus['cbBufSize'] = resp['pcbBytesNeeded']

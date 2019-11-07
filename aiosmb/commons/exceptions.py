@@ -36,3 +36,9 @@ class SMBIncorrectShareName(SMBException):
 	
 class SMBCreateAccessDenied(SMBException):
 	pass
+
+class SMBPendingTimeout(SMBException):
+	pass
+
+class SMBPendingMaxRenewal(SMBException):
+	pass

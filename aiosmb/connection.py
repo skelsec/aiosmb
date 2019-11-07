@@ -31,7 +31,6 @@ from aiosmb.wintypes.dtyp.constrcuted_security.security_descriptor import SECURI
 
 from aiosmb.commons.smbcontainer import *
 from aiosmb.commons.connection.target import *
-from aiosmb.filereader import SMBFileReader
 
 
 
@@ -89,6 +88,43 @@ class FileHandle:
 		fh.file_name = file_name
 		return fh
 
+class SMBPendingMsg:
+	def __init__(self, message_id, OutstandingResponses, OutstandingResponsesEvent, timeout = 5, max_renewal = None):
+		self.message_id = message_id
+		self.max_renewal = max_renewal
+		self.timeout = timeout #different operations require different timeouts, even depending on dielacts!!!
+		self.OutstandingResponses = OutstandingResponses
+		self.OutstandingResponsesEvent = OutstandingResponsesEvent
+		self.pending_task = None
+
+	async def __pending_waiter(self):
+		await asyncio.sleep(self.timeout)
+		await self.__destroy_message(SMBPendingTimeout())
+
+	async def __destroy_message(self, problem):
+		self.OutstandingResponses[self.message_id] = problem
+		if self.message_id in self.OutstandingResponsesEvent:
+			self.OutstandingResponsesEvent[self.message_id].set()
+		return
+
+	async def update(self):
+		if self.pending_task is not None:
+			self.pending_task.cancel()
+		
+		if self.max_renewal is not None:
+			self.max_renewal -= 1
+			if self.max_renewal == 0:
+				await self.__destroy_message(SMBPendingMaxRenewal())
+		self.pending_task = asyncio.create_task(self.__pending_waiter())
+
+
+	async def run(self):
+		self.pending_task = asyncio.create_task(self.__pending_waiter())
+
+	async def stop(self):
+		if self.pending_task is not None:
+			self.pending_task.cancel()
+
 class SMBConnection:
 	"""
 	Connection class for network connectivity and SMB messages management (sending/recieveing/singing/encrypting).
@@ -122,6 +158,8 @@ class SMBConnection:
 		self.OutstandingResponsesEvent = {}
 		self.OutstandingRequests = {}
 		self.OutstandingResponses = {}
+
+		self.pending_table = {}
 		
 		#two dicts for the same data, but with different lookup key
 		self.TreeConnectTable_id = {}
@@ -169,7 +207,11 @@ class SMBConnection:
 
 	def get_extra_info(self):
 		return self.gssapi.get_extra_info()
+
+	async def __pending_task(self, message_id, timeout = 5):
+		await asyncio.sleep(timeout)
 		
+
 	async def __handle_smb_in(self):
 		"""
 		Waits from SMB messages from the NetBIOSTransport in_queue, and fills the connection table.
@@ -197,8 +239,14 @@ class SMBConnection:
 					#but for now we just thropw exception bc encryption is not implemented
 					raise Exception('Encrypted SMBv2 message recieved, but encryption is not yet supported!')
 				
-				#if msg.header.Status == NTStatus.PENDING:
-				#	continue
+				if msg.header.Status == NTStatus.PENDING:
+					self.pending_table[msg.header.MessageId] = SMBPendingMsg(msg.header.MessageId, self.OutstandingResponses, self.OutstandingResponsesEvent)
+					await self.pending_table[msg.header.MessageId].run()
+					continue
+
+				if msg.header.MessageId in self.pending_table:
+					await self.pending_table[msg.header.MessageId].stop()
+					del self.pending_table[msg.header.MessageId]
 
 				self.OutstandingResponses[msg.header.MessageId] = msg
 				if msg.header.MessageId in self.OutstandingResponsesEvent:
@@ -517,7 +565,7 @@ class SMBConnection:
 		
 	async def tree_connect(self, share_name):
 		"""
-		share_name MUST be in "\\server\share" format! Server can be NetBIOS name OR IP4 OR IP6 OR FQDN
+		share_name MUST be in "\\\\server\\share" format! Server can be NetBIOS name OR IP4 OR IP6 OR FQDN
 		"""
 		if self.session_closed == True:
 			return

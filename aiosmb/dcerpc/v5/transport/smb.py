@@ -44,6 +44,7 @@ class DCERPCSMBTransport:
 	
 	@red
 	async def recv(self, count): #async def recv(self, forceRecv = 0, count = 0):
-		data = await self.smbfile.read(-1)
+		#print(count)
+		data = await self.smbfile.read(count)
 		#print('recv %s' % repr(data))
 		return data, None

@@ -168,7 +168,7 @@ class SMBFile:
 		
 	async def read(self, size = -1):
 		if self.is_pipe is True:
-			data = await self.__read(self.size - self.__position, self.__position)
+			data = await self.__read(size, 0)
 			return data
 
 		if size == 0:
