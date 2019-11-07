@@ -11,7 +11,6 @@ from aiosmb import logger
 from aiosmb.commons.connection.url import SMBConnectionURL
 from aiosmb.commons.interfaces.machine import SMBMachine
 from aiosmb.commons.utils.decorators import rr, rr_gen, red, red_gen, ef_gen
-#from aiosmb.commons.utils.glob2re import glob2re
 
 
 def req_traceback(funct):
@@ -39,6 +38,7 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 		self.__current_directory = None
 
 	async def do_login(self, url = None):
+		"""Connects to the remote machine"""
 		try:
 			if self.conn_url is None and url is None:
 				print('No url was set, cant do logon')
@@ -58,6 +58,7 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			print('Login success')
 
 	async def do_shares(self, show = True):
+		"""Lists available shares"""
 		try:
 			async for share, _ in ef_gen(self.machine.list_shares()):
 				self.shares[share.name] = share
@@ -68,6 +69,7 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			traceback.print_exc()
 
 	async def do_sessions(self):
+		"""Lists sessions of connected users"""
 		try:
 			async for sess, _ in ef_gen(self.machine.list_sessions()):
 				print("%s : %s" % (sess.username, sess.ip_addr))
@@ -75,6 +77,7 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			traceback.print_exc()
 
 	async def do_domains(self):
+		"""Lists domain"""
 		try:
 			async for domain, _ in self.machine.list_domains():
 				print(domain)
@@ -82,6 +85,7 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			traceback.print_exc()
 
 	async def do_localgroups(self):
+		"""Lists local groups"""
 		try:
 			async for name, sid, _ in self.machine.list_localgroups():
 				print("%s : %s" % (name, sid))
@@ -89,6 +93,7 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			traceback.print_exc()
 	
 	async def do_domaingroups(self, domain_name):
+		"""Lists groups in a domain"""
 		try:
 			async for name, sid, _ in self.machine.list_groups(domain_name):
 				print("%s : %s" % (name, sid))
@@ -96,6 +101,7 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			traceback.print_exc()
 	
 	async def do_groupmembers(self, domain_name, group_name):
+		"""Lists members of an arbitrary group"""
 		try:
 			async for domain, username, sid, _ in self.machine.list_group_members(domain_name, group_name):
 				print("%s\\%s : %s" % (domain, username, sid))
@@ -103,6 +109,7 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			traceback.print_exc()
 
 	async def do_localgroupmembers(self, group_name):
+		"""Lists members of a local group"""
 		try:
 			async for domain, username, sid, _ in self.machine.list_group_members('Builtin', group_name):
 				print("%s\\%s : %s" % (domain, username, sid))
@@ -110,6 +117,7 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			traceback.print_exc()
 
 	async def do_use(self, share_name):
+		"""selects share to be used"""
 		try:
 			if len(self.shares) == 0:
 				await self.do_shares(show = False)
@@ -187,6 +195,7 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 		return SMBPathCompleter(get_current_dirs = self.get_current_files)
 
 	async def do_services(self):
+		"""Lists remote services"""
 		try:
 			async for service, _ in self.machine.list_services():
 				print(service)
@@ -195,6 +204,7 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			traceback.print_exc()
 
 	async def do_serviceen(self, service_name):
+		"""Enables a remote service"""
 		try:
 			res, _ = await self.machine.enable_service(service_name)
 			print(res)
@@ -202,12 +212,14 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			traceback.print_exc()
 
 	async def do_servicecreate(self, service_name, command, display_name = None):
+		"""Creates a remote service"""
 		try:
 			res, _ = await self.machine.create_service(service_name, command, display_name)
 		except Exception as e:
 			traceback.print_exc()
 
 	async def do_servicedeploy(self, path_to_exec, remote_path):
+		"""Deploys a binary file from the local system as a service on the remote system"""
 		#servicedeploy /home/devel/Desktop/cmd.exe /shared/a.exe
 		try:
 			basename = ntpath.basename(remote_path)
@@ -217,6 +229,7 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			traceback.print_exc()		
 
 	async def do_put(self, file_name):
+		"""Uploads a file to the remote share"""
 		try:
 			basename = ntpath.basename(file_name)
 			dst = '\\%s\\%s\\%s' % (self.__current_share.name, self.__current_directory.fullpath , basename)
@@ -228,6 +241,7 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			traceback.print_exc()
 
 	async def do_del(self, file_name):
+		"""Removes a file from the remote share"""
 		try:
 			basename = ntpath.basename(file_name)
 			dst = '\\%s\\%s\\%s' % (self.__current_share.name, self.__current_directory.fullpath , basename)
@@ -238,12 +252,14 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			traceback.print_exc()
 
 	async def do_regsave(self, hive_name, file_path):
+		"""Saves a registry hive to a file on remote share"""
 		try:
 			await rr(self.machine.save_registry_hive(hive_name, file_path))
 		except Exception as e:
 			traceback.print_exc()
 
 	async def do_get(self, file_name):
+		"""Download a file from the remote share to the current folder"""
 		try:
 			matched = []
 			if file_name not in self.__current_directory.files:
@@ -271,6 +287,7 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 
 	
 	async def do_mkdir(self, directory_name):
+		"""Creates a directory on the remote share"""
 		try:
 			await self.machine.create_subdirectory(directory_name, self.__current_directory)
 
@@ -278,6 +295,7 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			traceback.print_exc()
 
 	async def do_dcsync(self):
+		"""It's a suprse tool that will help us later"""
 		try:
 			async for secret, _ in rr_gen(self.machine.dcsync()):
 				print(str(secret))
