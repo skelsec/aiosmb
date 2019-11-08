@@ -164,7 +164,7 @@ class Socks5ProxyConnection:
 			rep = await asyncio.wait_for(SOCKS5Reply.from_streamreader(self.proxy_reader), timeout=int(self.target.proxy.timeout))
 			if rep.REP != SOCKS5ReplyType.SUCCEEDED:
 				logger.info('Failed to connect to proxy %s! Server replied: %s' % (self.proxy_writer.get_extra_info('peername'), repr(rep.REP)))
-				raise Exception('Authentication failure!')
+				raise SMBSocks5ConnectionError('Socks5 remote end failed to connect to target! Reson: %s' % rep.REP.name)
 			
 			logger.debug('Server reply from %s : %s' % (self.proxy_writer.get_extra_info('peername'),repr(rep)))
 		
@@ -177,6 +177,7 @@ class Socks5ProxyConnection:
 			raise asyncio.CancelledError
 				
 		except Exception as e:
+			raise SMBSocks5ConnectionError('Error happened while establighing socket. Reson: %s' % e)
 			logger.debug('[Socks5Proxy] connect generic exception')
 			raise e
 		
@@ -190,46 +191,7 @@ class Socks5ProxyConnection:
 			self.outgoing_task = asyncio.create_task(self.handle_outgoing())
 			return
 
-			###
-			### These lines below are implemented to follow the actual FRC. sadly, I haven't found a single server implementation that does follow the RFC.
-			### Namely, no rebinding ever happens....
-			###
-			#if rep.BIND_ADDR == ipaddress.IPv6Address('::') or rep.BIND_ADDR == ipaddress.IPv4Address('0.0.0.0') or rep.BIND_PORT == self.proxy_writer.get_extra_info('peername')[1]:
-			#	logger.debug('Same socket can be used now on %s:%d' % (self.proxy_writer.get_extra_info('peername')))
-			#	#this means that the communication can continue on the same socket!
-			#	logger.info('Proxy connection succeeded')
-			#	self.reader = self.proxy_reader
-			#	self.writer = self.proxy_writer
-			#
-			#else:
-			#
-			#	#this case, the server created the socket, but expects a second connection to a different ip/port
-			#	print('SOCKS5 rebinding! %s:%s' % (str(rep.BIND_ADDR), rep.BIND_PORT))
-			#	#self.proxy_writer.close()
-			#	con = asyncio.open_connection(str(rep.BIND_ADDR), rep.BIND_PORT)
-			#	try:
-			#		self.reader, self.writer = await asyncio.wait_for(con, int(self.target.proxy.timeout))
-			#	except asyncio.TimeoutError:
-			#		logger.debug('[Socks5Proxy] Proxy Connection timeout')
-			#		raise SMBConnectionTimeoutException()
-			#		
-			#	except ConnectionRefusedError:
-			#		logger.debug('[Socks5Proxy] Proxy Connection refused')
-			#		raise SMBConnectionRefusedException()
-			#		
-			#	except asyncio.CancelledError:
-			#		#the SMB connection is terminating
-			#		raise asyncio.CancelledError
-			#		
-			#	except Exception as e:
-			#		logger.debug('[Socks5Proxy] connect generic exception')
-			#		raise e
-			#
-			#self.incoming_task = asyncio.create_task(self.handle_incoming())
-			#self.outgoing_task = asyncio.create_task(self.handle_outgoing())
-
-
-		#return
+			
 
 			
 

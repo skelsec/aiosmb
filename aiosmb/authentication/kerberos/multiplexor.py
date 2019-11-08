@@ -106,8 +106,8 @@ class SMBKerberosMultiplexor:
 
 	async def start_remote_kerberos(self):
 		try:
-			print(self.settings.get_url())
-			print(self.settings.agent_id)
+			#print(self.settings.get_url())
+			#print(self.settings.agent_id)
 			self.operator = MultiplexorOperator(self.settings.get_url())
 			await self.operator.connect()
 			#creating virtual sspi server

@@ -102,22 +102,17 @@ class SMBNTLMMultiplexor:
 		if self.settings.mode == 'CLIENT':
 			if authData is None:
 				data, res = await self.sspi.authenticate(flags = flags)
-				print('authenticate: %s' % data)
 				if res is None:
 					self.ntlm_ctx.load_negotiate(data)
 				return data, res
 			else:
 				self.ntlm_ctx.load_challenge( authData)
 				data, res = await self.sspi.challenge(authData, flags = flags)
-				print('challenge: %s' % data)
 				if res is None:
 					self.ntlm_ctx.load_authenticate( data)
 					self.session_key, res = await self.sspi.get_session_key()
-					print('session_key: %s' % self.session_key)
 					if res is None:
 						self.ntlm_ctx.load_sessionkey(self.get_session_key())
-					else:
-						print(res)
 				
 				return data, res
 				
@@ -127,7 +122,7 @@ class SMBNTLMMultiplexor:
 
 	async def start_remote_sspi(self):
 		try:
-			print(self.settings.get_url())
+			#print(self.settings.get_url())
 			self.operator = MultiplexorOperator(self.settings.get_url(), logging_sink=logger)
 			await self.operator.connect()
 			#creating virtual sspi server

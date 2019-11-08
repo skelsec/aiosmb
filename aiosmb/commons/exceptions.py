@@ -51,3 +51,7 @@ class SMBPendingMaxRenewal(SMBException):
 class SMBMachineException(Exception):
 	def __init__(self, message = ''):
 		super().__init__(message)
+
+class SMBSocks5ConnectionError(Exception):
+	def __init__(self, message = ''):
+		super().__init__(message)

@@ -34,7 +34,8 @@ class MultiplexorProxyConnection:
 		await self.operator.connect()
 		#creating socks5 proxy
 		server_info = await self.operator.start_socks5(self.target.proxy.agent_id)
-		print(server_info)
+		await self.operator.terminate()
+		#print(server_info)
 
 		#copying the original target, then feeding it to socks5proxy object. it will hold the actual socks5 proxy server address we created before
 		tp = SMBProxy()
