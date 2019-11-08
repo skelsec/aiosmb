@@ -1280,6 +1280,7 @@ async def hREnumServicesStatusW(dce, hSCManager, dwServiceType=SERVICE_WIN32_OWN
 	
 	resp, e = await dce.request(enumServicesStatus)
 	if e is not None:
+		#print('e! %s' % e)
 		if isinstance(e, SMBException):
 			#this case the exception is coming from the SMB connection itself, it's is dead Jim
 			return None, e

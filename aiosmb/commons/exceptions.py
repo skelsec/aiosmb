@@ -4,6 +4,9 @@ class SMBException(Exception):
 		super().__init__(message)
 		self.ntstatus = ntstatus
 
+	def pprint(self):
+		return 'Error! Server responded with: %s' % self.ntstatus.name
+
 class SMBConnectionNetworkTerminated(SMBException):
 	pass
 
@@ -42,3 +45,9 @@ class SMBPendingTimeout(SMBException):
 
 class SMBPendingMaxRenewal(SMBException):
 	pass
+
+
+##### not SMBException from this point!
+class SMBMachineException(Exception):
+	def __init__(self, message = ''):
+		super().__init__(message)

@@ -14,12 +14,16 @@ from aiosmb.dcerpc.v5.interfaces.drsuapimgr import SMBDRSUAPI
 from aiosmb.dcerpc.v5.interfaces.servicemanager import SMBRemoteServieManager
 from aiosmb.dcerpc.v5.interfaces.remoteregistry import RRP
 from aiosmb.commons.utils.decorators import red, rr, red_gen, rr_gen
+from aiosmb.commons.exceptions import SMBMachineException
 
 
 def req_srvs_gen(funct):
 	async def wrapper(*args, **kwargs):
 		this = args[0]
 		try:
+			if 'SRVS' in this.privtable:
+				if this.privtable['SRVS'] == False:
+					raise SMBMachineException('SRVS failed to open. Probably permission issues.')
 			if this.srvs is None:
 				await rr(this.connect_rpc('SRVS'))
 			async for x in  funct(*args, **kwargs):
@@ -34,6 +38,9 @@ def req_rrp(funct):
 	async def wrapper(*args, **kwargs):
 		this = args[0]
 		try:
+			if 'RRP' in this.privtable:
+				if this.privtable['RRP'] == False:
+					raise SMBMachineException('RRP failed to open. Probably permission issues.')
 			if this.rrp is None:
 				await rr(this.connect_rpc('RRP'))
 			x = await funct(*args, **kwargs)
@@ -46,6 +53,9 @@ def req_samr_gen(funct):
 	async def wrapper(*args, **kwargs):
 		this = args[0]
 		try:
+			if 'SAMR' in this.privtable:
+				if this.privtable['SAMR'] == False:
+					raise SMBMachineException('SAMR failed to open. Probably permission issues.')
 			if this.samr is None:
 				await rr(this.connect_rpc('SAMR'))
 			async for x in funct(*args, **kwargs):
@@ -60,6 +70,9 @@ def req_lsad_gen(funct):
 	async def wrapper(*args, **kwargs):
 		this = args[0]
 		try:
+			if 'LSAD' in this.privtable:
+				if this.privtable['LSAD'] == False:
+					raise SMBMachineException('LSAD failed to open. Probably permission issues.')
 			if this.lsad is None:
 				await rr(this.connect_rpc('LSAD'))
 			async for x in  funct(*args, **kwargs):
@@ -74,6 +87,9 @@ def req_servicemanager_gen(funct):
 	async def wrapper(*args, **kwargs):
 		this = args[0]
 		try:
+			if 'SERVICEMGR' in this.privtable:
+				if this.privtable['SERVICEMGR'] == False:
+					raise SMBMachineException('SERVICEMGR failed to open. Probably permission issues.')
 			if this.servicemanager is None:
 				await rr(this.connect_servicemanager())
 			async for x in funct(*args, **kwargs):
@@ -88,6 +104,9 @@ def req_servicemanager(funct):
 	async def wrapper(*args, **kwargs):
 		this = args[0]
 		try:
+			if 'SERVICEMGR' in this.privtable:
+				if this.privtable['SERVICEMGR'] == False:
+					raise SMBMachineException('SERVICEMGR failed to open. Probably permission issues.')
 			if this.servicemanager is None:
 				await rr(this.connect_servicemanager())
 			x = await funct(*args, **kwargs)
@@ -113,20 +132,30 @@ class SMBMachine:
 		self.filesystem = None
 		self.servicemanager = None
 
+		self.privtable = {}
+
 	@red
 	async def connect_rpc(self, service_name):
 		if service_name.upper() == 'SRVS':
 			self.srvs = SMBSRVS(self.connection)
+			self.privtable['SRVS'] = False
 			await rr(self.srvs.connect())
+			self.privtable['SRVS'] = True
 		elif service_name.upper() == 'SAMR':
 			self.samr = SMBSAMR(self.connection)
+			self.privtable['SAMR'] = False
 			await rr(self.samr.connect())
+			self.privtable['SAMR'] = True
 		elif service_name.upper() == 'LSAD':
 			self.lsad = LSAD(self.connection)
+			self.privtable['LSAD'] = False
 			await rr(self.lsad.connect())
+			self.privtable['LSAD'] = True
 		elif service_name.upper() == 'RRP':
 			self.rrp = RRP(self.connection)
+			self.privtable['RRP'] = False
 			await rr(self.rrp.connect())
+			self.privtable['RRP'] = True
 		else:
 			raise Exception('Unknown service name : %s' % service_name)
 		return True, None
@@ -134,7 +163,9 @@ class SMBMachine:
 	@red
 	async def connect_servicemanager(self):
 		self.servicemanager = SMBRemoteServieManager(self.connection)
-		await self.servicemanager.connect()
+		self.privtable['SERVICEMGR'] = False
+		await rr(self.servicemanager.connect())
+		self.privtable['SERVICEMGR'] = True
 		return True, None
 
 	@req_srvs_gen

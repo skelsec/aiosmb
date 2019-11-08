@@ -287,15 +287,13 @@ class DCERPC5Connection:
 			isNDR64 = True
 		else:
 			isNDR64 = False
-
+			
 		await rr(self.call(request.opnum, request, uuid))
-		
 		answer, _ = await rr(self.recv())
 
 		__import__(request.__module__)
 		module = sys.modules[request.__module__]
 		respClass = getattr(module, request.__class__.__name__ + 'Response')
-		#print(respClass)
 
 		if answer[-4:] != b'\x00\x00\x00\x00' and checkError is True:
 			error_code = unpack('<L', answer[-4:])[0]
