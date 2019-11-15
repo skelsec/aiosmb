@@ -34,7 +34,7 @@ class NTLMServerInfo:
 			elif k == AVPAIRType.MsvAvTimestamp:
 				if isinstance(ti[k], bytes):
 					si.local_time = FILETIME.from_bytes(ti[k]).datetime
-				elif isinstance(ti[k], dateime):
+				elif isinstance(ti[k], datetime):
 					si.local_time = ti[k]
 		
 		if challenge.Version is not None:
@@ -44,6 +44,20 @@ class NTLMServerInfo:
 			si.os_guess = challenge.Version.WindowsProduct
 				
 		return si
+
+	def to_dict(self):
+		return {
+			'domainname' : self.domainname,
+			'computername' : self.computername,
+			'dnscomputername' : self.dnscomputername,
+			'dnsdomainname' : self.dnsdomainname,
+			'local_time' : self.local_time,
+			'dnsforestname' : self.dnsforestname,
+			'os_major_version' : self.os_major_version.name if self.os_major_version.name is not None else None,
+			'os_minor_version' : self.os_minor_version.name if self.os_minor_version.name is not None else None,
+			'os_build' : self.os_build,
+			'os_guess' : self.os_guess,
+		}
 		
 	def __str__(self):
 		t = '=== Server Info ====\r\n'

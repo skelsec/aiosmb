@@ -206,7 +206,18 @@ class SMBConnection:
 		await asyncio.wait_for(self.terminate(), timeout = 1)
 
 	def get_extra_info(self):
-		return self.gssapi.get_extra_info()
+		try:
+			ntlm_data = self.gssapi.get_extra_info().to_dict()
+		except:
+			traceback.print_exc()
+			ntlm_data = None
+		if self.ServerSecurityMode is not None:
+			return {
+				'ntlm_data' : ntlm_data,
+				'signing_enabled' : NegotiateSecurityMode.SMB2_NEGOTIATE_SIGNING_ENABLED in self.ServerSecurityMode,
+				'signing_required' : NegotiateSecurityMode.SMB2_NEGOTIATE_SIGNING_REQUIRED in self.ServerSecurityMode,
+			}
+		return None
 
 	async def __pending_task(self, message_id, timeout = 5):
 		await asyncio.sleep(timeout)
@@ -391,6 +402,7 @@ class SMBConnection:
 					raise SMBUnsupportedDialectSelected()
 				
 				self.selected_dialect = rply.command.DialectRevision
+				self.ServerSecurityMode = rply.command.SecurityMode
 				self.signing_required = NegotiateSecurityMode.SMB2_NEGOTIATE_SIGNING_ENABLED in rply.command.SecurityMode
 				logger.log(1, 'Server selected dialect: %s' % self.selected_dialect)
 				
