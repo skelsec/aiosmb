@@ -46,17 +46,17 @@ class SMBUserSecrets:
 		return t
 	def __str__(self):
 		t = ''
-		t += ':'.join([str(self.domain),str(self.username),str(self.user_account_status),self.lm_hash.hex(), self.nt_hash.hex(),str(self.pwd_last_set)])
+		t += ':'.join(['ntlm', str(self.domain),str(self.username),str(self.user_account_status),self.lm_hash.hex(), self.nt_hash.hex(),str(self.pwd_last_set)])
 		t += '\r\n'
 		for i, x in enumerate(zip(self.lm_history,self.nt_history)):
 			lm, nt = x
-			t += ':'.join([str(self.domain),str(self.username),str(self.user_account_status), self.lm_hash.hex(), self.nt_hash.hex(), 'history_%d'% i ])
+			t += ':'.join(['ntlm_history', str(self.domain),str(self.username),str(self.user_account_status), lm.hex(), nt.hex(), 'history_%d'% i ])
 			t += '\r\n'
 		for ktype, key in self.kerberos_keys:
-			t += ':'.join([str(self.domain),str(self.username),ktype,key.hex()])
+			t += ':'.join(['kerberos',str(self.domain),str(self.username),ktype,key.hex()])
 			t += '\r\n'
 		for key in self.cleartext_pwds:
-			t += ':'.join([str(self.domain),str(self.username),ktype,key.hex()])
+			t += ':'.join(['cleartext',str(self.domain),str(self.username),ktype,key])
 			t += '\r\n'
 			
 		return t

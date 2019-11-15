@@ -323,18 +323,20 @@ class SMBDRSUAPI:
 				elif userProperty['PropertyName'].decode('utf-16le') == 'Primary:CLEARTEXT':
 					# [MS-SAMR] 3.1.1.8.11.5 Primary:CLEARTEXT Property
 					# This credential type is the cleartext password. The value format is the UTF-16 encoded cleartext password.
+					# SkelSec: well, almost. actually the property is the hex-encoded bytes of an UTF-16LE encoded plaintext string
+					encoded_pw = bytes.fromhex(userProperty['PropertyValue'].decode('ascii'))
 					try:
-						answer = (userProperty['PropertyValue'].decode('utf-16le'))
+						answer = encoded_pw.decode('utf-16le')
 					except UnicodeDecodeError:
 						# This could be because we're decoding a machine password. Printing it hex
-						answer = (userProperty['PropertyValue'].decode('utf-8'))
+						answer = encoded_pw.decode('utf-8')
 
 					us.cleartext_pwds.append(answer)
 			
 		
 		return us, None
 			
-	@red	
+	@red
 	async def DRSCrackNames(self, formatOffered=drsuapi.DS_NAME_FORMAT.DS_DISPLAY_NAME, formatDesired=drsuapi.DS_NAME_FORMAT.DS_FQDN_1779_NAME, name=''):
 		if self.handle is None:
 			await rr(self.open())
