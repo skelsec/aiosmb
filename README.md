@@ -62,3 +62,7 @@ DC hostname: `win2019ad`
 `smb+kerberos-nt://TEST\victim:f8963568a1ec62a3161d9d6449baba93@win2019ad.test.corp`
 #### Example 6 - KERBEROS using the SSPI in Windows
 `smb+sspi-kerberos://win2019ad.test.corp`
+
+# Kudos
+This project is heavily based on the [Impacket project](https://github.com/SecureAuthCorp/impacket) orignally by @agsolino.  
+The DCERPC strucutre definitions and DCERPC parsing in this project is almost identical to the Impacket project.
