@@ -19,7 +19,7 @@ class ACL:
 		acl.AclSize = int.from_bytes(buff.read(2), 'little', signed = False)
 		acl.AceCount = int.from_bytes(buff.read(2), 'little', signed = False)
 		acl.Sbz2 = int.from_bytes(buff.read(2), 'little', signed = False)
-		for i in range(acl.AceCount):
+		for _ in range(acl.AceCount):
 			acl.aces.append(ACEReader.from_buffer(buff))
 		return acl
 		

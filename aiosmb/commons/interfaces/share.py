@@ -15,7 +15,7 @@ class SMBShare:
 		
 		self.files = {}
 		self.subdirs = {}
-
+	
 	async def connect(self, connection):
 		"""
 		Connect to the share and fills connection related info in the SMBShare object
@@ -24,7 +24,7 @@ class SMBShare:
 		tree_entry = await connection.tree_connect(self.fullpath)
 		self.tree_id = tree_entry.tree_id
 		self.maximal_access = tree_entry.maximal_access
-		self.unc_path = '\\\\%s\\' % connection.target.get_hostname_or_ip()
+		self.unc_path = self.fullpath
 		init_dir = SMBDirectory()
 		init_dir.tree_id = self.tree_id
 		init_dir.fullpath = ''

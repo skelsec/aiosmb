@@ -2730,7 +2730,7 @@ async def hSamrChangePasswordUser(dce, userHandle, oldPassword, newPassword):
 	request = SamrChangePasswordUser()
 	request['UserHandle'] = userHandle
 
-	from impacket import crypto, ntlm
+	#from impacket import crypto, ntlm
 
 	oldPwdHashNT = ntlm.NTOWFv1(oldPassword)
 	newPwdHashNT = ntlm.NTOWFv1(newPassword)
@@ -2761,7 +2761,7 @@ async def hSamrUnicodeChangePasswordUser2(dce, serverName='\x00', userName='', o
 	except Exception:
 		logger.critical("Warning: You don't have any crypto installed. You need pycryptodomex")
 		logger.critical("See https://pypi.org/project/pycryptodomex/")
-	from impacket import crypto, ntlm
+	#from impacket import crypto, ntlm
 
 	if oldPwdHashLM == '' and oldPwdHashNT == '':
 		oldPwdHashLM = ntlm.LMOWFv1(oldPassword)

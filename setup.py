@@ -5,7 +5,7 @@ setup(
 	name="aiosmb",
 
 	# Version number (initial):
-	version="0.1.7",
+	version="0.1.9",
 
 	# Application author details:
 	author="Tamas Jos",
@@ -33,6 +33,7 @@ setup(
 		'winsspi>=0.0.2',
 		'six',
 		'aiocmd',
+		'asysocks',
 	],
 	
 	classifiers=(

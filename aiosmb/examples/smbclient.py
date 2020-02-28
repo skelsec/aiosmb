@@ -14,6 +14,9 @@ from aiosmb.commons.utils.decorators import rr, rr_gen, red, red_gen, ef_gen
 from aiosmb.commons.exceptions import SMBException, SMBMachineException
 from aiosmb.dcerpc.v5.rpcrt import DCERPCException
 
+from asysocks import logger as sockslogger
+
+
 def req_traceback(funct):
 	async def wrapper(*args, **kwargs):
 		this = args[0]
@@ -295,6 +298,18 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			return []
 		return list(self.__current_directory.files.keys())
 
+	async def do_sid(self, file_name):
+		if file_name not in self.__current_directory.files:
+			print('file not in current directory!')
+			return
+		file_obj = self.__current_directory.files[file_name]
+		sid = await file_obj.get_security_descriptor(self.connection)
+		print(str(sid))
+
+	async def do_dirsid(self):
+		sid = await self.__current_directory.get_security_descriptor(self.connection)
+		print(str(sid))
+
 	def _cd_completions(self):
 		return SMBPathCompleter(get_current_dirs = self.get_current_dirs)
 
@@ -522,6 +537,7 @@ def main():
 	if args.verbose > 2:
 		print('setting deepdebug')
 		logger.setLevel(1) #enabling deep debug
+		sockslogger.setLevel(1)
 
 	asyncio.get_event_loop().run_until_complete(SMBClient(args.smb_url).run())
 

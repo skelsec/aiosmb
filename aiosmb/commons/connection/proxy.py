@@ -2,121 +2,222 @@ import ipaddress
 import enum
 from urllib.parse import urlparse, parse_qs
 
+from asysocks.common.clienturl import SocksClientURL 
+
+
+def stru(x):
+	return str(x).upper()
 
 class SMBProxySecretType(enum.Enum):
 	NONE = 'NONE'
 	PLAIN = 'PLAIN'
 
 class SMBProxyType(enum.Enum):
+	SOCKS4 = 'SOCKS4'
+	SOCKS4_SSL = 'SOCKS4_SSL'
 	SOCKS5 = 'SOCKS5'
 	SOCKS5_SSL = 'SOCKS5_SSL'
 	MULTIPLEXOR = 'MULTIPLEXOR'
 	MULTIPLEXOR_SSL = 'MULTIPLEXOR_SSL'
 
+multiplexorproxyurl_param2var = {
+	'type' : ('version', [stru, SMBProxyType]),
+	'host' : ('server_ip', [str]),
+	'port' : ('server_port', [int]),
+	'timeout': ('timeout', [int]),
+	'user' : ('username', [str]),
+	'pass' : ('password', [str]),
+	#'authtype' : ('authtype', [SOCKS5Method]),
+	'agentid' : ('agentid', [str]),
+	'domain' : ('domain', [str])
+
+}
+
+
 class SMBProxy:
-	def __init__(self, 
-				ip = None,
-				port = None,
-				timeout = 5,
-				proxy_type = None,
-				username = None,
-				domain = None,
-				secret = None,
-				secret_type = SMBProxySecretType.NONE,
-				agent_id = None):
-		self.ip = ip
-		self.port = port
-		self.timeout = timeout
-		self.type = proxy_type
-		self.username = username
-		self.domain = domain
-		self.secret = secret
-		self.secret_type = secret_type
-		self.agent_id = agent_id #used by multiplexor only
-		self.settings = {}
-	
+	def __init__(self):
+		self.type = None
+		self.target = None
+		self.auth   = None
+
 	@staticmethod
-	def from_url(url_str):
+	def from_params(url_str):
 		proxy = SMBProxy()
-		url_e = urlparse(url_str)
-		if url_e.query is None:
+		url = urlparse(url_str)
+		if url.query is None:
 			return None
-		
-		query = parse_qs(url_e.query)
+
+		query = parse_qs(url.query)
 		if 'proxytype' not in query and 'sametype' not in query:
 			return None
-
-		for k in query:
-			if k.startswith('proxy') or k.startswith('same'):
-				key = 'same'
-				if k.startswith('proxy'):
-					key = 'proxy'
-				
-				if k == key+'type':
-					proxy.type = SMBProxyType(query[k][0].replace('-','_').upper())
-				elif k == key+'user':
-					proxy.username = query[k][0]
-				elif k == key+'domain':
-					proxy.domain = query[k][0]
-				elif k == key+'pass':
-					proxy.secret = query[k][0]
-				elif k == key+'host':
-					proxy.ip = query[k][0]
-				elif k == key+'port':
-					proxy.port = int(query[k][0])
-				elif k == key+'timeout':
-					proxy.timeout = int(query[k][0])
-				elif k == key+'agentid':
-					proxy.agent_id = query[k][0]
-				else:
-					proxy.settings[k[len(key):]] = query[k] #the result is a list for each entry because this preprocessor is not aware which elements should be lists!
 		
-		if proxy.secret is not None:
-			proxy.secret_type = SMBProxySecretType.PLAIN
+		proxy.type = SMBProxyType(query['proxytype'][0].upper())
+		if proxy.type in [SMBProxyType.SOCKS4, SMBProxyType.SOCKS4_SSL, SMBProxyType.SOCKS5, SMBProxyType.SOCKS5_SSL]:
+			cu = SocksClientURL.from_params(url_str)
+			cu.endpoint_port = 445
 		else:
-			proxy.secret_type = SMBProxySecretType.NONE
-
-		if proxy.ip is None:
-			raise Exception('Proxy server specified with missing servber address! (add proxyhost to params)')
+			cu = SocksClientURL.from_params(url_str)
 		
-		if proxy.type in [SMBProxyType.MULTIPLEXOR_SSL, SMBProxyType.MULTIPLEXOR]:
-			if proxy.agent_id is None:
-				raise Exception('MULTIPLEXOR proxy requires agentid to be set!')
-
+		proxy.target = cu.get_target()
 		return proxy
 
-	
-	@staticmethod
-	def from_connection_string(s):
-		"""
-		URL format required
-		socks5://user:password@ipaddress:port
-		socks5+ssl://user:password@ipaddress:port
-		multiplexor://user:password@ipaddress:port/agentid
-		"""
-		st = SMBProxy()
-		o = urlparse(s)
-
-		st.type = SMBProxyType(o.scheme.upper().replace('+','_'))
-		st.ip = o.hostname
-		st.username = o.username
-		st.secret = o.password
-		st.port = int(o.port)
-		if st.secret is not None:
-			st.secret_type = SMBProxySecretType.PLAIN
-		
-		if st.type in [SMBProxyType.MULTIPLEXOR, SMBProxyType.MULTIPLEXOR_SSL]:
-			st.agent_id = o.path.replace('/','')
-		
-		return st
-		
 	def __str__(self):
 		t = '==== SMBProxy ====\r\n'
 		for k in self.__dict__:
 			t += '%s: %s\r\n' % (k, self.__dict__[k])
 			
 		return t
-		
+
+class SMBMultiplexorProxy:
+	def __init__(self):
+		self.ip = None
+		self.port = None
+		self.timeout = 10
+		self.type = SMBProxyType.MULTIPLEXOR
+		self.username = None
+		self.password = None
+		self.domain = None
+		self.agent_id = None
+	
+	def sanity_check(self):
+		if self.ip is None:
+			raise Exception('MULTIPLEXOR server IP is missing!')
+		if self.port is None:
+			raise Exception('MULTIPLEXOR server port is missing!')
+		if self.agent_id is None:
+				raise Exception('MULTIPLEXOR proxy requires agentid to be set!')
+
+	@staticmethod
+	def from_params(url_str):
+		res = SMBMultiplexorProxy()
+		url = urlparse(url_str)
+		res.endpoint_ip = url.hostname
+		if url.port:
+			res.endpoint_port = int(url.port)
+		if url.query is not None:
+			query = parse_qs(url.query)
+
+			for k in query:
+				if k.startswith('proxy'):
+					if k[5:] in multiplexorproxyurl_param2var:
+
+						data = query[k][0]
+						for c in multiplexorproxyurl_param2var[k[5:]][1]:
+							#print(c)
+							data = c(data)
+
+						setattr(
+							res, 
+							multiplexorproxyurl_param2var[k[5:]][0], 
+							data
+						)
+		res.sanity_check()
+
+
+#class SMBProxy:
+#	def __init__(self, 
+#				ip = None,
+#				port = None,
+#				timeout = 5,
+#				proxy_type = None,
+#				username = None,
+#				domain = None,
+#				secret = None,
+#				secret_type = SMBProxySecretType.NONE,
+#				agent_id = None):
+#		self.ip = ip
+#		self.port = port
+#		self.timeout = timeout
+#		self.type = proxy_type
+#		self.username = username
+#		self.domain = domain
+#		self.secret = secret
+#		self.secret_type = secret_type
+#		self.agent_id = agent_id #used by multiplexor only
+#		self.settings = {}
+#	
+#	@staticmethod
+#	def from_url(url_str):
+#		proxy = SMBProxy()
+#		url_e = urlparse(url_str)
+#		if url_e.query is None:
+#			return None
+#		
+#		query = parse_qs(url_e.query)
+#		if 'proxytype' not in query and 'sametype' not in query:
+#			return None
+#
+#		for k in query:
+#			if k.startswith('proxy') or k.startswith('same'):
+#				key = 'same'
+#				if k.startswith('proxy'):
+#					key = 'proxy'
+#				
+#				if k == key+'type':
+#					proxy.type = SMBProxyType(query[k][0].replace('-','_').upper())
+#				elif k == key+'user':
+#					proxy.username = query[k][0]
+#				elif k == key+'domain':
+#					proxy.domain = query[k][0]
+#				elif k == key+'pass':
+#					proxy.secret = query[k][0]
+#				elif k == key+'host':
+#					proxy.ip = query[k][0]
+#				elif k == key+'port':
+#					proxy.port = int(query[k][0])
+#				elif k == key+'timeout':
+#					proxy.timeout = int(query[k][0])
+#				elif k == key+'agentid':
+#					proxy.agent_id = query[k][0]
+#				else:
+#					proxy.settings[k[len(key):]] = query[k] #the result is a list for each entry because this preprocessor is not aware which elements should be lists!
+#		
+#		if proxy.secret is not None:
+#			proxy.secret_type = SMBProxySecretType.PLAIN
+#		else:
+#			proxy.secret_type = SMBProxySecretType.NONE
+#
+#		if proxy.ip is None:
+#			raise Exception('Proxy server specified with missing servber address! (add proxyhost to params)')
+#		
+#		if proxy.type in [SMBProxyType.MULTIPLEXOR_SSL, SMBProxyType.MULTIPLEXOR]:
+#			if proxy.agent_id is None:
+#				raise Exception('MULTIPLEXOR proxy requires agentid to be set!')
+#
+#		return proxy
+#
+#	
+#	@staticmethod
+#	def from_connection_string(s):
+#		"""
+#		URL format required
+#		socks5://user:password@ipaddress:port
+#		socks5+ssl://user:password@ipaddress:port
+#		multiplexor://user:password@ipaddress:port/agentid
+#		"""
+#		st = SMBProxy()
+#		o = urlparse(s)
+#
+#		st.type = SMBProxyType(o.scheme.upper().replace('+','_'))
+#		st.ip = o.hostname
+#		st.username = o.username
+#		st.secret = o.password
+#		st.port = int(o.port)
+#		if st.secret is not None:
+#			st.secret_type = SMBProxySecretType.PLAIN
+#		
+#		if st.type in [SMBProxyType.MULTIPLEXOR, SMBProxyType.MULTIPLEXOR_SSL]:
+#			st.agent_id = o.path.replace('/','')
+#		
+#		return st
+#		
+#	def __str__(self):
+#		t = '==== SMBProxy ====\r\n'
+#		for k in self.__dict__:
+#			t += '%s: %s\r\n' % (k, self.__dict__[k])
+#			
+#		return t
+#		
 		
 def test():
 	t = ['socks5://10.10.10.1',

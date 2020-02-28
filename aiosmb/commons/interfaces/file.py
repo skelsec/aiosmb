@@ -1,6 +1,8 @@
 from pathlib import PureWindowsPath
 from aiosmb.wintypes.access_mask import *
 from aiosmb.protocol.smb2.commands import *
+from aiosmb.wintypes.fscc.structures.fileinfoclass import FileInfoClass
+from aiosmb.protocol.smb2.commands.query_info import SecurityInfo
 import io
 
 
@@ -72,6 +74,34 @@ class SMBFile:
 		await connection.tree_disconnect(tree_id)
 		return True
 
+	async def get_security_descriptor(self, connection):
+		if self.sid is None:
+			file_id = None
+			try:
+				desired_access = FileAccessMask.READ_CONTROL
+				share_mode = ShareAccess.FILE_SHARE_READ
+				create_options = CreateOptions.FILE_NON_DIRECTORY_FILE | CreateOptions.FILE_SYNCHRONOUS_IO_NONALERT 
+				file_attrs = 0
+				create_disposition = CreateDisposition.FILE_OPEN
+				file_id = await connection.create(self.tree_id, self.fullpath, desired_access, share_mode, create_options, create_disposition, file_attrs)
+				
+				self.sid = await connection.query_info(
+					self.tree_id,
+					file_id,
+					info_type = QueryInfoType.SECURITY, 
+					information_class = FileInfoClass.NONE, 
+					additional_information = SecurityInfo.ATTRIBUTE_SECURITY_INFORMATION | SecurityInfo.DACL_SECURITY_INFORMATION | SecurityInfo.OWNER_SECURITY_INFORMATION | SecurityInfo.GROUP_SECURITY_INFORMATION, 
+					flags = 0, 
+				)
+			except:
+				raise
+
+			finally:
+				if file_id is not None:
+					await connection.close(self.tree_id, file_id)
+
+			return self.sid
+
 	async def __read(self, size, offset):
 		"""
 		This is the main function for reading.
@@ -84,11 +114,19 @@ class SMBFile:
 			return data
 		
 		buffer = b''
-		while len(buffer) <= size:
-			data, remaining = await self.__connection.read(self.tree_id, self.file_id, offset = offset, length = size)
+		if size > self.__connection.MaxReadSize:
+			i, rem = divmod(size, self.__connection.MaxReadSize)
+			for _ in range(i+1):
+				data, remaining = await self.__connection.read(self.tree_id, self.file_id, offset = offset, length = self.__connection.MaxReadSize)
+				offset += len(data)
+				buffer += data
+			
+			return buffer[:size]
+		else:
+			data, remaining = await self.__connection.read(self.tree_id, self.file_id, offset = offset, length = self.__connection.MaxReadSize)
 			buffer += data
 			
-		return buffer[:size]
+			return buffer[:size]
 
 	async def __write(self, data, position_in_file = 0):
 		"""
@@ -170,6 +208,9 @@ class SMBFile:
 		if self.is_pipe is True:
 			data = await self.__read(size, 0)
 			return data
+		
+		if size > self.size:
+			raise Exception('Requested read size %s is larger than the file size %s' % (hex(size), hex(self.size)))
 
 		if size == 0:
 			raise Exception('Cant read 0 bytes')

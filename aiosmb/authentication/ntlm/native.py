@@ -406,61 +406,61 @@ class NTLMAUTHHandler:
 				
 
 
-def test_msdn():
-	credential = Credential()
-	credential.username = 'User'
-	credential.domain = 'Domain'
-	credential.password = 'Password'
-	
-	template = {
-			'flags'            :  NegotiateFlags.NEGOTIATE_56|
-								  NegotiateFlags.REQUEST_NON_NT_SESSION_KEY|
-								  NegotiateFlags.NEGOTIATE_KEY_EXCH|
-								  NegotiateFlags.NEGOTIATE_128|
-								  NegotiateFlags.NEGOTIATE_VERSION|
-								  NegotiateFlags.TARGET_TYPE_SERVER|
-								  NegotiateFlags.NEGOTIATE_ALWAYS_SIGN|
-								  NegotiateFlags.NEGOTIATE_NTLM|
-								  NegotiateFlags.NEGOTIATE_SIGN|
-								  NegotiateFlags.NEGOTIATE_SEAL|
-								  NegotiateFlags.NTLM_NEGOTIATE_OEM|
-								  NegotiateFlags.NEGOTIATE_UNICODE,
-			'version'          : Version.construct(WindowsMajorVersion.WINDOWS_MAJOR_VERSION_10, minor = WindowsMinorVersion.WINDOWS_MINOR_VERSION_0, build = 15063 ),
-			'domain_name'      : 'Domain',
-			'workstation_name' : 'COMPUTER',
-			'ntlm_downgrade'   : True,
-			'extended_security': False
-	}
-	settings = NTLMHandlerSettings(credential, mode = 'CLIENT', template_name = None, ntlm_downgrade = True, extended_security = False, custom_template = template)
-	handler = NTLMAUTHHandler(settings)
-	#assert handler.flags == int.from_bytes(b'\x33\x82\x02\xe2', "little", signed = False)
-	data, is_res = handler.authenticate(None)
-	print(data)
-	print(is_res)
-	
-	details = AVPairs({AVPAIRType.MsvAvNbDomainName: 'TEST', AVPAIRType.MsvAvNbComputerName: 'WIN2019AD', AVPAIRType.MsvAvDnsDomainName: 'test.corp', AVPAIRType.MsvAvDnsComputerName: 'WIN2019AD.test.corp', AVPAIRType.MsvAvTimestamp: b'\xae\xc6\x00\xbf\xc5\xfd\xd4\x01', AVPAIRType.MsvAvFlags: b'\x02\x00\x00\x00', AVPAIRType.MsvAvSingleHost: b"0\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00 \x00\x00R}'\xf24\xdet7`\x96c\x84\xd3oa\xae*\xa4\xfc*8\x06\x99\xf8\xca\xa6\x00\x01\x1bHm\x89", AVPAIRType.MsvChannelBindings: b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00', AVPAIRType.MsvAvTargetName: 'cifs/10.10.10.2'})
-	
-	challenge = NTLMChallenge.construct(challenge=b'\x01\x23\x45\x67\x89\xab\xcd\xef', targetName = 'Domain', targetInfo = details, version = handler.ntlmNegotiate.Version, flags= handler.flags)
-	data, is_res = handler.authenticate(challenge.to_bytes())
-	print(data)
-	print(is_res)
-	
-	print(handler.ntlmAuthenticate.LMChallenge.to_bytes().hex())
-	print(handler.ntlmAuthenticate.NTChallenge.to_bytes().hex())
-	
-
-def test():
-	template_name = 'Windows10_15063'
-	credential = Credential()
-	credential.username = 'test'
-	credential.password = 'test'
-	
-	settings = NTLMHandlerSettings(credential, mode = 'CLIENT', template_name = template_name, ntlm_downgrade = False, extended_security = True)
-	handler = NTLMAUTHHandler(settings)
-	data, is_res = handler.authenticate(None)
-	print(data)
-	print(is_res)
-	
-if __name__ == '__main__':
-	from aiosmb.ntlm.structures.version import Version, WindowsMajorVersion, WindowsMinorVersion
-	test_msdn()
+#def test_msdn():
+#	credential = Credential()
+#	credential.username = 'User'
+#	credential.domain = 'Domain'
+#	credential.password = 'Password'
+#	
+#	template = {
+#			'flags'            :  NegotiateFlags.NEGOTIATE_56|
+#								  NegotiateFlags.REQUEST_NON_NT_SESSION_KEY|
+#								  NegotiateFlags.NEGOTIATE_KEY_EXCH|
+#								  NegotiateFlags.NEGOTIATE_128|
+#								  NegotiateFlags.NEGOTIATE_VERSION|
+#								  NegotiateFlags.TARGET_TYPE_SERVER|
+#								  NegotiateFlags.NEGOTIATE_ALWAYS_SIGN|
+#								  NegotiateFlags.NEGOTIATE_NTLM|
+#								  NegotiateFlags.NEGOTIATE_SIGN|
+#								  NegotiateFlags.NEGOTIATE_SEAL|
+#								  NegotiateFlags.NTLM_NEGOTIATE_OEM|
+#								  NegotiateFlags.NEGOTIATE_UNICODE,
+#			'version'          : Version.construct(WindowsMajorVersion.WINDOWS_MAJOR_VERSION_10, minor = WindowsMinorVersion.WINDOWS_MINOR_VERSION_0, build = 15063 ),
+#			'domain_name'      : 'Domain',
+#			'workstation_name' : 'COMPUTER',
+#			'ntlm_downgrade'   : True,
+#			'extended_security': False
+#	}
+#	settings = NTLMHandlerSettings(credential, mode = 'CLIENT', template_name = None, ntlm_downgrade = True, extended_security = False, custom_template = template)
+#	handler = NTLMAUTHHandler(settings)
+#	#assert handler.flags == int.from_bytes(b'\x33\x82\x02\xe2', "little", signed = False)
+#	data, is_res = handler.authenticate(None)
+#	print(data)
+#	print(is_res)
+#	
+#	details = AVPairs({AVPAIRType.MsvAvNbDomainName: 'TEST', AVPAIRType.MsvAvNbComputerName: 'WIN2019AD', AVPAIRType.MsvAvDnsDomainName: 'test.corp', AVPAIRType.MsvAvDnsComputerName: 'WIN2019AD.test.corp', AVPAIRType.MsvAvTimestamp: b'\xae\xc6\x00\xbf\xc5\xfd\xd4\x01', AVPAIRType.MsvAvFlags: b'\x02\x00\x00\x00', AVPAIRType.MsvAvSingleHost: b"0\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00 \x00\x00R}'\xf24\xdet7`\x96c\x84\xd3oa\xae*\xa4\xfc*8\x06\x99\xf8\xca\xa6\x00\x01\x1bHm\x89", AVPAIRType.MsvChannelBindings: b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00', AVPAIRType.MsvAvTargetName: 'cifs/10.10.10.2'})
+#	
+#	challenge = NTLMChallenge.construct(challenge=b'\x01\x23\x45\x67\x89\xab\xcd\xef', targetName = 'Domain', targetInfo = details, version = handler.ntlmNegotiate.Version, flags= handler.flags)
+#	data, is_res = handler.authenticate(challenge.to_bytes())
+#	print(data)
+#	print(is_res)
+#	
+#	print(handler.ntlmAuthenticate.LMChallenge.to_bytes().hex())
+#	print(handler.ntlmAuthenticate.NTChallenge.to_bytes().hex())
+#	
+#
+#def test():
+#	template_name = 'Windows10_15063'
+#	credential = Credential()
+#	credential.username = 'test'
+#	credential.password = 'test'
+#	
+#	settings = NTLMHandlerSettings(credential, mode = 'CLIENT', template_name = template_name, ntlm_downgrade = False, extended_security = True)
+#	handler = NTLMAUTHHandler(settings)
+#	data, is_res = handler.authenticate(None)
+#	print(data)
+#	print(is_res)
+#	
+#if __name__ == '__main__':
+#	from aiosmb.ntlm.structures.version import Version, WindowsMajorVersion, WindowsMinorVersion
+#	test_msdn()

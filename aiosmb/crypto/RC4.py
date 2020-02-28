@@ -26,8 +26,6 @@ class pureRC4(symmetricBASE):
 		self.key = key
 		symmetricBASE.__init__(self)
 		
-
-
 	def setup_cipher(self):		
 		self._cipher = _pureRC4(self.key)
 

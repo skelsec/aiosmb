@@ -3,7 +3,7 @@ import asyncio
 from aiosmb import logger
 from aiosmb.commons.exceptions import *
 from aiosmb.commons.connection.proxy import SMBProxyType
-from aiosmb.network.socks5 import Socks5ProxyConnection
+from aiosmb.network.socks import SocksProxyConnection
 from aiosmb.network.multiplexornetwork import MultiplexorProxyConnection
 from aiosmb.commons.utils.decorators import red, rr
 
@@ -128,8 +128,8 @@ class DCERPCTCPTransport:
 		if self.target.proxy is None:
 			return DCERPCTCPConnection(self.target.ip, self.target.port), None
 			
-		elif self.target.proxy.type in [SMBProxyType.SOCKS5, SMBProxyType.SOCKS5_SSL]:
-			return Socks5ProxyConnection(target = self.target), None
+		elif self.target.proxy.type in [SMBProxyType.SOCKS5, SMBProxyType.SOCKS5_SSL, SMBProxyType.SOCKS4, SMBProxyType.SOCKS4_SSL]:
+			return SocksProxyConnection(target = self.target), None
 
 		elif self.target.proxy.type in [SMBProxyType.MULTIPLEXOR, SMBProxyType.MULTIPLEXOR_SSL]:
 			mpc = MultiplexorProxyConnection(self.target)

@@ -29,8 +29,6 @@ class pureAES(symmetricBASE):
 
 		symmetricBASE.__init__(self)
 
-		
-
 	def setup_cipher(self):
 		if self.mode == cipherMODE.ECB:
 			self._cipher = AESModeOfOperationECB(self.key)

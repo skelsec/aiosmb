@@ -45,12 +45,6 @@ async def read_or_exc(reader, n, timeout = None):
 		raise temp[0]
 
 
-class SOCKS5ServerMode(enum.Enum):
-	OFF    = enum.auto()
-	NORMAL = enum.auto()
-	EVIL   = enum.auto()
-
-
 class SOCKS5ServerState(enum.Enum):
 	NEGOTIATION = 0
 	NOT_AUTHENTICATED = 1

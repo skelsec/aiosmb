@@ -16,6 +16,10 @@ from aiosmb.dcerpc.v5.interfaces.remoteregistry import RRP
 from aiosmb.commons.utils.decorators import red, rr, red_gen, rr_gen
 from aiosmb.commons.exceptions import SMBMachineException
 
+from aiosmb.commons.interfaces.blocking.file.file import SMBBlockingFileMgr
+from aiosmb.commons.interfaces.blocking.file.blockingfile import SMBBlockingFile
+from aiosmb.commons.utils.apq import AsyncProcessQueue
+
 
 def req_srvs_gen(funct):
 	async def wrapper(*args, **kwargs):
@@ -133,6 +137,20 @@ class SMBMachine:
 		self.servicemanager = None
 
 		self.privtable = {}
+		self.blocking_mgr_tasks = {}
+
+	def get_blocking_file(self):
+		"""
+		Starts a file manager task and initializes the io queues
+		"""
+
+		in_q = AsyncProcessQueue()
+		out_q = AsyncProcessQueue()
+		fsm = SMBBlockingFileMgr(self.connection, in_q, out_q)
+		fsmt = asyncio.create_task(fsm.run())
+		self.blocking_mgr_tasks[fsmt] = 1
+		bfile = SMBBlockingFile(in_q, out_q)
+		return bfile
 
 	@red
 	async def connect_rpc(self, service_name):
@@ -360,6 +378,7 @@ class SMBMachine:
 		await self.create_service(service_name, command)
 
 		return True, None
+	
 
 	async def stop_service(self):
 		pass

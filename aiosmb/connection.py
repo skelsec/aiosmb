@@ -129,10 +129,9 @@ class SMBConnection:
 	"""
 	Connection class for network connectivity and SMB messages management (sending/recieveing/singing/encrypting).
 	"""
-	def __init__(self, gssapi, target, dialects = [NegotiateDialects.SMB202], shutdown_evt = asyncio.Event()):
+	def __init__(self, gssapi, target, dialects = [NegotiateDialects.SMB202]):
 		self.gssapi = gssapi
 		self.original_gssapi = copy.deepcopy(gssapi) #preserving a copy of the original
-		self.shutdown_evt = shutdown_evt
 		
 		self.target = target
 		
@@ -192,6 +191,7 @@ class SMBConnection:
 		
 		self.SessionId = 0
 		self.SessionKey = None
+
 		
 		#ignore_close is there to skip the logoff/closing of the channel
 		#this is useful because there could be certain errors after a scusessful logon
@@ -229,7 +229,7 @@ class SMBConnection:
 		This function started automatically when calling connect.
 		"""
 		try:
-			while not self.shutdown_evt.is_set():
+			while True:
 				msg, err = await self.netbios_transport.in_queue.get()
 				self.activity_at = datetime.datetime.utcnow()
 				if err is not None:

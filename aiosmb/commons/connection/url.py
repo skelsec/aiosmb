@@ -203,7 +203,7 @@ class SMBConnectionURL:
 				elif k.startswith('same'):
 					self.auth_settings[k[len('same'):]] = query[k]
 		
-		self.proxy = SMBProxy.from_url(self.connection_url)
+		self.proxy = SMBProxy.from_params(self.connection_url)
 			
 if __name__ == '__main__':
 	url_tests = [
