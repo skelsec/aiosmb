@@ -32,7 +32,7 @@ setup(
 		'minikerberos>=0.0.11',
 		'winsspi>=0.0.2',
 		'six',
-		'aiocmd',
+		'aiocmd>=0.1.2',
 		'asysocks',
 	],
 	

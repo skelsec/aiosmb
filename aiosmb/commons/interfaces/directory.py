@@ -84,7 +84,6 @@ class SMBDirectory:
 		newpath = dir_name
 		if self.fullpath != '':
 			newpath = '%s\\%s' % (self.fullpath, dir_name)
-		print(newpath)
 		try:
 			file_id = await connection.create(
 				self.tree_id, 

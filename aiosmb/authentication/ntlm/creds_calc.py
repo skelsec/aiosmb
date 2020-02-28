@@ -534,7 +534,6 @@ def DESL(K, D):
 		raise Exception("D MUST be 8 bytes long")
 
 	res = b''
-	print(len(K[:6]))
 	res += DES(K[:7]).encrypt(D)
 	res += DES(K[7:14]).encrypt(D)
 	res += DES(K[14:] + b'\x00'*5).encrypt(D)

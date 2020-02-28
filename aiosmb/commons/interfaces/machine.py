@@ -195,7 +195,7 @@ class SMBMachine:
 				remark = remark, 
 				fullpath = '\\\\%s\\%s' % (self.connection.target.get_hostname_or_ip(), name)
 			)
-			self.shares.append(share)
+			#self.shares.append(share)
 			yield share, None
 
 	@req_srvs_gen

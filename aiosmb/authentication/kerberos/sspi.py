@@ -52,7 +52,7 @@ class SMBKerberosSSPI:
 						
 
 				token = self.ksspi.get_ticket_for_spn(self.target, flags = flags, is_rpc = True, token_data = authData)
-				print(token.hex())
+				#print(token.hex())
 				self.iterations += 1
 				return token, True
 			
@@ -60,7 +60,7 @@ class SMBKerberosSSPI:
 				flags = ISC_REQ.USE_DCE_STYLE
 						
 				token = self.ksspi.get_ticket_for_spn(self.target, flags = flags, is_rpc = True, token_data = authData)
-				print(token.hex())
+				#print(token.hex())
 				
 				
 				aprep = AP_REP.load(token).native

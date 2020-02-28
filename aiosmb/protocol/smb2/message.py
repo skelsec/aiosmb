@@ -69,8 +69,10 @@ class SMB2Message:
 				classname += '_REQ'
 			msg.command = command2object[classname].from_buffer(buff)
 		except Exception as e:
+
+			import traceback
 			traceback.print_exc()
-			print('Could not find command implementation! %s' % str(e))
+			#print('Could not find command implementation! %s' % str(e))
 			msg.command = SMB2NotImplementedCommand.from_buffer(buff)
 
 		return msg

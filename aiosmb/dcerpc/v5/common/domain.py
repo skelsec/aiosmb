@@ -43,7 +43,7 @@ class SMBDomain:
 				
 		self.domain_sid = await self.samr.get_domain_sid(self.domain_name)
 		self.domain_handle = await self.samr.open_domain(self.domain_sid, access_level = self.domain_access_level)
-		print(self.domain_sid)
+		#print(self.domain_sid)
 		
 	async def get_info(self):
 		for i in [

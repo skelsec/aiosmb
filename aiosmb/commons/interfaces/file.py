@@ -52,7 +52,6 @@ class SMBFile:
 		if remotepath[0] == '\\':
 			temp = '\\\\%s%s'
 		unc = temp % (connection.target.get_hostname_or_ip(), remotepath)
-		print(unc)
 		return SMBFile.from_uncpath(unc)
 
 	@staticmethod
