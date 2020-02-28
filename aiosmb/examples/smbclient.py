@@ -8,6 +8,7 @@ from aiocmd import aiocmd
 from aiosmb.examples.smbpathcompleter import SMBPathCompleter
 
 from aiosmb import logger
+from aiosmb._version import __banner__
 from aiosmb.commons.connection.url import SMBConnectionURL
 from aiosmb.commons.interfaces.machine import SMBMachine
 from aiosmb.commons.utils.decorators import rr, rr_gen, red, red_gen, ef_gen
@@ -553,6 +554,7 @@ def main():
 	parser.add_argument('smb_url', help = 'Connection string that describes the authentication and target. Example: smb+ntlm-password://TEST\\Administrator:password@10.10.10.2')
 	
 	args = parser.parse_args()
+	print(__banner__)
 
 	if args.verbose > 2:
 		print('setting deepdebug')
