@@ -50,8 +50,12 @@ class SMBSRVS:
 		status = NTStatus.MORE_ENTRIES
 		resumeHandle = 0
 		while status == NTStatus.MORE_ENTRIES:
-			resp, _ = await rr(srvs.hNetrShareEnum(self.dce, level, resumeHandle = resumeHandle))
-			
+			resp, err = await srvs.hNetrShareEnum(self.dce, level, resumeHandle = resumeHandle)
+			if err is not None:
+				if err.error_code != NTStatus.MORE_ENTRIES.value:
+					raise err
+				resp = err.get_packet()
+
 			for entry in resp['InfoStruct']['ShareInfo'][level_name]['Buffer']:
 				yield entry['shi1_netname'][:-1], entry['shi1_type'], entry['shi1_remark'], None
 			
@@ -66,7 +70,11 @@ class SMBSRVS:
 		status = NTStatus.MORE_ENTRIES
 		resumeHandle = 0
 		while status == NTStatus.MORE_ENTRIES:
-			resp, _= await rr(srvs.hNetrSessionEnum(self.dce, '\x00', NULL, level, resumeHandle = resumeHandle))
+			resp, err = await srvs.hNetrSessionEnum(self.dce, '\x00', NULL, level, resumeHandle = resumeHandle)
+			if err is not None:
+				if err.error_code != NTStatus.MORE_ENTRIES.value:
+					raise err
+				resp = err.get_packet()
 
 			if level == 1:
 				for entry in resp['InfoStruct']['SessionInfo'][level_name]['Buffer']:

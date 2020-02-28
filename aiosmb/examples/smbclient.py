@@ -507,10 +507,30 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 	async def do_dcsync(self):
 		"""It's a suprse tool that will help us later"""
 		try:
-			async for secret, err in rr_gen(self.machine.dcsync()):
+			async for secret, err in self.machine.dcsync():
 				if err is not None:
 					raise err
 				print(str(secret))
+		
+		except SMBException as e:
+			logger.debug(traceback.format_exc())
+			print(e.pprint())
+		except SMBMachineException as e:
+			logger.debug(traceback.format_exc())
+			print(str(e))
+		except DCERPCException as e:
+			logger.debug(traceback.format_exc())
+			print(str(e))
+		except Exception as e:
+			traceback.print_exc()
+
+	async def do_users(self, domain = None):
+		"""List users in domain"""
+		try:
+			async for username, user_sid, err in self.machine.list_domain_users(domain):
+				if err is not None:
+					print(str(err))
+				print('%s %s' % (username, user_sid))
 		
 		except SMBException as e:
 			logger.debug(traceback.format_exc())

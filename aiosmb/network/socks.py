@@ -44,10 +44,18 @@ class SocksProxyConnection:
 		"""
 		
 		"""
+		
 		self.out_queue = asyncio.Queue()
 		self.in_queue = asyncio.Queue()
 		comms = SocksQueueComms(self.out_queue, self.in_queue)
-		self.client = SOCKSClient(comms, self.target.proxy.target)
+
+		self.target.proxy.target.endpoint_ip = self.target.ip
+		self.target.proxy.target.endpoint_port = int(self.target.port)
+
+		print(str(self.target))
+		print(str(self.target.proxy.target))
+		
+		self.client = SOCKSClient(comms, self.target.proxy.target, self.target.proxy.auth)
 		self.proxy_task = asyncio.create_task(self.client.run())
 		return
 

@@ -1,4 +1,5 @@
 import enum
+import copy
 
 from aiosmb.dcerpc.v5.common.connection.connectionstring import DCERPCStringBinding
 
@@ -30,7 +31,7 @@ class DCERPCTarget:
 			connection_string = s
 		else:
 			raise Exception('Unknown string binding type %s' % type(s))
-		
+			
 		na = connection_string.get_network_address()
 		ps = connection_string.get_protocol_sequence()
 		if ps == 'ncadg_ip_udp':
@@ -56,6 +57,9 @@ class DCERPCTarget:
 		
 		else:
 			raise Exception('Unknown DCERPC protocol %s' % ps)
+
+		if smb_connection.target.proxy is not None:
+			target.proxy = copy.deepcopy(smb_connection.target.proxy)
 			
 		return target
 
@@ -71,7 +75,7 @@ class DCERPCTCPTarget(DCERPCTarget):
 	def __init__(self, connection_string, ip, port, timeout = 1):
 		DCERPCTarget.__init__(self, connection_string, DCERPCTargetType.TCP, timeout = timeout)
 		self.ip = ip
-		self.port = port
+		self.port = int(port)
 
 class DCERPCUDPTarget(DCERPCTarget):
 	def __init__(self, connection_string, ip, port, timeout = 1):

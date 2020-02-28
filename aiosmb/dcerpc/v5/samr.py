@@ -30,6 +30,7 @@ from aiosmb.dcerpc.v5.ndr import NDRCALL, NDR, NDRSTRUCT, NDRUNION, NDRPOINTER, 
 from aiosmb.dcerpc.v5.dtypes import NULL, RPC_UNICODE_STRING, ULONG, USHORT, UCHAR, LARGE_INTEGER, RPC_SID, LONG, STR, LPBYTE, SECURITY_INFORMATION, PRPC_SID, PRPC_UNICODE_STRING, LPWSTR
 from aiosmb.dcerpc.v5.rpcrt import DCERPCException
 from aiosmb.dcerpc.v5.uuid import uuidtup_to_bin
+from aiosmb.wintypes.ntstatus import NTStatus
 
 from aiosmb.commons.utils.decorators import red, rr
 
@@ -38,11 +39,18 @@ MSRPC_UUID_SAMR   = uuidtup_to_bin(('12345778-1234-ABCD-EF00-0123456789AC', '1.0
 class DCERPCSessionError(DCERPCException):
 	def __init__(self, error_string=None, error_code=None, packet=None):
 		DCERPCException.__init__(self, error_string, error_code, packet)
-
+	
 	def __str__( self ):
 		key = self.error_code
-		return 'SAMR SessionError: unknown error code: 0x%x' % self.error_code
-
+		name = None
+		try:
+			return 'SAMR SessionError: code: 0x%x - %s ' % (
+				key, 
+				NTStatus(key).name, 
+			)
+		except:
+			return 'SAMR SessionError: unknown error code: 0x%x' % self.error_code
+			
 ################################################################################
 # CONSTANTS
 ################################################################################

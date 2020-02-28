@@ -9,7 +9,13 @@ class SMBDCEFactory:
 		self.filename = filename
 	
 	def get_dce_rpc(self):
-		dcerpc_target = DCERPCSMBTarget(None, self.smb_connection.target.get_hostname_or_ip(), pipe = self.filename, smb_connection = self.smb_connection, timeout = self.smb_connection.target.timeout)
+		dcerpc_target = DCERPCSMBTarget(
+			None, 
+			self.smb_connection.target.get_hostname_or_ip(), 
+			pipe = self.filename, 
+			smb_connection = self.smb_connection, 
+			timeout = self.smb_connection.target.timeout
+		)
 		#print(str(dcerpc_target))
 		dcerpc_auth = DCERPCAuth.from_smb_gssapi(self.smb_connection.gssapi)
 		#print(str(dcerpc_auth))

@@ -94,12 +94,11 @@ class SMBSAMR:
 		status = NTStatus.MORE_ENTRIES
 		enumerationContext = 0
 		while status == NTStatus.MORE_ENTRIES:
-			try:
-				resp, _ = await rr(samr.hSamrEnumerateDomainsInSamServer(self.dce, self.handle, enumerationContext = enumerationContext))
-			except DCERPCException as e:
-				if str(e).find('STATUS_MORE_ENTRIES') < 0:
-					raise
-				resp = e.get_packet()
+			resp, err = await samr.hSamrEnumerateDomainsInSamServer(self.dce, self.handle, enumerationContext = enumerationContext)
+			if err is not None:
+				if err.error_code != NTStatus.MORE_ENTRIES.value:
+					raise err
+				resp = err.get_packet()
 			
 			for domain in resp['Buffer']['Buffer']:
 				yield domain['Name'], None
@@ -126,7 +125,11 @@ class SMBSAMR:
 		status = NTStatus.MORE_ENTRIES
 		enumerationContext = 0
 		while status == NTStatus.MORE_ENTRIES:
-			resp, _ = await rr(samr.hSamrEnumerateUsersInDomain(self.dce, domain_handle, user_type, enumerationContext=enumerationContext))
+			resp, err = await samr.hSamrEnumerateUsersInDomain(self.dce, domain_handle, user_type, enumerationContext=enumerationContext)
+			if err is not None:
+				if err.error_code != NTStatus.MORE_ENTRIES.value:
+					raise err
+				resp = err.get_packet()
 
 			for user in resp['Buffer']['Buffer']:
 				user_sid = '%s-%s' % (self.domain_handles[domain_handle], user['RelativeId'])
@@ -140,7 +143,11 @@ class SMBSAMR:
 		status = NTStatus.MORE_ENTRIES
 		enumerationContext = 0
 		while status == NTStatus.MORE_ENTRIES:
-			resp, _ = await rr(samr.hSamrEnumerateGroupsInDomain(self.dce, domain_handle, enumerationContext=enumerationContext))
+			resp, err = await samr.hSamrEnumerateGroupsInDomain(self.dce, domain_handle, enumerationContext=enumerationContext)
+			if err is not None:
+				if err.error_code != NTStatus.MORE_ENTRIES.value:
+					raise err
+				resp = err.get_packet()
 
 			for group in resp['Buffer']['Buffer']:
 				group_sid = '%s-%s' % (self.domain_handles[domain_handle], group['RelativeId'])
@@ -153,8 +160,12 @@ class SMBSAMR:
 		status = NTStatus.MORE_ENTRIES
 		enumerationContext = 0
 		while status == NTStatus.MORE_ENTRIES:
-			resp, _ = await rr(samr.hSamrEnumerateUsersInDomain(self.dce, domain_handle,  enumerationContext=enumerationContext))
-			
+			resp, err = await samr.hSamrEnumerateUsersInDomain(self.dce, domain_handle,  enumerationContext=enumerationContext)
+			if err is not None:
+				if err.error_code != NTStatus.MORE_ENTRIES.value:
+					raise err
+				resp = err.get_packet()
+
 			for user in resp['Buffer']['Buffer']:
 				user_sid = '%s-%s' % (self.domain_handles[domain_handle], user['RelativeId'])
 				yield user['Name'], user_sid, None
@@ -184,7 +195,11 @@ class SMBSAMR:
 		status = NTStatus.MORE_ENTRIES
 		enumerationContext = 0
 		while status == NTStatus.MORE_ENTRIES:
-			resp, _ = await rr(samr.hSamrEnumerateAliasesInDomain(self.dce, domain_handle, enumerationContext=enumerationContext))
+			resp, err = await samr.hSamrEnumerateAliasesInDomain(self.dce, domain_handle, enumerationContext=enumerationContext)
+			if err is not None:
+				if err.error_code != NTStatus.MORE_ENTRIES.value:
+					raise err
+				resp = err.get_packet()
 
 			for alias in resp['Buffer']['Buffer']:
 				yield alias['Name'] , alias['RelativeId'], None

@@ -102,9 +102,10 @@ async def rr(coro):
 async def rr_gen(coro):
 	try:
 		async for x in coro:
+			print(x)
 			if x[-1] is not None:  #the last arg MUST ALWAYS be an exception or none!
+				print('raising')
 				raise x[-1]
-				break
 			yield x
 	except Exception as e:
 		raise e
