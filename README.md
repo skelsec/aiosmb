@@ -7,18 +7,37 @@ It is far from ready. There are TONS of things to do to make this library usable
 # What is expected
 A lot of bugs and weird crashes. That aside, I believe I can bring this project to a stable version so you will be able to use it to perform normal operations as well as security ones as well.
 
-# TODO
-- Authentication to fully support SPNEGO with SSPI : DONE (SMB only, DCERPC ongoing)
-- Have nice interface for reading/writing files: Ongoing, reading works now but far from ready
-- Interface for qurying file/folder/pipe/... information: The logic is there, now it's just muscle-work to have all descriptor objects implemented
-- Interface for creating files and folders: not yet
-- DCERPC:
-  - Not going to lie, I'm ripping off impacket for this one. The whole DCERPC is a mess as a protocol. A word for whoever designed it: you are a bad person.
-  - Interface for controlling services: object is ready and stable, but missing a lot of functionalities
-  - Interface for controlling registry: object is ready and stable, but missing a lot of functionalities
-  - Interface for controlling drsuapi: in plans. First I want to get DCERPC to support Kerberos and or SPNEGO. Only NTLM works for now.
-  - Any other RPC interfaces: not started or not even ready for testing.
-  
+# Features
+
+## Authentication
+### Kerberos
+|           | Kirbi                 | CCACHE | AES/RC4/DES keys | NT hash | Password |
+|-----------|-----------------------|--------|------------------|---------|----------|
+| Supported | Y (convert to CCACHE) | Y      | Y                | Y       | Y        |
+
+### NTLM
+|           | LM hash | NT hash | Password |
+|-----------|---------|---------|----------|
+| Supported | N       | Y       | Y        |
+
+### SSPI
+Only on Windows.  
+This auth method uses the current user context. If you are NT/SYSTEM then it will use the machine account credentials.
+|           | NTLM | Kerberos |
+|-----------|------|----------|
+| Supported | Y    | Y        |
+
+## Proxy
+Supports Socks4 and Socks5 natively. Socks5 currently not supporting authentication.  
+Bear in mind, that proxy support doesnt always play well with all auth methods, see this table below.
+
+|          | SOCKS4                 | SOCKS5               |
+|----------|------------------------|----------------------|
+| NTLM     | Y                      | Y                    |
+| Kerberos | N (incompatible)       | N (TODO)             |
+| SSPI     | Y (only local users)   | Y (only local users) |
+
+
 # Connection url
 I managed to condense all information needed to specify an SMB connection into an URL format.  
 It looks like this:  
@@ -28,6 +47,7 @@ It looks like this:
 `dialect` fomat:  `smbX_version`  
 Where `X`: `1` or `2`  
 Where `version`: `200` or `201` or `300`...  
+At the moment use only `smb` as this feature is not implemented.
   
 `authmethod` format: `auth-type`  
 Where `auth`: `ntlm` or `kerberos` or `sspi`  
@@ -49,6 +69,8 @@ Domain: `TEST`
 Passowrd: `Passw0rd!1`  
 DC IP address: `10.10.10.2`  
 DC hostname: `win2019ad`  
+Socks4 proxy serer: `127.0.0.1`
+Socks4 proxy port : `9050`
 
 #### Example 1 - NTLM with password
 `smb+ntlm-password://TEST\victim:Passw0rd!1@10.10.10.2`
@@ -62,6 +84,20 @@ DC hostname: `win2019ad`
 `smb+kerberos-nt://TEST\victim:f8963568a1ec62a3161d9d6449baba93@win2019ad.test.corp`
 #### Example 6 - KERBEROS using the SSPI in Windows
 `smb+sspi-kerberos://win2019ad.test.corp`
+#### Example 7 - Socks proxy and NTLM with password
+`smb+ntlm-password://TEST\victim:Passw0rd!1@10.10.10.2/?proxyhost=127.0.0.1&proxyport=9050`
+#### Example 8 - NTLM with password with timeout higher than normal (60s)
+`smb+ntlm-password://TEST\victim:Passw0rd!1@10.10.10.2/?timeout=60`
+
+# TODO
+- Authentication to fully support SPNEGO with SSPI : DONE (SMB and !!!!DCERPC!!!!!)
+- Have nice interface for reading/writing files: Ongoing, reading works now but far from ready
+- DCERPC:
+  - Not going to lie, I'm ripping off impacket for this one. The whole DCERPC is a mess as a protocol. A word for whoever designed it: you are a bad person.
+  - Interface for controlling services: object is ready and stable, but missing a lot of functionalities
+  - Interface for controlling registry: object is ready and stable, but missing a lot of functionalities
+  - Interface for controlling drsuapi: looking good.
+  - Any other RPC interfaces: some implemented, some not.
 
 # Kudos
 This project is heavily based on the [Impacket project](https://github.com/SecureAuthCorp/impacket) orignally by @agsolino.  
