@@ -106,7 +106,6 @@ class SMBKerberos:
 				ap_rep['enc-part'] = EncryptedData({'etype': self.session_key.enctype, 'cipher': apreppart_data_enc}) 
 				
 				token = AP_REP(ap_rep).dump()
-				print(token)
 				self.gssapi = get_gssapi(self.session_key)
 				self.iterations += 1
 				

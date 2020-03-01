@@ -50,7 +50,6 @@ class DCERPC5Connection:
 		self.auth_level = auth_level
 
 	def set_auth_type(self, auth_type):
-		print('CALLED!!!! %s' % auth_type)
 		self.auth_type = auth_type
 
 	@red
@@ -76,7 +75,7 @@ class DCERPC5Connection:
 		"""
 		Performs bind operation. Does authentication and sets up the keys for further communication
 		"""
-		
+
 		bind = MSRPCBind()
 		#item['TransferSyntax']['Version'] = 1
 		ctx = self.ctx
@@ -110,7 +109,6 @@ class DCERPC5Connection:
 
 		if self.auth_level != RPC_C_AUTHN_LEVEL_NONE:
 			#authentication required
-			print('atype: %s' % self.auth_type)
 			if self.auth_type == RPC_C_AUTHN_WINNT:
 				
 				#seal flag MUST be turned on in the handshake flags!!!!!!!
@@ -148,9 +146,7 @@ class DCERPC5Connection:
 			packet['sec_trailer'] = sec_trailer
 			packet['auth_data'] = auth
 
-		print(1)
 		_,_ = await rr(self.transport.send(packet.get_packet()))
-		print(2)
 
 		data, _ = await rr(self.recv_one())
 	

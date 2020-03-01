@@ -49,8 +49,6 @@ class SocksProxyConnection:
 		self.in_queue = asyncio.Queue()
 		comms = SocksQueueComms(self.out_queue, self.in_queue)
 
-		print(self.target)
-
 		self.target.proxy.target.endpoint_ip = self.target.ip
 		self.target.proxy.target.endpoint_port = int(self.target.port)
 
