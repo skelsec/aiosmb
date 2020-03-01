@@ -3,6 +3,7 @@ import traceback
 import ntpath
 import fnmatch
 
+import shlex
 import tqdm
 from aiocmd import aiocmd
 from aiosmb.examples.smbpathcompleter import SMBPathCompleter
@@ -545,13 +546,28 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 		except Exception as e:
 			traceback.print_exc()
 
+async def amain(args):
+	client = SMBClient(args.smb_url)
+	if len(args.commands) == 0:
+		if args.no_interactive is True:
+			print('Not starting interactive!')
+			return
+		await client.run()
+	else:
+		for command in args.commands:
+			cmd = shlex.split(command)
+			#print(cmd)
+			await client._run_single_command(cmd[0], cmd[1:])
+
 def main():
 	import argparse
 	import platform
 	
 	parser = argparse.ArgumentParser(description='Interactive SMB client')
 	parser.add_argument('-v', '--verbose', action='count', default=0)
+	parser.add_argument('-n', '--no-interactive', action='store_true')
 	parser.add_argument('smb_url', help = 'Connection string that describes the authentication and target. Example: smb+ntlm-password://TEST\\Administrator:password@10.10.10.2')
+	parser.add_argument('commands', nargs='*')
 	
 	args = parser.parse_args()
 	print(__banner__)
@@ -561,7 +577,9 @@ def main():
 		logger.setLevel(1) #enabling deep debug
 		sockslogger.setLevel(1)
 
-	asyncio.get_event_loop().run_until_complete(SMBClient(args.smb_url).run())
+	print(args.commands)
+
+	asyncio.run(amain(args))
 
 if __name__ == '__main__':
 	main()

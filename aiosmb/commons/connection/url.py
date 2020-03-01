@@ -28,6 +28,7 @@ class SMBConnectionURL:
 		self.port = None
 		self.ip = None
 		self.timeout = 5
+		self.server_ip = None
 
 		#proxy
 		self.proxy= None
@@ -56,6 +57,14 @@ class SMBConnectionURL:
 		return self.proxy
 
 	def get_target(self):
+		if self.ip is not None and self.hostname is None:
+			try:
+				ipaddress.ip_address(self.ip)
+			except:
+				self.hostname = self.ip
+		if self.server_ip is not None:
+			self.ip = self.server_ip
+			
 		return SMBTarget(
 			ip = self.ip, 
 			port = self.port, 
@@ -189,13 +198,18 @@ class SMBConnectionURL:
 		# proxypass -> password for proxy auth
 		#  
 		#
+		proxy_present = False
 		if url_e.query is not None:
 			query = parse_qs(url_e.query)
 			for k in query:
+				if k.startswith('proxy') is True:
+					proxy_present = True
 				if k == 'dc':
 					self.dc_ip = query[k][0]
 				elif k == 'timeout':
 					self.timeout = int(query[k][0])
+				elif k == 'serverip':
+					self.server_ip = query[k][0]
 				elif k == 'dns':
 					self.dns = query[k] #multiple dns can be set, so not trimming here
 				elif k.startswith('auth'):
@@ -203,7 +217,8 @@ class SMBConnectionURL:
 				elif k.startswith('same'):
 					self.auth_settings[k[len('same'):]] = query[k]
 		
-		self.proxy = SMBProxy.from_params(self.connection_url)
+		if proxy_present is True:
+			self.proxy = SMBProxy.from_params(self.connection_url)
 			
 if __name__ == '__main__':
 	url_tests = [

@@ -8,9 +8,9 @@
 from aiosmb.authentication.spnego.asn1_structs import KRB5Token
 from winsspi.sspi import KerberosSMBSSPI
 from winsspi.common.function_defs import ISC_REQ
-from minikerberos.gssapi import get_gssapi
-from minikerberos.asn1_structs import AP_REQ, AP_REP
-from minikerberos.encryption import Enctype, Key, _enctype_table
+from minikerberos.gssapi.gssapi import get_gssapi
+from minikerberos.protocol.asn1_structs import AP_REQ, AP_REP
+from minikerberos.protocol.encryption import Enctype, Key, _enctype_table
 
 class SMBKerberosSSPI:
 	def __init__(self, settings):

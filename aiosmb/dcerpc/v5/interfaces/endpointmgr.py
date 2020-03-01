@@ -32,7 +32,7 @@ class EPM:
 
 	@red
 	async def connect(self):
-		dcerpc_target_str = r'%s:%s[%s]' % (self.protocol, self.smb_connection.target.get_hostname_or_ip(), self.port)
+		dcerpc_target_str = r'%s:%s[%s]' % (self.protocol, self.smb_connection.target.ip, self.port)
 		self.dce = self.get_connection_from_stringbinding(dcerpc_target_str)
 
 		await rr(self.dce.connect())
@@ -63,7 +63,8 @@ class EPM:
 			pipeName['PipeName'] = b'\x00'
 
 			hostName = EPMHostName()
-			hostName['HostName'] = b('%s\x00' % self.smb_connection.target.get_hostname_or_ip())
+			#hostName['HostName'] = b('%s\x00' % self.smb_connection.target.get_hostname_or_ip())
+			hostName['HostName'] = b('%s\x00' % self.smb_connection.target.ip)
 			transportData = pipeName.getData() + hostName.getData()
 
 		elif self.protocol == 'ncacn_ip_tcp':
@@ -109,15 +110,15 @@ class EPM:
 		if self.protocol == 'ncacn_np':
 			# Pipe Name should be the 4th floor
 			pipeName = EPMPipeName(tower['Floors'][3].getData())
-			result = 'ncacn_np:%s[%s]' % (self.smb_connection.target.get_hostname_or_ip(), pipeName['PipeName'].decode('utf-8')[:-1])
+			result = 'ncacn_np:%s[%s]' % (self.smb_connection.target.ip, pipeName['PipeName'].decode('utf-8')[:-1])
 		elif self.protocol == 'ncacn_ip_tcp':
 			# Port Number should be the 4th floor
 			portAddr = EPMPortAddr(tower['Floors'][3].getData())
-			result = 'ncacn_ip_tcp:%s[%s]' % (self.smb_connection.target.get_hostname_or_ip(), portAddr['IpPort'])
+			result = 'ncacn_ip_tcp:%s[%s]' % (self.smb_connection.target.ip, portAddr['IpPort'])
 		elif self.protocol == 'ncacn_http':
 			# Port Number should be the 4th floor
 			portAddr = EPMPortAddr(tower['Floors'][3].getData())
-			result = 'ncacn_http:%s[%s]' % (self.smb_connection.target.get_hostname_or_ip(), portAddr['IpPort'])
+			result = 'ncacn_http:%s[%s]' % (self.smb_connection.target.ip, portAddr['IpPort'])
 		
 		return result, None
 

@@ -9,7 +9,6 @@ from aiosmb.wintypes.dtyp.structures.filetime import FILETIME
 from aiosmb.wintypes.dtyp.constrcuted_security.sid import SID
 from aiosmb.dcerpc.v5.dtypes import NULL
 from aiosmb.dcerpc.v5.uuid import string_to_bin
-from aiosmb.dcerpc.v5.common.connection.smbdcefactory import SMBDCEFactory
 from aiosmb.dcerpc.v5 import drsuapi, samr
 from aiosmb.dcerpc.v5.interfaces.endpointmgr import EPM
 from aiosmb.dcerpc.v5.interfaces.servicemanager import *

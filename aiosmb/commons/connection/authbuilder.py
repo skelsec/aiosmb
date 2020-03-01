@@ -1,12 +1,17 @@
 import enum
 import platform
 
+import copy
 from aiosmb.commons.connection.credential import *
 from aiosmb.authentication.spnego.native import SPNEGO
 from aiosmb.authentication.ntlm.native import NTLMAUTHHandler, NTLMHandlerSettings
 from aiosmb.authentication.kerberos.native import SMBKerberos
-from minikerberos.common import KerberosTarget, KerberosCredential
-from minikerberos.aiocommunication import KerberosSocketAIO
+from minikerberos.common.target import KerberosTarget
+from minikerberos.common.proxy import KerberosProxy
+from minikerberos.common.creds import KerberosCredential
+from minikerberos.common.spn import KerberosSPN
+
+from minikerberos.network.selector import KerberosClientSocketSelector
 
 
 if platform.system().upper() == 'WINDOWS':
@@ -41,7 +46,7 @@ class AuthenticatorBuilder:
 			spneg.add_auth_context('NTLMSSP - Microsoft NTLM Security Support Provider', handler)
 			
 			return spneg
-			
+		
 		elif creds.authentication_type == SMBAuthProtocol.KERBEROS:
 			if target is None:
 				raise Exception('Target must be specified with Kerberos!')
@@ -76,10 +81,16 @@ class AuthenticatorBuilder:
 			
 				
 			kcred = SMBKerberosCredential()
-			kcred.ccred = kc #KerberosCredential
-			kcred.ksoc = KerberosSocketAIO(target.dc_ip) #KerberosSocketAIO
-			kcred.target = KerberosTarget.from_target_string(target.to_target_string()) #KerberosTarget
-			
+			kcred.ccred = kc
+			kcred.spn = KerberosSPN.from_target_string(target.to_target_string())
+			kcred.target = KerberosTarget(target.dc_ip)
+			if target.proxy is not None:
+				kcred.target.proxy = KerberosProxy()
+				kcred.target.proxy.target = copy.deepcopy(target.proxy.target)
+				kcred.target.proxy.target.endpoint_ip = target.dc_ip
+				kcred.target.proxy.target.endpoint_port = 88
+				kcred.target.proxy.creds = copy.deepcopy(target.proxy.auth)
+
 			handler = SMBKerberos(kcred)
 			
 			#setting up SPNEGO

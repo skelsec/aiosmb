@@ -9,6 +9,7 @@ from aiosmb.dcerpc.v5.dtypes import UCHAR, ULONG, USHORT
 from aiosmb.dcerpc.v5.ndr import NDRSTRUCT
 from aiosmb.dcerpc.v5.rpcrt import *
 from aiosmb.commons.utils.decorators import red, rr
+from minikerberos.gssapi.gssapi import GSSAPIFlags
 
 class DCERPC5Connection:
 	def __init__(self, gssapi, target):
@@ -18,6 +19,9 @@ class DCERPC5Connection:
 		self.transport = None
 
 		self.auth_type = RPC_C_AUTHN_WINNT
+		if self.gssapi.kerberos is not None:
+			self.auth_type = RPC_C_AUTHN_GSS_NEGOTIATE
+		
 		self.auth_level = RPC_C_AUTHN_LEVEL_NONE
 		self.ctx = 0
 		self.callid = 1
@@ -46,6 +50,7 @@ class DCERPC5Connection:
 		self.auth_level = auth_level
 
 	def set_auth_type(self, auth_type):
+		print('CALLED!!!! %s' % auth_type)
 		self.auth_type = auth_type
 
 	@red
@@ -71,7 +76,7 @@ class DCERPC5Connection:
 		"""
 		Performs bind operation. Does authentication and sets up the keys for further communication
 		"""
-
+		
 		bind = MSRPCBind()
 		#item['TransferSyntax']['Version'] = 1
 		ctx = self.ctx
@@ -105,6 +110,7 @@ class DCERPC5Connection:
 
 		if self.auth_level != RPC_C_AUTHN_LEVEL_NONE:
 			#authentication required
+			print('atype: %s' % self.auth_type)
 			if self.auth_type == RPC_C_AUTHN_WINNT:
 				
 				#seal flag MUST be turned on in the handshake flags!!!!!!!
@@ -142,11 +148,12 @@ class DCERPC5Connection:
 			packet['sec_trailer'] = sec_trailer
 			packet['auth_data'] = auth
 
+		print(1)
 		_,_ = await rr(self.transport.send(packet.get_packet()))
-
+		print(2)
 
 		data, _ = await rr(self.recv_one())
-		
+	
 		resp = MSRPCHeader(data)
 		#print(resp.dump())
 
@@ -268,11 +275,11 @@ class DCERPC5Connection:
 					auth3['auth_data'] = response
 
 					# Use the same call_id
-					self.__callid = resp['call_id']
-					auth3['call_id'] = self.__callid
+					self.callid = resp['call_id']
+					auth3['call_id'] = self.callid
 					await rr(self.transport.send(auth3.get_packet(), forceWriteAndx = 1))
 
-			self.__callid += 1
+			self.callid += 1
 
 		return resp, None	 # means packet is signed, if verifier is wrong it fails
 
@@ -618,7 +625,10 @@ class DCERPC5Connection:
 					#sealedMessage, signature = nrpc.SEAL(plain_data, self.__confounder, self.__sequence, self.__sessionKey, False)
 				elif self.auth_type == RPC_C_AUTHN_GSS_NEGOTIATE:
 					#sealedMessage, signature = self.__gss.GSS_Wrap(self.__sessionKey, plain_data, self.__sequence)
-					sealedMessage, signature = await self.gssapi.encrypt(plain_data, self.__sequence)
+					#print('HERE!')
+					sealedMessage, signature = await self.gssapi.gssapi.encrypt(plain_data, self.__sequence)
+					#sealedMessage, signature = await self.gssapi.encrypt(plain_data, self.__sequence)
+
 
 				rpc_packet['pduData'] = sealedMessage
 				#print(sealedMessage)
@@ -668,14 +678,14 @@ class DCERPC5Connection:
 
 		
 	def alter_ctx(self, newUID, bogus_binds = 0):
-		answer = self.__class__(self._transport)
+		answer = self.__class__(self.transport)
 
 		answer.set_credentials(self.__username, self.__password, self.__domain, self.__lmhash, self.__nthash,
 							   self.__aesKey, self.__TGT, self.__TGS)
 		answer.set_auth_type(self.__auth_type)
 		answer.set_auth_level(self.__auth_level)
 
-		answer.set_ctx_id(self._ctx+1)
-		answer.__callid = self.__callid
+		answer.set_ctx_id(self.ctx+1)
+		answer.__callid = self.callid
 		answer.bind(newUID, alter = 1, bogus_binds = bogus_binds, transfer_syntax = bin_to_uuidtup(self.transfer_syntax))
 		return answer

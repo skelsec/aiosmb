@@ -11,10 +11,16 @@
 # 1. Most of the idea was taken from impacket
 # 2. See minikerberos library
 
+import datetime
+
 from minikerberos.common import *
-from minikerberos.aiocommunication import *
-from minikerberos.gssapi import get_gssapi
-from minikerberos.encryption import Enctype, Key, _enctype_table
+
+from minikerberos.protocol.asn1_structs import AP_REP, EncAPRepPart, EncryptedData
+from minikerberos.gssapi.gssapi import get_gssapi
+from minikerberos.protocol.structures import ChecksumFlags
+from minikerberos.protocol.encryption import Enctype, Key, _enctype_table
+from minikerberos.protocol.constants import MESSAGE_TYPE
+from minikerberos.aioclient import AIOKerberosClient
 
 # SMBKerberosCredential
 
@@ -23,8 +29,8 @@ class SMBKerberos:
 		self.settings = settings
 		self.mode = None
 		self.ccred = None
-		self.ksoc = None
 		self.target = None
+		self.spn = None
 		self.kc = None
 		
 		self.session_key = None
@@ -47,20 +53,21 @@ class SMBKerberos:
 	def setup(self):
 		self.mode = self.settings.mode
 		self.ccred = self.settings.ccred
-		self.ksoc = self.settings.ksoc
+		self.spn = self.settings.spn
 		self.target = self.settings.target
 		
-		self.kc = KerbrosCommAIO(self.ccred, self.ksoc)
+		self.kc = AIOKerberosClient(self.ccred, self.target)
 		
 	
 	def get_session_key(self):
 		return self.session_key.contents
 	
 	async def authenticate(self, authData, flags = None, seq_number = 0, is_rpc = False):
+
 		if self.iterations == 0:
 			#tgt = await self.kc.get_TGT(override_etype=[18])
 			tgt = await self.kc.get_TGT()
-			tgs, encpart, self.session_key = await self.kc.get_TGS(self.target)
+			tgs, encpart, self.session_key = await self.kc.get_TGS(self.spn)
 		ap_opts = []
 		if is_rpc == True:
 			if self.iterations == 0:
@@ -82,10 +89,10 @@ class SMBKerberos:
 				enc_part = EncAPRepPart.load(temp).native
 				cipher = _enctype_table[int(enc_part['subkey']['keytype'])]()
 				
-				now = datetime.datetime.utcnow() 
+				now = datetime.datetime.now(datetime.timezone.utc)
 				apreppart_data = {}
 				apreppart_data['cusec'] = now.microsecond
-				apreppart_data['ctime'] = now
+				apreppart_data['ctime'] = now.replace(microsecond=0)
 				apreppart_data['seq-number'] = enc_part['seq-number']
 				
 				apreppart_data_enc = cipher.encrypt(self.session_key, 12, EncAPRepPart(apreppart_data).dump(), None)
@@ -99,7 +106,7 @@ class SMBKerberos:
 				ap_rep['enc-part'] = EncryptedData({'etype': self.session_key.enctype, 'cipher': apreppart_data_enc}) 
 				
 				token = AP_REP(ap_rep).dump()
-				
+				print(token)
 				self.gssapi = get_gssapi(self.session_key)
 				self.iterations += 1
 				

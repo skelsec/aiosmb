@@ -10,9 +10,9 @@
 ## TODO: RPC auth type is not implemented or tested!!!!
 
 from aiosmb.authentication.spnego.asn1_structs import KRB5Token
-from minikerberos.gssapi import get_gssapi
-from minikerberos.asn1_structs import AP_REQ, AP_REP, TGS_REP
-from minikerberos.encryption import Enctype, Key, _enctype_table
+from minikerberos.gssapi.gssapi import get_gssapi
+from minikerberos.protocol.asn1_structs import AP_REQ, AP_REP, TGS_REP
+from minikerberos.protocol.encryption import Enctype, Key, _enctype_table
 
 from multiplexor.operator.external.sspi import KerberosSSPIClient
 from multiplexor.operator import MultiplexorOperator
