@@ -43,7 +43,7 @@ setup(
 		'winsspi>=0.0.5',
 		'six',
 		'aiocmd>=0.1.2',
-		'asysocks',
+		'asysocks>=0.0.2',
 	],
 	
 	classifiers=(
