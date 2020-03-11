@@ -546,6 +546,28 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 		except Exception as e:
 			traceback.print_exc()
 
+	async def do_printerbug(self, attacker_ip):
+		"""Printerbug"""
+		try:
+			res, err = await self.machine.printerbug(attacker_ip)
+			if err is not None:
+				print(str(err))
+			print(res)
+		
+		except SMBException as e:
+			logger.debug(traceback.format_exc())
+			print(e.pprint())
+		except SMBMachineException as e:
+			logger.debug(traceback.format_exc())
+			print(str(e))
+		except DCERPCException as e:
+			logger.debug(traceback.format_exc())
+			print(str(e))
+		except Exception as e:
+			traceback.print_exc()
+
+			
+
 async def amain(args):
 	client = SMBClient(args.smb_url)
 	if len(args.commands) == 0:
@@ -576,8 +598,6 @@ def main():
 		print('setting deepdebug')
 		logger.setLevel(1) #enabling deep debug
 		sockslogger.setLevel(1)
-
-	print(args.commands)
 
 	asyncio.run(amain(args))
 
