@@ -16,7 +16,8 @@ from aiosmb.wintypes.ntstatus import NTStatus
 from aiosmb.protocol.smb.header import SMBHeader, SMBHeaderFlags2Enum
 from aiosmb.protocol.smb.message import SMBMessage
 from aiosmb.protocol.smb.commands import *
-from aiosmb.protocol.smb2.message import SMB2Message, SMB2Transform
+from aiosmb.protocol.smb2.message import SMB2Message, SMB2Transform, SMB2Compression
+from aiosmb.protocol.smb2.commands.negotiate import SMB2ContextType, SMB2PreauthIntegrityCapabilities, SMB2HashAlgorithm, SMB2Cipher, SMB2CompressionType, SMB2CompressionFlags, SMB2EncryptionCapabilities, SMB2CompressionCapabilities
 from aiosmb.protocol.smb2.commands import *
 from aiosmb.protocol.smb2.headers import *
 from aiosmb.protocol.smb2.command_codes import *
@@ -31,6 +32,10 @@ from aiosmb.wintypes.dtyp.constrcuted_security.security_descriptor import SECURI
 
 from aiosmb.commons.smbcontainer import *
 from aiosmb.commons.connection.target import *
+
+from aiosmb.crypto.from_impacket import KDF_CounterMode, AES_CMAC
+from aiosmb.crypto.comp_lz77 import LZ77Compressor
+from Cryptodome.Cipher import AES
 
 
 
@@ -129,15 +134,17 @@ class SMBConnection:
 	"""
 	Connection class for network connectivity and SMB messages management (sending/recieveing/singing/encrypting).
 	"""
-	def __init__(self, gssapi, target, dialects = [NegotiateDialects.SMB202]):
+	#def __init__(self, gssapi, target, dialects = [NegotiateDialects.SMB202]):
+	def __init__(self, gssapi, target, dialects = [NegotiateDialects.SMB311]):
 		self.gssapi = gssapi
 		self.original_gssapi = copy.deepcopy(gssapi) #preserving a copy of the original
 		
 		self.target = target
 		
 		#######DONT CHANGE THIS
-		self.supported_dialects = [NegotiateDialects.WILDCARD, NegotiateDialects.SMB202, NegotiateDialects.SMB210]
+		#use this for smb2 > self.supported_dialects = [NegotiateDialects.WILDCARD, NegotiateDialects.SMB202, NegotiateDialects.SMB210]
 		#self.supported_dialects = [NegotiateDialects.SMB202, NegotiateDialects.SMB210]
+		self.supported_dialects = [NegotiateDialects.SMB311] #[NegotiateDialects.WILDCARD, NegotiateDialects.SMB311]
 		#######
 		
 		self.settings = None
@@ -175,7 +182,7 @@ class SMBConnection:
 		self.ServerName = None
 		self.ClientGUID = GUID.random()
 		
-		self.Dialect = 0
+		#self.Dialect = 0
 		self.SupportsFileLeasing = False
 		self.SupportsMultiCredit = False
 		
@@ -191,8 +198,28 @@ class SMBConnection:
 		
 		self.SessionId = 0
 		self.SessionKey = None
+		self.SigningKey      = None
+		self.ApplicationKey  = None
+		self.EncryptionKey   = None
+		self.DecryptionKey   = None
 
 		
+		
+
+		### SMB311 global
+		self.CompressAllRequests = False
+
+		### SMB311 transport
+		self.PreauthIntegrityHashId = SMB2HashAlgorithm.SHA_512 #the type of the hash function was negotiated , now there is only one type
+		self.PreauthIntegrityHashValue = b'\x00'*64 #The preauthentication integrity hash value that was computed for the exchange of SMB2 NEGOTIATE request and response messages on this connection.
+		self.CompressionId = None #the selected compression
+		self.CipherId = None #
+		self.CompressionIds = [SMB2CompressionType.LZ77] #list of supported compression
+		self.SupportsChainedCompression = False
+		self.smb2_supported_encryptions = [SMB2Cipher.AES_128_CCM, SMB2Cipher.AES_128_GCM]
+		
+		self.preauth_ctx = hashlib.sha512
+
 		#ignore_close is there to skip the logoff/closing of the channel
 		#this is useful because there could be certain errors after a scusessful logon
 		#that invalidates the whole session (eg. STATUS_USER_SESSION_DELETED)
@@ -230,17 +257,32 @@ class SMBConnection:
 		"""
 		try:
 			while True:
-				msg, err = await self.netbios_transport.in_queue.get()
+				msg_data, err = await self.netbios_transport.in_queue.get()
 				self.activity_at = datetime.datetime.utcnow()
 				if err is not None:
 					logger.error('__handle_smb_in got error from transport layer %s' % err)
 					#setting all outstanding events to finished
 					for mid in self.OutstandingResponsesEvent:
-						self.OutstandingResponses[mid] = None
+						self.OutstandingResponses[mid] = None, err
 						self.OutstandingResponsesEvent[mid].set()
 
 					await self.terminate()
 					return
+
+				if msg_data[0] == 0xFF:
+					#version1
+					msg = SMBMessage.from_bytes(msg_data)
+				elif msg_data[0] == 0xFE:
+					#version2
+					msg = SMB2Message.from_bytes(msg_data)
+				elif msg_data[0] == 0xFD:
+					#encrypted transform
+					msg = SMB2Transform.from_bytes(msg_data)
+				elif msg_data[0] == 0xFC:
+					#compressed transform
+					msg = SMB2Transform.from_bytes(msg_data)
+				else:
+					raise Exception('Unknown SMB version!')
 
 				logger.log(1, '__handle_smb_in got new message with Id %s' % msg.header.MessageId)
 				
@@ -259,7 +301,7 @@ class SMBConnection:
 					await self.pending_table[msg.header.MessageId].stop()
 					del self.pending_table[msg.header.MessageId]
 
-				self.OutstandingResponses[msg.header.MessageId] = msg
+				self.OutstandingResponses[msg.header.MessageId] = (msg, msg_data)
 				if msg.header.MessageId in self.OutstandingResponsesEvent:
 					self.OutstandingResponsesEvent[msg.header.MessageId].set()
 				else:
@@ -285,7 +327,9 @@ class SMBConnection:
 			raise results[0]
 		await self.negotiate()
 		await self.session_setup()
-		self.keepalive_task = asyncio.create_task(self.keepalive())
+		
+		#TODO: REENABLE THIS!
+		#self.keepalive_task = asyncio.create_task(self.keepalive())
 		
 	async def fake_login(self):
 		if 'NTLMSSP - Microsoft NTLM Security Support Provider' not in self.gssapi.authentication_contexts:
@@ -355,44 +399,84 @@ class SMBConnection:
 			logger.error('Keepalive failed! Server probably disconnected!')
 			await self.disconnect()
 
-
+	def update_integrity(self, msg_data):
+		#if is_neg is True:
+		#	self.PreauthIntegrityHashValue = b'\x00'*64
+		print('update_integrity with data : %s' % msg_data)
+		ctx = hashlib.sha512()
+		ctx.update(self.PreauthIntegrityHashValue + msg_data)
+		self.PreauthIntegrityHashValue = ctx.digest()
 		
 	async def negotiate(self):
 		"""
 		Initiates protocol negotiation.
 		First we send an SMB_COM_NEGOTIATE_REQ with our supported dialects
-		"""
-		
-		#let's construct an SMBv1 SMB_COM_NEGOTIATE_REQ packet
-		header = SMBHeader()
-		header.Command  = SMBCommand.SMB_COM_NEGOTIATE
-		header.Status   = NTStatus.SUCCESS
-		header.Flags    = 0
-		header.Flags2   = SMBHeaderFlags2Enum.SMB_FLAGS2_UNICODE
-			
-		command = SMB_COM_NEGOTIATE_REQ()				
-		command.Dialects = ['SMB 2.???']
-		
-		msg = SMBMessage(header, command)
-		message_id = await self.sendSMB(msg)
-		#recieveing reply, should be version2, because currently we dont support v1 :(
-		rply = await self.recvSMB(message_id) #negotiate MessageId should be 1
-		if rply.header.Status == NTStatus.SUCCESS:
-			if isinstance(rply, SMB2Message):
-				if rply.command.DialectRevision == NegotiateDialects.WILDCARD:
+		"""	
+		###let's construct an SMBv1 SMB_COM_NEGOTIATE_REQ packet
+		#header = SMBHeader()
+		#header.Command  = SMBCommand.SMB_COM_NEGOTIATE
+		#header.Status   = NTStatus.SUCCESS
+		#header.Flags    = 0
+		#header.Flags2   = SMBHeaderFlags2Enum.SMB_FLAGS2_UNICODE
+		#	
+		#command = SMB_COM_NEGOTIATE_REQ()				
+		#command.Dialects = ['SMB 2.???']
+		#
+		#msg = SMBMessage(header, command)
+		#message_id, sent_msg = await self.sendSMB(msg, ret_message = True)
+		##recieveing reply, should be version2, because currently we dont support v1 :(
+		#rply = await self.recvSMB(message_id) #negotiate MessageId should be 1
+		#
+		#self.update_integrity(sent_msg, rply, True)
+		if True: #rply.header.Status == NTStatus.SUCCESS:
+			if True: #if isinstance(rply, SMB2Message):
+				if True: #if rply.command.DialectRevision == NegotiateDialects.WILDCARD:
 					command = NEGOTIATE_REQ()
 					command.SecurityMode    = NegotiateSecurityMode.SMB2_NEGOTIATE_SIGNING_ENABLED | NegotiateSecurityMode.SMB2_NEGOTIATE_SIGNING_REQUIRED
 					command.Capabilities    = 0
 					command.ClientGuid      = self.ClientGUID
 					command.Dialects        = self.dialects
+
+					if NegotiateDialects.SMB311 in self.dialects or NegotiateDialects.SMB310 in self.dialects or NegotiateDialects.SMB302 in self.dialects or NegotiateDialects.SMB300 in self.dialects:
+						command.Capabilities    = NegotiateCapabilities.ENCRYPTION | NegotiateCapabilities.LARGE_MTU | NegotiateCapabilities.DFS | NegotiateCapabilities.LARGE_MTU
 						
+					if NegotiateDialects.SMB311 in self.dialects:
+						#SMB311 mandates the contextlist to be populated
+						
+						command.NegotiateContextList.append(
+								SMB2PreauthIntegrityCapabilities.construct(
+									[self.PreauthIntegrityHashId]
+								)
+							)
+
+						
+						if self.smb2_supported_encryptions is not None:
+							command.NegotiateContextList.append(
+								SMB2EncryptionCapabilities.from_enc_list(
+									self.smb2_supported_encryptions
+								)
+							)
+
+						if self.CompressionIds is not None:
+							command.NegotiateContextList.append(
+								SMB2CompressionCapabilities.from_comp_list(
+									self.CompressionIds,
+									self.SupportsChainedCompression
+								)
+							)
+					#print('aaaaa')
+					#input(command.NegotiateContextList)
+					#print('aaaaa')
 					header = SMB2Header_SYNC()
 					header.Command  = SMB2Command.NEGOTIATE
 					header.CreditReq = 0
 					
 					msg = SMB2Message(header, command)
-					message_id = await self.sendSMB(msg)
-					rply = await self.recvSMB(message_id) #negotiate MessageId should be 1
+					message_id, sent_msg = await self.sendSMB(msg, ret_message=True)
+
+					rply, rply_data = await self.recvSMB(message_id, ret_data=True) #negotiate MessageId should be 1
+					print('NEG RPLY updates')
+					self.update_integrity(rply_data)
 					if rply.header.Status != NTStatus.SUCCESS:
 						print('session got reply!')
 						print(rply)
@@ -404,6 +488,19 @@ class SMBConnection:
 				self.selected_dialect = rply.command.DialectRevision
 				self.ServerSecurityMode = rply.command.SecurityMode
 				self.signing_required = NegotiateSecurityMode.SMB2_NEGOTIATE_SIGNING_ENABLED in rply.command.SecurityMode
+				
+				if NegotiateCapabilities.ENCRYPTION in rply.command.Capabilities:
+					self.encryption_required = True
+					self.CipherId = SMB2Cipher.AES_128_CCM
+
+				for negctx in rply.command.NegotiateContextList:
+					if negctx.ContextType == SMB2ContextType.ENCRYPTION_CAPABILITIES:
+						self.encryption_required = True
+						self.CipherId = negctx.Ciphers[0]
+					
+					if negctx.ContextType == SMB2ContextType.COMPRESSION_CAPABILITIES:
+						self.CompressionId = negctx.CompressionAlgorithms[0]
+
 				logger.log(1, 'Server selected dialect: %s' % self.selected_dialect)
 				
 				self.MaxTransactSize = min(0x100000, rply.command.MaxTransactSize)
@@ -411,6 +508,12 @@ class SMBConnection:
 				self.MaxWriteSize = min(0x100000, rply.command.MaxWriteSize)
 				self.ServerGuid = rply.command.ServerGuid
 				self.SupportsMultiChannel = NegotiateCapabilities.MULTI_CHANNEL in rply.command.Capabilities
+				
+				self.ClientCapabilities = rply.command.Capabilities
+				self.ServerCapabilities = rply.command.Capabilities
+				#self.ClientSecurityMode = 0
+				#self.ServerSecurityMode = 0
+				
 				
 			else:
 				logger.error('Server choose SMB v1 which is not supported currently')
@@ -424,7 +527,7 @@ class SMBConnection:
 			
 			
 		self.status = SMBConnectionStatus.SESSIONSETUP
-		
+
 	async def session_setup(self, fake_auth = False):
 		
 		authdata = None
@@ -457,16 +560,19 @@ class SMBConnection:
 			header.CreditReq = 127
 			
 			msg = SMBMessage(header, command)
-			message_id = await self.sendSMB(msg)
-			
-			
-			rply = await self.recvSMB(message_id)
+			message_id, sent_msg = await self.sendSMB(msg, ret_message=True)
+			#self.update_integrity(sent_msg.to_bytes())
+			rply, rply_data = await self.recvSMB(message_id, ret_data=True)
 			
 			if self.SessionId == 0:
 				self.SessionId = rply.header.SessionId
 			
 			if rply.header.Status not in [NTStatus.SUCCESS, NTStatus.MORE_PROCESSING_REQUIRED]:
 				break
+
+			if rply.header.Status != NTStatus.SUCCESS:
+				print('RPLY updates')
+				self.update_integrity(rply_data)
 			
 			authdata = rply.command.Buffer
 			status = rply.header.Status
@@ -477,10 +583,17 @@ class SMBConnection:
 			
 			# TODO: key calc
 			if self.signing_required and self.selected_dialect in [NegotiateDialects.SMB300 , NegotiateDialects.SMB302 , NegotiateDialects.SMB311]:
-				self.SigningKey      = crypto.KDF_CounterMode(self.SessionKey, b"SMB2AESCMAC\x00", "SmbSign\x00", 128)
-				self.ApplicationKey  = crypto.KDF_CounterMode(self.SessionKey, b"SMB2APP\x00", "SmbRpc\x00", 128)
-				self.EncryptionKey   = crypto.KDF_CounterMode(self.SessionKey, b"SMB2AESCCM\x00", "ServerIn \x00", 128)
-				self.DecryptionKey   = crypto.KDF_CounterMode(self.SessionKey, b"SMB2AESCCM\x00", "ServerOut\x00", 128)
+				if  self.selected_dialect == NegotiateDialects.SMB311:
+					#SMB311 is a special snowflake
+					self.SigningKey      = KDF_CounterMode(self.SessionKey, b"SMBSigningKey\x00", self.PreauthIntegrityHashValue, 128)
+					self.ApplicationKey  = KDF_CounterMode(self.SessionKey, b"SMBAppKey\x00", self.PreauthIntegrityHashValue, 128)
+					self.EncryptionKey   = KDF_CounterMode(self.SessionKey, b"SMBC2SCipherKey\x00", self.PreauthIntegrityHashValue, 128)
+					self.DecryptionKey   = KDF_CounterMode(self.SessionKey, b"SMBS2CCipherKey\x00", self.PreauthIntegrityHashValue, 128)
+				else:
+					self.SigningKey      = KDF_CounterMode(self.SessionKey, b"SMB2AESCMAC\x00", b"SmbSign\x00", 128)
+					self.ApplicationKey  = KDF_CounterMode(self.SessionKey, b"SMB2APP\x00", b"SmbRpc\x00", 128)
+					self.EncryptionKey   = KDF_CounterMode(self.SessionKey, b"SMB2AESCCM\x00", b"ServerIn \x00", 128)
+					self.DecryptionKey   = KDF_CounterMode(self.SessionKey, b"SMB2AESCCM\x00", b"ServerOut\x00", 128)
 			
 			self.status = SMBConnectionStatus.RUNNING
 		
@@ -492,7 +605,7 @@ class SMBConnection:
 			
 		
 		
-	async def recvSMB(self, message_id):
+	async def recvSMB(self, message_id, ret_data = False):
 		"""
 		Returns an SMB message from the outstandingresponse dict, OR waits until the expected message_id appears.
 		"""
@@ -500,7 +613,9 @@ class SMBConnection:
 			logger.log(1, 'Waiting on messageID : %s' % message_id)
 			await self.OutstandingResponsesEvent[message_id].wait()
 			
-		msg = self.OutstandingResponses.pop(message_id)
+		msg, msg_data = self.OutstandingResponses.pop(message_id)
+		if msg is None:
+			raise msg_data
 		
 		if msg.header.Status != NTStatus.PENDING:
 			if message_id in self.OutstandingResponsesEvent:
@@ -508,8 +623,9 @@ class SMBConnection:
 		else:
 			self.OutstandingResponsesEvent[message_id].clear()
 		
-		return msg
-		
+		if ret_data is False:
+			return msg
+		return msg, msg_data
 		
 	def sign_message(self, msg):
 		if self.selected_dialect in [NegotiateDialects.SMB202, NegotiateDialects.SMB210]:
@@ -518,10 +634,47 @@ class SMBConnection:
 				digest = hmac.new(self.SessionKey, msg.to_bytes(), hashlib.sha256).digest()
 				msg.header.Signature = digest[:16]
 		else:
-			raise SMBUnsupportedDialectSign()
+			if self.SigningKey:
+				msg_data = msg.to_bytes()	
+				signature = AES_CMAC(self.SigningKey, msg_data, len(msg_data))
+				msg.header.Signature = signature
+
+	
+	def encrypt_message(self, msg_data):
+		nonce = os.urandom(11)
+
+		hdr = SMB2Header_TRANSFORM()
+		#hdr.Signature = None
+		hdr.Nonce = nonce + (b'\x00' * 5) 
+		hdr.OriginalMessageSize = len(msg_data)
+		hdr.EncryptionAlgorithm = SMB2Cipher.AES_128_CCM
+		hdr.SessionId = self.SessionId
+
 		
+		cipher = AES.new(self.EncryptionKey, AES.MODE_CCM, nonce)
+		cipher.update(hdr.to_bytes()[20:])
+		enc_data = cipher.encrypt(msg_data)
+		hdr.Signature = cipher.digest()
+		return SMB2Transform(hdr, enc_data)
+
+
+	def compress_message(self, msg):
+		print('COMPRESSION')
+		msg_data = msg.to_bytes()
+		compressed_data = LZ77Compressor().compress(msg_data)
+		if self.SupportsChainedCompression is False:
+			comp_hdr = SMB2Header_COMPRESSION_TRANSFORM.construct(
+				msg_data, 
+				self.CompressionId, 
+				len(msg_data), 
+				len(compressed_data), 
+				is_chained = False
+				)
+			return SMB2Compression(comp_hdr, compressed_data)
+		else:
+			raise Exception('Chained compression not implemented!')
 		
-	async def sendSMB(self, msg):
+	async def sendSMB(self, msg, ret_message = False, compression_cb = None):
 		"""
 		Sends an SMB message to teh remote endpoint.
 		msg: SMB2Message or SMBMessage
@@ -531,20 +684,25 @@ class SMBConnection:
 		if self.status == SMBConnectionStatus.NEGOTIATING:
 			if isinstance(msg, SMBMessage):
 				#creating an event for outstanding response
-				self.OutstandingResponsesEvent[0] = asyncio.Event()
-				await self.netbios_transport.out_queue.put(msg)
+				#self.OutstandingResponsesEvent[0] = asyncio.Event()
+				#await self.netbios_transport.out_queue.put(msg.to_bytes())
+				#self.SequenceWindow += 1
+				#return 0
+				message_id = 0
 				self.SequenceWindow += 1
-				return 0
 			else:
 				msg.header.CreditCharge = 1
 				msg.header.CreditReq = 127
 				msg.header.MessageId = self.SequenceWindow
 				message_id = self.SequenceWindow
 				self.SequenceWindow += 1
-				
-				self.OutstandingResponsesEvent[message_id] = asyncio.Event()
-				await self.netbios_transport.out_queue.put(msg)
-				return message_id
+				self.update_integrity(msg.to_bytes())
+
+			self.OutstandingResponsesEvent[message_id] = asyncio.Event()
+			await self.netbios_transport.out_queue.put(msg.to_bytes())
+			if ret_message is True:
+				return message_id, msg
+			return message_id
 				
 
 		if msg.header.Command is not SMB2Command.CANCEL:
@@ -561,18 +719,28 @@ class SMBConnection:
 		
 		message_id = msg.header.MessageId
 		
+
+		if self.CompressionId is not None and self.EncryptionKey is not None:
+			if compression_cb is None:
+				msg = self.compress_message(msg)
+			else:
+				msg = compression_cb(msg)
 		if self.signing_required == True:
 			self.sign_message(msg)
 		
-		if self.encryption_required == True:
-			raise Exception('SMB Encryption not implemented yet :(')
-			#self.encrypt_message(msg)
-		
+		if self.encryption_required == True and self.EncryptionKey is not None:
+			msg = self.encrypt_message(msg.to_bytes())
+
+		else:
+			print('SEND updates')
+			self.update_integrity(msg.to_bytes())
+
 		#creating an event for outstanding response
 		self.OutstandingResponsesEvent[message_id] = asyncio.Event()
+		await self.netbios_transport.out_queue.put(msg.to_bytes())
 		
-		await self.netbios_transport.out_queue.put(msg)
-		
+		if ret_message is True:
+				return message_id, msg
 		return message_id
 		
 	async def tree_connect(self, share_name):
@@ -1006,263 +1174,314 @@ class SMBConnection:
 			logger.debug('Terminate finished!')	
 		except:
 			logger.exception('')
-			
-async def test(target):
-	#setting up NTLM auth
-	template_name = 'Windows10_15063_knowkey'
-	credential = Credential()
-	credential.username = 'victim'
-	credential.password = 'Passw0rd!1'
-	credential.domain = 'TEST'
 	
-	settings = NTLMHandlerSettings(credential, mode = 'CLIENT', template_name = template_name)
-	handler = NTLMAUTHHandler(settings)
-	
-	#setting up SPNEGO
-	spneg = SPNEGO()
-	spneg.add_auth_context('NTLMSSP - Microsoft NTLM Security Support Provider', handler)
-	connection = SMBConnection(spneg, [NegotiateDialects.SMB210])
-	await connection.connect(target)
-	await connection.negotiate()
-	await connection.session_setup()
-	tree_entry = await connection.tree_connect('\\\\10.10.10.2\\Users')
-	tree_id = tree_entry.tree_id
-	file_path = 'Administrator\\Desktop\\smb_test\\testfile1.txt'
-	
-	desired_access = FileAccessMask.FILE_READ_DATA
-	share_mode = ShareAccess.FILE_SHARE_READ
-	create_options = CreateOptions.FILE_NON_DIRECTORY_FILE
-	file_attrs = 0
-	create_disposition = CreateDisposition.FILE_OPEN
-	
-	file_id = await connection.create(tree_id, file_path, desired_access, share_mode, create_options, create_disposition, file_attrs)
-	
-	await connection.query_info(tree_id, file_id)
-	await connection.read(tree_id, file_id, offset = 0, length = 20)
-	
-	tree_entry = await connection.tree_connect('\\\\10.10.10.2\\Users')
-	tree_id = tree_entry.tree_id
-	file_path = 'Administrator\\Desktop\\smb_test\\'
-	
-	desired_access = FileAccessMask.FILE_READ_DATA
-	share_mode = ShareAccess.FILE_SHARE_READ
-	create_options = CreateOptions.FILE_DIRECTORY_FILE
-	file_attrs = 0
-	create_disposition = CreateDisposition.FILE_OPEN
-	
-	file_id = await connection.create(tree_id, file_path, desired_access, share_mode, create_options, create_disposition, file_attrs)
-	info = await connection.query_directory(tree_id, file_id)
-	print(str(info))
-	
-async def test_high(target):
-	#setting up NTLM auth
-	template_name = 'Windows10_15063_knowkey'
-	credential = Credential()
-	credential.username = 'victim'
-	credential.password = 'Passw0rd!1'
-	credential.domain = 'TEST'
-	
-	settings = NTLMHandlerSettings(credential, mode = 'CLIENT', template_name = template_name)
-	handler = NTLMAUTHHandler(settings)
-	
-	#setting up SPNEGO
-	spneg = SPNEGO()
-	spneg.add_auth_context('NTLMSSP - Microsoft NTLM Security Support Provider', handler)
-	connection = SMBConnection(spneg, [NegotiateDialects.SMB210])
-	await connection.connect(target)
-	await connection.negotiate()
-	await connection.session_setup()
-	
-	end = SMBEndpoint()
-	end.connection = connection
-	
-	await end.test()
-	
-async def test_kerberos(target):
-	settings = {
-		'mode' : 'CLIENT',
-		'connection_string' : 'TEST/victim/pass:Passw0rd!1@10.10.10.2',
-		'target_string': 'cifs/WIN2019AD@TEST.CORP',
-		'dc_ip' : '10.10.10.2',
-	}
-	
-	handler = SMBKerberos(settings)
-	
-	#setting up SPNEGO
-	spneg = SPNEGO()
-	spneg.add_auth_context('MS KRB5 - Microsoft Kerberos 5', handler)
-	connection = SMBConnection(spneg, [NegotiateDialects.SMB210])
-	await connection.connect(target)
-	await connection.negotiate()
-	await connection.session_setup()
-	tree_entry = await connection.tree_connect('\\\\10.10.10.2\\Users')
-	tree_id = tree_entry.tree_id
-	file_path = 'Administrator\\Desktop\\smb_test\\testfile1.txt'
-	
-	desired_access = FileAccessMask.FILE_READ_DATA
-	share_mode = ShareAccess.FILE_SHARE_READ
-	create_options = CreateOptions.FILE_NON_DIRECTORY_FILE
-	file_attrs = 0
-	create_disposition = CreateDisposition.FILE_OPEN
-	
-	file_id = await connection.create(tree_id, file_path, desired_access, share_mode, create_options, create_disposition, file_attrs)
+	async def ghosting(self):
+		def compress_callback(msg):
+			print('Callback is here!')
+			msg_data = msg.to_bytes()
+			compressed_data = LZ77Compressor().compress(msg_data)
+			if self.SupportsChainedCompression is False:
+				comp_hdr = SMB2Header_COMPRESSION_TRANSFORM.construct(
+					msg_data, 
+					self.CompressionId, 
+					len(msg_data), 
+					len(compressed_data), 
+					is_chained = False
+				)
+				
+				return SMB2Compression(comp_hdr, compressed_data)
+			else:
+				raise Exception('Chained compression not implemented!')
 
-async def test_sspi_kerberos(target):
-	settings = {
-		'mode' : 'CLIENT',
-		'username' : None,
-		'password' : None,
-		'target' : 'WIN2019AD',
-	}
-	handler = SMBKerberosSSPI(settings)
-	#setting up SPNEGO
-	spneg = SPNEGO()
-	spneg.add_auth_context('MS KRB5 - Microsoft Kerberos 5', handler)
-	connection = SMBConnection(spneg, [NegotiateDialects.SMB210])
-	await connection.connect(target)
-	await connection.negotiate()
-	await connection.session_setup()
-	tree_entry = await connection.tree_connect('\\\\10.10.10.2\\Users')
-	tree_id = tree_entry.tree_id
-	file_path = 'Administrator\\Desktop\\smb_test\\testfile1.txt'
-	
-	desired_access = FileAccessMask.FILE_READ_DATA
-	share_mode = ShareAccess.FILE_SHARE_READ
-	create_options = CreateOptions.FILE_NON_DIRECTORY_FILE
-	file_attrs = 0
-	create_disposition = CreateDisposition.FILE_OPEN
-	
-	file_id = await connection.create(tree_id, file_path, desired_access, share_mode, create_options, create_disposition, file_attrs)
-	
-async def test_sspi_ntlm(target):
-	settings = {
-		'mode' : 'CLIENT',
-	}
-	handler = SMBNTLMSSPI(settings)
-	#setting up SPNEGO
-	spneg = SPNEGO()
-	spneg.add_auth_context('NTLMSSP - Microsoft NTLM Security Support Provider', handler)
-	connection = SMBConnection(spneg, [NegotiateDialects.SMB210])
-	await connection.connect(target)
-	await connection.negotiate()
-	await connection.session_setup()
-	tree_entry = await connection.tree_connect('\\\\10.10.10.2\\Users')
-	tree_id = tree_entry.tree_id
-	file_path = 'Administrator\\Desktop\\smb_test\\testfile1.txt'
-	
-	desired_access = FileAccessMask.FILE_READ_DATA
-	share_mode = ShareAccess.FILE_SHARE_READ
-	create_options = CreateOptions.FILE_NON_DIRECTORY_FILE
-	file_attrs = 0
-	create_disposition = CreateDisposition.FILE_OPEN
-	
-	file_id = await connection.create(tree_id, file_path, desired_access, share_mode, create_options, create_disposition, file_attrs)
-	
-	await connection.terminate()
-	
-async def connection_test(target):
-	#setting up NTLM auth
-	template_name = 'Windows10_15063_knowkey'
-	credential = Credential()
-	credential.username = 'victim'
-	credential.password = 'Passw0rd!1'
-	credential.domain = 'TEST'
-	
-	settings = NTLMHandlerSettings(credential, mode = 'CLIENT', template_name = template_name)
-	handler = NTLMAUTHHandler(settings)
-	
-	#setting up SPNEGO
-	spneg = SPNEGO()
-	spneg.add_auth_context('NTLMSSP - Microsoft NTLM Security Support Provider', handler)
-	connection = SMBConnection(spneg, [NegotiateDialects.SMB210])
-	await connection.connect(target)
-	await connection.negotiate()
-	await connection.session_setup()
-	#input(connection.get_extra_info())
-	tree_entry = await connection.tree_connect('\\\\10.10.10.2\\Users')
-	tree_id = tree_entry.tree_id
-	file_path = 'Administrator\\Desktop\\smb_test\\testfile1.txt'
-	
-	desired_access = FileAccessMask.FILE_READ_DATA
-	share_mode = ShareAccess.FILE_SHARE_READ
-	create_options = CreateOptions.FILE_NON_DIRECTORY_FILE
-	file_attrs = 0
-	create_disposition = CreateDisposition.FILE_OPEN
-	
-	file_id = await connection.create(tree_id, file_path, desired_access, share_mode, create_options, create_disposition, file_attrs)
-	
-	await connection.query_info(tree_id, file_id)
-	data, remaining = await connection.read(tree_id, file_id, offset = 100, length = 60000)
-	
-	print(data)
-	print(remaining)
-	
-	tree_entry = await connection.tree_connect('\\\\10.10.10.2\\Users')
-	tree_id = tree_entry.tree_id
-	file_path = 'Administrator\\Desktop\\smb_test\\'
-	
-	desired_access = FileAccessMask.FILE_READ_DATA
-	share_mode = ShareAccess.FILE_SHARE_READ
-	create_options = CreateOptions.FILE_DIRECTORY_FILE
-	file_attrs = 0
-	create_disposition = CreateDisposition.FILE_OPEN
-	
-	file_id = await connection.create(tree_id, file_path, desired_access, share_mode, create_options, create_disposition, file_attrs)
-	info = await connection.query_directory(tree_id, file_id)
-	await connection.terminate()
-	print(str(info))
-	
-async def filereader_test(target):
-	#setting up NTLM auth
-	template_name = 'Windows10_15063_knowkey'
-	credential = Credential()
-	credential.username = 'victim'
-	credential.password = 'Passw0rd!1'
-	credential.domain = 'TEST'
-	
-	settings = NTLMHandlerSettings(credential, mode = 'CLIENT', template_name = template_name)
-	handler = NTLMAUTHHandler(settings)
-	
-	#setting up SPNEGO
-	spneg = SPNEGO()
-	spneg.add_auth_context('NTLMSSP - Microsoft NTLM Security Support Provider', handler)
-	async with SMBConnection(spneg, target) as connection: 
-		await connection.login()
-		
-		async with SMBFileReader(connection) as reader:
-			await reader.open('\\\\10.10.10.2\\Users\\Administrator\\Desktop\\smb_test\\testfile1.txt')
-			data = await reader.read()
-			print(data)
-			await reader.seek(0,0)
-			data = await reader.read()
-			print(data)
-			await reader.seek(10,0)
-			data = await reader.read()
-			print(data)
-			await reader.seek(10,0)
-			data = await reader.read(5)
-			print(data)
-			await reader.seek(-10,2)
-			data = await reader.read(5)
-			print(data)
-	
-	
-			
+		print('################################### TESTING compression ###################################')
+		command = ECHO_REQ()
+		header = SMB2Header_SYNC()
+		header.Command  = SMB2Command.ECHO
+		msg = SMB2Message(header, command)
+		message_id = await self.sendSMB(msg)
+		print('Waiting for reply')
+		rply = await self.recvSMB(message_id)
+		print(rply)
+		print('################################### SPLOIT SPLOIT SPLOIT ################################')
+
+		command = ECHO_REQ()
+		header = SMB2Header_SYNC()
+		header.Command  = SMB2Command.ECHO
+		msg = SMB2Message(header, command)
+		message_id = await self.sendSMB(msg, compression_cb = compress_callback)
+		rply = await self.recvSMB(message_id)
+
+
+
+#async def test(target):
+#	#setting up NTLM auth
+#	template_name = 'Windows10_15063_knowkey'
+#	credential = Credential()
+#	credential.username = 'victim'
+#	credential.password = 'Passw0rd!1'
+#	credential.domain = 'TEST'
+#	
+#	settings = NTLMHandlerSettings(credential, mode = 'CLIENT', template_name = template_name)
+#	handler = NTLMAUTHHandler(settings)
+#	
+#	#setting up SPNEGO
+#	spneg = SPNEGO()
+#	spneg.add_auth_context('NTLMSSP - Microsoft NTLM Security Support Provider', handler)
+#	connection = SMBConnection(spneg, [NegotiateDialects.SMB210])
+#	await connection.connect(target)
+#	await connection.negotiate()
+#	await connection.session_setup()
+#	tree_entry = await connection.tree_connect('\\\\10.10.10.2\\Users')
+#	tree_id = tree_entry.tree_id
+#	file_path = 'Administrator\\Desktop\\smb_test\\testfile1.txt'
+#	
+#	desired_access = FileAccessMask.FILE_READ_DATA
+#	share_mode = ShareAccess.FILE_SHARE_READ
+#	create_options = CreateOptions.FILE_NON_DIRECTORY_FILE
+#	file_attrs = 0
+#	create_disposition = CreateDisposition.FILE_OPEN
+#	
+#	file_id = await connection.create(tree_id, file_path, desired_access, share_mode, create_options, create_disposition, file_attrs)
+#	
+#	await connection.query_info(tree_id, file_id)
+#	await connection.read(tree_id, file_id, offset = 0, length = 20)
+#	
+#	tree_entry = await connection.tree_connect('\\\\10.10.10.2\\Users')
+#	tree_id = tree_entry.tree_id
+#	file_path = 'Administrator\\Desktop\\smb_test\\'
+#	
+#	desired_access = FileAccessMask.FILE_READ_DATA
+#	share_mode = ShareAccess.FILE_SHARE_READ
+#	create_options = CreateOptions.FILE_DIRECTORY_FILE
+#	file_attrs = 0
+#	create_disposition = CreateDisposition.FILE_OPEN
+#	
+#	file_id = await connection.create(tree_id, file_path, desired_access, share_mode, create_options, create_disposition, file_attrs)
+#	info = await connection.query_directory(tree_id, file_id)
+#	print(str(info))
+#	
+#async def test_high(target):
+#	#setting up NTLM auth
+#	template_name = 'Windows10_15063_knowkey'
+#	credential = Credential()
+#	credential.username = 'victim'
+#	credential.password = 'Passw0rd!1'
+#	credential.domain = 'TEST'
+#	
+#	settings = NTLMHandlerSettings(credential, mode = 'CLIENT', template_name = template_name)
+#	handler = NTLMAUTHHandler(settings)
+#	
+#	#setting up SPNEGO
+#	spneg = SPNEGO()
+#	spneg.add_auth_context('NTLMSSP - Microsoft NTLM Security Support Provider', handler)
+#	connection = SMBConnection(spneg, [NegotiateDialects.SMB210])
+#	await connection.connect(target)
+#	await connection.negotiate()
+#	await connection.session_setup()
+#	
+#	end = SMBEndpoint()
+#	end.connection = connection
+#	
+#	await end.test()
+#	
+#async def test_kerberos(target):
+#	settings = {
+#		'mode' : 'CLIENT',
+#		'connection_string' : 'TEST/victim/pass:Passw0rd!1@10.10.10.2',
+#		'target_string': 'cifs/WIN2019AD@TEST.CORP',
+#		'dc_ip' : '10.10.10.2',
+#	}
+#	
+#	handler = SMBKerberos(settings)
+#	
+#	#setting up SPNEGO
+#	spneg = SPNEGO()
+#	spneg.add_auth_context('MS KRB5 - Microsoft Kerberos 5', handler)
+#	connection = SMBConnection(spneg, [NegotiateDialects.SMB210])
+#	await connection.connect(target)
+#	await connection.negotiate()
+#	await connection.session_setup()
+#	tree_entry = await connection.tree_connect('\\\\10.10.10.2\\Users')
+#	tree_id = tree_entry.tree_id
+#	file_path = 'Administrator\\Desktop\\smb_test\\testfile1.txt'
+#	
+#	desired_access = FileAccessMask.FILE_READ_DATA
+#	share_mode = ShareAccess.FILE_SHARE_READ
+#	create_options = CreateOptions.FILE_NON_DIRECTORY_FILE
+#	file_attrs = 0
+#	create_disposition = CreateDisposition.FILE_OPEN
+#	
+#	file_id = await connection.create(tree_id, file_path, desired_access, share_mode, create_options, create_disposition, file_attrs)
+#
+#async def test_sspi_kerberos(target):
+#	settings = {
+#		'mode' : 'CLIENT',
+#		'username' : None,
+#		'password' : None,
+#		'target' : 'WIN2019AD',
+#	}
+#	handler = SMBKerberosSSPI(settings)
+#	#setting up SPNEGO
+#	spneg = SPNEGO()
+#	spneg.add_auth_context('MS KRB5 - Microsoft Kerberos 5', handler)
+#	connection = SMBConnection(spneg, [NegotiateDialects.SMB210])
+#	await connection.connect(target)
+#	await connection.negotiate()
+#	await connection.session_setup()
+#	tree_entry = await connection.tree_connect('\\\\10.10.10.2\\Users')
+#	tree_id = tree_entry.tree_id
+#	file_path = 'Administrator\\Desktop\\smb_test\\testfile1.txt'
+#	
+#	desired_access = FileAccessMask.FILE_READ_DATA
+#	share_mode = ShareAccess.FILE_SHARE_READ
+#	create_options = CreateOptions.FILE_NON_DIRECTORY_FILE
+#	file_attrs = 0
+#	create_disposition = CreateDisposition.FILE_OPEN
+#	
+#	file_id = await connection.create(tree_id, file_path, desired_access, share_mode, create_options, create_disposition, file_attrs)
+#	
+#async def test_sspi_ntlm(target):
+#	settings = {
+#		'mode' : 'CLIENT',
+#	}
+#	handler = SMBNTLMSSPI(settings)
+#	#setting up SPNEGO
+#	spneg = SPNEGO()
+#	spneg.add_auth_context('NTLMSSP - Microsoft NTLM Security Support Provider', handler)
+#	connection = SMBConnection(spneg, [NegotiateDialects.SMB210])
+#	await connection.connect(target)
+#	await connection.negotiate()
+#	await connection.session_setup()
+#	tree_entry = await connection.tree_connect('\\\\10.10.10.2\\Users')
+#	tree_id = tree_entry.tree_id
+#	file_path = 'Administrator\\Desktop\\smb_test\\testfile1.txt'
+#	
+#	desired_access = FileAccessMask.FILE_READ_DATA
+#	share_mode = ShareAccess.FILE_SHARE_READ
+#	create_options = CreateOptions.FILE_NON_DIRECTORY_FILE
+#	file_attrs = 0
+#	create_disposition = CreateDisposition.FILE_OPEN
+#	
+#	file_id = await connection.create(tree_id, file_path, desired_access, share_mode, create_options, create_disposition, file_attrs)
+#	
+#	await connection.terminate()
+#	
+#async def connection_test(target):
+#	#setting up NTLM auth
+#	template_name = 'Windows10_15063_knowkey'
+#	credential = Credential()
+#	credential.username = 'victim'
+#	credential.password = 'Passw0rd!1'
+#	credential.domain = 'TEST'
+#	
+#	settings = NTLMHandlerSettings(credential, mode = 'CLIENT', template_name = template_name)
+#	handler = NTLMAUTHHandler(settings)
+#	
+#	#setting up SPNEGO
+#	spneg = SPNEGO()
+#	spneg.add_auth_context('NTLMSSP - Microsoft NTLM Security Support Provider', handler)
+#	connection = SMBConnection(spneg, [NegotiateDialects.SMB210])
+#	await connection.connect(target)
+#	await connection.negotiate()
+#	await connection.session_setup()
+#	#input(connection.get_extra_info())
+#	tree_entry = await connection.tree_connect('\\\\10.10.10.2\\Users')
+#	tree_id = tree_entry.tree_id
+#	file_path = 'Administrator\\Desktop\\smb_test\\testfile1.txt'
+#	
+#	desired_access = FileAccessMask.FILE_READ_DATA
+#	share_mode = ShareAccess.FILE_SHARE_READ
+#	create_options = CreateOptions.FILE_NON_DIRECTORY_FILE
+#	file_attrs = 0
+#	create_disposition = CreateDisposition.FILE_OPEN
+#	
+#	file_id = await connection.create(tree_id, file_path, desired_access, share_mode, create_options, create_disposition, file_attrs)
+#	
+#	await connection.query_info(tree_id, file_id)
+#	data, remaining = await connection.read(tree_id, file_id, offset = 100, length = 60000)
+#	
+#	print(data)
+#	print(remaining)
+#	
+#	tree_entry = await connection.tree_connect('\\\\10.10.10.2\\Users')
+#	tree_id = tree_entry.tree_id
+#	file_path = 'Administrator\\Desktop\\smb_test\\'
+#	
+#	desired_access = FileAccessMask.FILE_READ_DATA
+#	share_mode = ShareAccess.FILE_SHARE_READ
+#	create_options = CreateOptions.FILE_DIRECTORY_FILE
+#	file_attrs = 0
+#	create_disposition = CreateDisposition.FILE_OPEN
+#	
+#	file_id = await connection.create(tree_id, file_path, desired_access, share_mode, create_options, create_disposition, file_attrs)
+#	info = await connection.query_directory(tree_id, file_id)
+#	await connection.terminate()
+#	print(str(info))
+#	
+#async def filereader_test(target):
+#	#setting up NTLM auth
+#	template_name = 'Windows10_15063_knowkey'
+#	credential = Credential()
+#	credential.username = 'victim'
+#	credential.password = 'Passw0rd!1'
+#	credential.domain = 'TEST'
+#	
+#	settings = NTLMHandlerSettings(credential, mode = 'CLIENT', template_name = template_name)
+#	handler = NTLMAUTHHandler(settings)
+#	
+#	#setting up SPNEGO
+#	spneg = SPNEGO()
+#	spneg.add_auth_context('NTLMSSP - Microsoft NTLM Security Support Provider', handler)
+#	async with SMBConnection(spneg, target) as connection: 
+#		await connection.login()
+#		
+#		async with SMBFileReader(connection) as reader:
+#			await reader.open('\\\\10.10.10.2\\Users\\Administrator\\Desktop\\smb_test\\testfile1.txt')
+#			data = await reader.read()
+#			print(data)
+#			await reader.seek(0,0)
+#			data = await reader.read()
+#			print(data)
+#			await reader.seek(10,0)
+#			data = await reader.read()
+#			print(data)
+#			await reader.seek(10,0)
+#			data = await reader.read(5)
+#			print(data)
+#			await reader.seek(-10,2)
+#			data = await reader.read(5)
+#			print(data)
+#	
+#	
+#			
+#if __name__ == '__main__':
+#	target = SMBTarget()
+#	target.ip = '10.10.10.2'
+#	target.port = 445
+#	
+#	target_bad = SMBTarget()
+#	target_bad.ip = '10.10.10.66'
+#	target_bad.port = 445
+#
+#	#asyncio.run(test(target))
+#	#asyncio.run(test_kerberos(target))
+#	#asyncio.run(test_sspi_kerberos(target))
+#	#asyncio.run(test_sspi_ntlm(target))
+#	#asyncio.run(connection_test(target))
+#	#asyncio.run(test_high(target))
+#	asyncio.run(filereader_test(target))
+#
+async def ctest(conn):
+	await conn.login()
+	await conn.ghosting()
+
 if __name__ == '__main__':
-	target = SMBTarget()
-	target.ip = '10.10.10.2'
-	target.port = 445
-	
-	target_bad = SMBTarget()
-	target_bad.ip = '10.10.10.66'
-	target_bad.port = 445
+	from aiosmb.commons.connection.url import SMBConnectionURL
 
-	#asyncio.run(test(target))
-	#asyncio.run(test_kerberos(target))
-	#asyncio.run(test_sspi_kerberos(target))
-	#asyncio.run(test_sspi_ntlm(target))
-	#asyncio.run(connection_test(target))
-	#asyncio.run(test_high(target))
-	asyncio.run(filereader_test(target))
-	
+	logger.setLevel(2)
+	#url = 'smb+ntlm-password://TEST\\victim:Passw0rd!1@10.10.10.2'
+	url = 'smb+ntlm-password://smbtest\\smbtest:smbtest@10.10.10.100'
+	cu = SMBConnectionURL(url)
+	conn = cu.get_connection()	
+	asyncio.run(ctest(conn))
 	
