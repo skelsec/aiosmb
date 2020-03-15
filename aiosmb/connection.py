@@ -34,7 +34,9 @@ from aiosmb.commons.smbcontainer import *
 from aiosmb.commons.connection.target import *
 
 from aiosmb.crypto.from_impacket import KDF_CounterMode, AES_CMAC
-from aiosmb.crypto.comp_lz77 import LZ77Compressor
+from aiosmb.crypto.compression.lznt1 import compress as lznt1_compress
+from aiosmb.crypto.compression.lznt1 import decompress as lznt1_decompress
+
 from Cryptodome.Cipher import AES
 
 
@@ -152,6 +154,8 @@ class SMBConnection:
 		self.netbios_transport = None #this class is used by the netbios transport class, keeping it here also maybe you like to go in raw
 		self.incoming_task = None
 		self.keepalive_task = None
+		# TODO: turn it back on 
+		self.supress_keepalive = True
 		self.activity_at = None
 		self.dialects = dialects #list of SMBDialect
 		
@@ -214,7 +218,7 @@ class SMBConnection:
 		self.PreauthIntegrityHashValue = b'\x00'*64 #The preauthentication integrity hash value that was computed for the exchange of SMB2 NEGOTIATE request and response messages on this connection.
 		self.CompressionId = None #the selected compression
 		self.CipherId = None #
-		self.CompressionIds = [SMB2CompressionType.LZ77] #list of supported compression
+		self.CompressionIds = [SMB2CompressionType.LZNT1]#[SMB2CompressionType.NONE] #list of supported compression
 		self.SupportsChainedCompression = False
 		self.smb2_supported_encryptions = [SMB2Cipher.AES_128_CCM, SMB2Cipher.AES_128_GCM]
 		
@@ -269,20 +273,49 @@ class SMBConnection:
 					await self.terminate()
 					return
 
+				if msg_data[0] not in [0xFD, 0xFC, 0xFE, 0xFF]:
+					raise Exception('Unknown SMB version!')
+
+				if msg_data[0] == 0xFD:
+					#encrypted transform
+					msg = SMB2Transform.from_bytes(msg_data)
+					
+					if msg.header.EncryptionAlgorithm == SMB2Cipher.AES_128_CCM:
+						cipher = AES.new(self.DecryptionKey, AES.MODE_CCM, msg.header.Nonce[:11])
+						cipher.update(msg_data[20:])
+						dec_data = cipher.decrypt(msg.data)
+						#calc_signature = cipher.digest()
+
+						# TODO: add signature checking!!!!!
+
+						msg_data = dec_data
+					
+					else:
+						raise Exception('Common encryption algo is %s but it is not implemented!' % msg.header.EncryptionAlgorithm)
+
+				if msg_data[0] == 0xFC:
+					#compressed transform
+					msg = SMB2Compression.from_bytes(msg_data)
+					if msg.header.Flags == SMB2CompressionFlags.NONE:
+						if msg.header.CompressionAlgorithm != self.CompressionId:
+							logger.debug('Server is using a different compression algo than whats agreed upon...')
+						if msg.header.CompressionAlgorithm == SMB2CompressionType.LZNT1:
+							uncompressed_data = msg.data[:msg.header.Offset]
+							uncompressed_data += lznt1_decompress(msg.data[msg.header.Offset:])
+							msg_data = uncompressed_data
+						else:
+							raise Exception('Server used %s compression, but it is not implemented' % msg.header.CompressionAlgorithm.name)
+					else:
+						raise Exception('Server sent chained compression, but its not implemented here')
+					
+				if msg_data[0] == 0xFE:
+					#version2
+					msg = SMB2Message.from_bytes(msg_data)
+
 				if msg_data[0] == 0xFF:
 					#version1
 					msg = SMBMessage.from_bytes(msg_data)
-				elif msg_data[0] == 0xFE:
-					#version2
-					msg = SMB2Message.from_bytes(msg_data)
-				elif msg_data[0] == 0xFD:
-					#encrypted transform
-					msg = SMB2Transform.from_bytes(msg_data)
-				elif msg_data[0] == 0xFC:
-					#compressed transform
-					msg = SMB2Transform.from_bytes(msg_data)
-				else:
-					raise Exception('Unknown SMB version!')
+					
 
 				logger.log(1, '__handle_smb_in got new message with Id %s' % msg.header.MessageId)
 				
@@ -329,7 +362,7 @@ class SMBConnection:
 		await self.session_setup()
 		
 		#TODO: REENABLE THIS!
-		#self.keepalive_task = asyncio.create_task(self.keepalive())
+		self.keepalive_task = asyncio.create_task(self.keepalive())
 		
 	async def fake_login(self):
 		if 'NTLMSSP - Microsoft NTLM Security Support Provider' not in self.gssapi.authentication_contexts:
@@ -390,7 +423,7 @@ class SMBConnection:
 				sleep_time = max(self.target.timeout - 1, sleep_time)
 			while True:
 				await asyncio.sleep(sleep_time)
-				if (datetime.datetime.utcnow() - self.activity_at).seconds > sleep_time: 
+				if (datetime.datetime.utcnow() - self.activity_at).seconds > sleep_time and self.supress_keepalive is False: 
 					await self.echo()
 				
 		except asyncio.CancelledError:
@@ -661,15 +694,21 @@ class SMBConnection:
 	def compress_message(self, msg):
 		print('COMPRESSION')
 		msg_data = msg.to_bytes()
-		compressed_data = LZ77Compressor().compress(msg_data)
+		
 		if self.SupportsChainedCompression is False:
-			comp_hdr = SMB2Header_COMPRESSION_TRANSFORM.construct(
-				msg_data, 
-				self.CompressionId, 
-				len(msg_data), 
-				len(compressed_data), 
-				is_chained = False
-				)
+			if self.CompressionId == SMB2CompressionType.NONE:
+				compressed_data = msg_data
+			elif self.CompressionId == SMB2CompressionType.LZNT1:
+				compressed_data = lznt1_compress(msg_data)
+			else:
+				raise Exception('Common compression type is %s but its not implemented!' % self.CompressionId)
+			
+			comp_hdr = SMB2Header_COMPRESSION_TRANSFORM()
+			comp_hdr.OriginalCompressedSegmentSize = len(msg_data)
+			comp_hdr.CompressionAlgorithm = self.CompressionId
+			comp_hdr.Flags = SMB2CompressionFlags.NONE
+			comp_hdr.Offset = 0 #it'z zero because we compress the full message
+
 			return SMB2Compression(comp_hdr, compressed_data)
 		else:
 			raise Exception('Chained compression not implemented!')
@@ -1176,41 +1215,43 @@ class SMBConnection:
 			logger.exception('')
 	
 	async def ghosting(self):
+		#self.encryption_required = False
+		self.supress_keepalive = True
 		def compress_callback(msg):
 			print('Callback is here!')
 			msg_data = msg.to_bytes()
-			compressed_data = LZ77Compressor().compress(msg_data)
-			if self.SupportsChainedCompression is False:
-				comp_hdr = SMB2Header_COMPRESSION_TRANSFORM.construct(
-					msg_data, 
-					self.CompressionId, 
-					len(msg_data), 
-					len(compressed_data), 
-					is_chained = False
-				)
-				
-				return SMB2Compression(comp_hdr, compressed_data)
-			else:
-				raise Exception('Chained compression not implemented!')
+			compressed_data = lznt1_compress(msg_data)
+			comp_hdr = SMB2Header_COMPRESSION_TRANSFORM()
+			comp_hdr.OriginalCompressedSegmentSize = len(msg_data)
+			comp_hdr.CompressionAlgorithm = SMB2CompressionType.LZNT1 #self.CompressionId
+			comp_hdr.Flags = SMB2CompressionFlags.NONE
+			comp_hdr.Offset = 0 #this should be marking the start of the compressed data
+
+			return SMB2Compression(comp_hdr, compressed_data)
 
 		print('################################### TESTING compression ###################################')
-		command = ECHO_REQ()
-		header = SMB2Header_SYNC()
-		header.Command  = SMB2Command.ECHO
-		msg = SMB2Message(header, command)
-		message_id = await self.sendSMB(msg)
-		print('Waiting for reply')
-		rply = await self.recvSMB(message_id)
-		print(rply)
+		await self.echo()
+		#command = ECHO_REQ()
+		#header = SMB2Header_SYNC()
+		#header.Command  = SMB2Command.ECHO
+		#msg = SMB2Message(header, command)
+		#message_id = await self.sendSMB(msg)
+		#print('Waiting for reply')
+		#rply = await self.recvSMB(message_id)
+		#print(rply)
 		print('################################### SPLOIT SPLOIT SPLOIT ################################')
 
+		
 		command = ECHO_REQ()
 		header = SMB2Header_SYNC()
 		header.Command  = SMB2Command.ECHO
 		msg = SMB2Message(header, command)
 		message_id = await self.sendSMB(msg, compression_cb = compress_callback)
-		rply = await self.recvSMB(message_id)
-
+		try:
+			rply = await asyncio.wait_for(self.recvSMB(message_id), timeout = 0.5)
+			return True
+		except:
+			return False
 
 
 #async def test(target):
@@ -1471,17 +1512,22 @@ class SMBConnection:
 #	#asyncio.run(test_high(target))
 #	asyncio.run(filereader_test(target))
 #
-async def ctest(conn):
+async def ctest(cu):
+	conn = cu.get_connection()
 	await conn.login()
 	await conn.ghosting()
+			
+		
+
 
 if __name__ == '__main__':
 	from aiosmb.commons.connection.url import SMBConnectionURL
 
 	logger.setLevel(2)
 	#url = 'smb+ntlm-password://TEST\\victim:Passw0rd!1@10.10.10.2'
-	url = 'smb+ntlm-password://smbtest\\smbtest:smbtest@10.10.10.100'
+	url = 'smb+ntlm-password://work\\work:work@10.10.10.103'
+	#url = 'smb+ntlm-password://smbtest\\smbtest:smbtest@10.200.200.154'
 	cu = SMBConnectionURL(url)
-	conn = cu.get_connection()	
-	asyncio.run(ctest(conn))
+	
+	asyncio.run(ctest(cu))
 	

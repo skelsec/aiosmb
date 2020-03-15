@@ -21,7 +21,7 @@ class SMB2Compression:
 		pos = buff.tell()
 		t = buff.read(1)
 		buff.seek(pos,0)
-		if t == 0xFC:
+		if t == b'\xFC':
 			msg.header = SMB2Header_COMPRESSION_TRANSFORM.from_buffer(buff)
 		else:
 			raise Exception('Unknown packet type for SMB2Compression! %s' % t)
@@ -49,7 +49,7 @@ class SMB2Transform:
 		pos = buff.tell()
 		t = buff.read(1)
 		buff.seek(pos,0)
-		if t == 0xFD:
+		if t == b'\xFD':
 			msg.header = SMB2Header_TRANSFORM.from_buffer(buff)
 		else:
 			raise Exception('Unknown packet type for SMB2Transform! %s' % t)
