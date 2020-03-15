@@ -137,7 +137,7 @@ class SMBConnection:
 	Connection class for network connectivity and SMB messages management (sending/recieveing/singing/encrypting).
 	"""
 	#def __init__(self, gssapi, target, dialects = [NegotiateDialects.SMB202]):
-	def __init__(self, gssapi, target, dialects = [NegotiateDialects.SMB311]):
+	def __init__(self, gssapi, target):
 		self.gssapi = gssapi
 		self.original_gssapi = copy.deepcopy(gssapi) #preserving a copy of the original
 		
@@ -146,7 +146,7 @@ class SMBConnection:
 		#######DONT CHANGE THIS
 		#use this for smb2 > self.supported_dialects = [NegotiateDialects.WILDCARD, NegotiateDialects.SMB202, NegotiateDialects.SMB210]
 		#self.supported_dialects = [NegotiateDialects.SMB202, NegotiateDialects.SMB210]
-		self.supported_dialects = [NegotiateDialects.SMB311] #[NegotiateDialects.WILDCARD, NegotiateDialects.SMB311]
+		self.supported_dialects = self.target.preferred_dialects #[NegotiateDialects.WILDCARD, NegotiateDialects.SMB311]
 		#######
 		
 		self.settings = None
@@ -157,7 +157,6 @@ class SMBConnection:
 		# TODO: turn it back on 
 		self.supress_keepalive = True
 		self.activity_at = None
-		self.dialects = dialects #list of SMBDialect
 		
 		self.selected_dialect = None
 		self.signing_required = False
@@ -256,8 +255,9 @@ class SMBConnection:
 
 	async def __handle_smb_in(self):
 		"""
-		Waits from SMB messages from the NetBIOSTransport in_queue, and fills the connection table.
+		Waits from SMB message bytes from the transport in_queue, and fills the connection table.
 		This function started automatically when calling connect.
+		Pls don't touch it.
 		"""
 		try:
 			while True:
@@ -273,8 +273,8 @@ class SMBConnection:
 					await self.terminate()
 					return
 
-				if msg_data[0] not in [0xFD, 0xFC, 0xFE, 0xFF]:
-					raise Exception('Unknown SMB version!')
+				if msg_data[0] < 252:
+					raise Exception('Unknown SMB packet type %s' % msg_data[0])
 
 				if msg_data[0] == 0xFD:
 					#encrypted transform
@@ -444,121 +444,119 @@ class SMBConnection:
 		"""
 		Initiates protocol negotiation.
 		First we send an SMB_COM_NEGOTIATE_REQ with our supported dialects
-		"""	
-		###let's construct an SMBv1 SMB_COM_NEGOTIATE_REQ packet
-		#header = SMBHeader()
-		#header.Command  = SMBCommand.SMB_COM_NEGOTIATE
-		#header.Status   = NTStatus.SUCCESS
-		#header.Flags    = 0
-		#header.Flags2   = SMBHeaderFlags2Enum.SMB_FLAGS2_UNICODE
-		#	
-		#command = SMB_COM_NEGOTIATE_REQ()				
-		#command.Dialects = ['SMB 2.???']
-		#
-		#msg = SMBMessage(header, command)
-		#message_id, sent_msg = await self.sendSMB(msg, ret_message = True)
-		##recieveing reply, should be version2, because currently we dont support v1 :(
-		#rply = await self.recvSMB(message_id) #negotiate MessageId should be 1
-		#
-		#self.update_integrity(sent_msg, rply, True)
-		if True: #rply.header.Status == NTStatus.SUCCESS:
-			if True: #if isinstance(rply, SMB2Message):
-				if True: #if rply.command.DialectRevision == NegotiateDialects.WILDCARD:
-					command = NEGOTIATE_REQ()
-					command.SecurityMode    = NegotiateSecurityMode.SMB2_NEGOTIATE_SIGNING_ENABLED | NegotiateSecurityMode.SMB2_NEGOTIATE_SIGNING_REQUIRED
-					command.Capabilities    = 0
-					command.ClientGuid      = self.ClientGUID
-					command.Dialects        = self.dialects
+		"""
+		rply = None
+		if NegotiateDialects.WILDCARD in self.supported_dialects:
+			###let's construct an SMBv1 SMB_COM_NEGOTIATE_REQ packet
+			header = SMBHeader()
+			header.Command  = SMBCommand.SMB_COM_NEGOTIATE
+			header.Status   = NTStatus.SUCCESS
+			header.Flags    = 0
+			header.Flags2   = SMBHeaderFlags2Enum.SMB_FLAGS2_UNICODE
+				
+			command = SMB_COM_NEGOTIATE_REQ()				
+			command.Dialects = ['SMB 2.???']
+			
+			msg = SMBMessage(header, command)
+			message_id = await self.sendSMB(msg)
+			#recieveing reply, should be version2, because currently we dont support v1 :(
+			rply, rply_data = await self.recvSMB(message_id, ret_data = True) #negotiate MessageId should be 1
+			if isinstance(rply, SMBMessage):
+				raise Exception('Server replied with SMBv1 message, doesnt support SMBv2')
+			if rply.header.Status != NTStatus.SUCCESS:
+				raise Exception('SMB2 negotiate error! Server replied with error status code!')
+			
+			del self.supported_dialects[NegotiateDialects.WILDCARD]
 
-					if NegotiateDialects.SMB311 in self.dialects or NegotiateDialects.SMB310 in self.dialects or NegotiateDialects.SMB302 in self.dialects or NegotiateDialects.SMB300 in self.dialects:
-						command.Capabilities    = NegotiateCapabilities.ENCRYPTION | NegotiateCapabilities.LARGE_MTU | NegotiateCapabilities.DFS | NegotiateCapabilities.LARGE_MTU
+		print(rply.command.Capabilities)
+
+		command = NEGOTIATE_REQ()
+		command.SecurityMode    = NegotiateSecurityMode.SMB2_NEGOTIATE_SIGNING_ENABLED | NegotiateSecurityMode.SMB2_NEGOTIATE_SIGNING_REQUIRED
+		command.Capabilities    = rply.command.Capabilities if rply is not None else self.ClientCapabilities
+		command.ClientGuid      = self.ClientGUID
+		command.Dialects        = [dialect for dialect in self.supported_dialects]
+
+		if all(dialect in SMB2_NEGOTIATE_DIALTECTS_3 for dialect in self.supported_dialects):
+			command.Capabilities    = NegotiateCapabilities.ENCRYPTION
+
+
+		if NegotiateDialects.SMB311 in self.supported_dialects:
+			#SMB311 mandates the contextlist to be populated
 						
-					if NegotiateDialects.SMB311 in self.dialects:
-						#SMB311 mandates the contextlist to be populated
+			command.NegotiateContextList.append(
+				SMB2PreauthIntegrityCapabilities.construct(
+					[self.PreauthIntegrityHashId]
+				)
+			)
 						
-						command.NegotiateContextList.append(
-								SMB2PreauthIntegrityCapabilities.construct(
-									[self.PreauthIntegrityHashId]
-								)
-							)
+			if self.smb2_supported_encryptions is not None:
+				command.Capabilities |= NegotiateCapabilities.ENCRYPTION
+				command.NegotiateContextList.append(
+					SMB2EncryptionCapabilities.from_enc_list(
+						self.smb2_supported_encryptions
+					)
+				)
 
-						
-						if self.smb2_supported_encryptions is not None:
-							command.NegotiateContextList.append(
-								SMB2EncryptionCapabilities.from_enc_list(
-									self.smb2_supported_encryptions
-								)
-							)
-
-						if self.CompressionIds is not None:
-							command.NegotiateContextList.append(
-								SMB2CompressionCapabilities.from_comp_list(
-									self.CompressionIds,
-									self.SupportsChainedCompression
-								)
-							)
-					#print('aaaaa')
-					#input(command.NegotiateContextList)
-					#print('aaaaa')
-					header = SMB2Header_SYNC()
-					header.Command  = SMB2Command.NEGOTIATE
-					header.CreditReq = 0
+			if self.CompressionIds is not None:
+				command.NegotiateContextList.append(
+					SMB2CompressionCapabilities.from_comp_list(
+						self.CompressionIds,
+						self.SupportsChainedCompression
+					)
+				)
+		#print('aaaaa')
+		#input(command.NegotiateContextList)
+		#print('aaaaa')
+		header = SMB2Header_SYNC()
+		header.Command  = SMB2Command.NEGOTIATE
+		header.CreditReq = 0
 					
-					msg = SMB2Message(header, command)
-					message_id, sent_msg = await self.sendSMB(msg, ret_message=True)
-
-					rply, rply_data = await self.recvSMB(message_id, ret_data=True) #negotiate MessageId should be 1
-					print('NEG RPLY updates')
-					self.update_integrity(rply_data)
-					if rply.header.Status != NTStatus.SUCCESS:
-						print('session got reply!')
-						print(rply)
-						raise Exception('session_setup_1 (authentication probably failed) reply: %s' % rply.header.Status)
-					
-				if rply.command.DialectRevision not in self.supported_dialects:
-					raise SMBUnsupportedDialectSelected()
-				
-				self.selected_dialect = rply.command.DialectRevision
-				self.ServerSecurityMode = rply.command.SecurityMode
-				self.signing_required = NegotiateSecurityMode.SMB2_NEGOTIATE_SIGNING_ENABLED in rply.command.SecurityMode
-				
-				if NegotiateCapabilities.ENCRYPTION in rply.command.Capabilities:
-					self.encryption_required = True
-					self.CipherId = SMB2Cipher.AES_128_CCM
-
-				for negctx in rply.command.NegotiateContextList:
-					if negctx.ContextType == SMB2ContextType.ENCRYPTION_CAPABILITIES:
-						self.encryption_required = True
-						self.CipherId = negctx.Ciphers[0]
-					
-					if negctx.ContextType == SMB2ContextType.COMPRESSION_CAPABILITIES:
-						self.CompressionId = negctx.CompressionAlgorithms[0]
-
-				logger.log(1, 'Server selected dialect: %s' % self.selected_dialect)
-				
-				self.MaxTransactSize = min(0x100000, rply.command.MaxTransactSize)
-				self.MaxReadSize = min(0x100000, rply.command.MaxReadSize)
-				self.MaxWriteSize = min(0x100000, rply.command.MaxWriteSize)
-				self.ServerGuid = rply.command.ServerGuid
-				self.SupportsMultiChannel = NegotiateCapabilities.MULTI_CHANNEL in rply.command.Capabilities
-				
-				self.ClientCapabilities = rply.command.Capabilities
-				self.ServerCapabilities = rply.command.Capabilities
-				#self.ClientSecurityMode = 0
-				#self.ServerSecurityMode = 0
-				
-				
+		msg = SMB2Message(header, command)
+		message_id = await self.sendSMB(msg)
+		rply, rply_data = await self.recvSMB(message_id, ret_data=True) #negotiate MessageId should be 1
+		if isinstance(rply, SMBMessage):
+			raise Exception('Server replied with SMBv1 message, doesnt support SMBv2')
+		print('NEG RPLY updates')
+		self.update_integrity(rply_data)
+		
+		if rply.header.Status != NTStatus.SUCCESS:
+			if rply.header.Status == NTStatus.NOT_SUPPORTED:
+				raise Exception('negotiate_1 dialect probably not suppported by the server. reply: %s' % rply.header.Status)
 			else:
-				logger.error('Server choose SMB v1 which is not supported currently')
-				raise SMBUnsupportedSMBVersion()
-			
-		else:
-			print('session got reply!')
-			print(rply)
-			raise Exception('session_setup_1 (authentication probably failed) reply: %s' % rply.header.Status)
-			
-			
-			
+				raise Exception('negotiate_1 reply: %s' % rply.header.Status)
+					
+		if rply.command.DialectRevision not in self.supported_dialects:
+			raise SMBUnsupportedDialectSelected()
+				
+		self.selected_dialect = rply.command.DialectRevision
+		self.ServerSecurityMode = rply.command.SecurityMode
+		self.signing_required = NegotiateSecurityMode.SMB2_NEGOTIATE_SIGNING_ENABLED in rply.command.SecurityMode
+				
+		if NegotiateCapabilities.ENCRYPTION in rply.command.Capabilities:
+			self.encryption_required = True
+			self.CipherId = SMB2Cipher.AES_128_CCM
+
+		for negctx in rply.command.NegotiateContextList:
+			if negctx.ContextType == SMB2ContextType.ENCRYPTION_CAPABILITIES:
+				self.encryption_required = True
+				self.CipherId = negctx.Ciphers[0]
+					
+			if negctx.ContextType == SMB2ContextType.COMPRESSION_CAPABILITIES:
+				self.CompressionId = negctx.CompressionAlgorithms[0]
+
+		logger.log(1, 'Server selected dialect: %s' % self.selected_dialect)
+				
+		self.MaxTransactSize = min(0x100000, rply.command.MaxTransactSize)
+		self.MaxReadSize = min(0x100000, rply.command.MaxReadSize)
+		self.MaxWriteSize = min(0x100000, rply.command.MaxWriteSize)
+		self.ServerGuid = rply.command.ServerGuid
+		self.SupportsMultiChannel = NegotiateCapabilities.MULTI_CHANNEL in rply.command.Capabilities
+		self.SupportsFileLeasing = NegotiateCapabilities.LEASING in rply.command.Capabilities
+		self.SupportsMultiCredit = NegotiateCapabilities.LARGE_MTU in rply.command.Capabilities
+				
+		self.ClientCapabilities = rply.command.Capabilities
+		self.ServerCapabilities = rply.command.Capabilities
+		#self.ClientSecurityMode = 0			
 		self.status = SMBConnectionStatus.SESSIONSETUP
 
 	async def session_setup(self, fake_auth = False):
@@ -584,13 +582,13 @@ class SMBConnection:
 			
 			command.Flags = 0
 			command.SecurityMode = NegotiateSecurityMode.SMB2_NEGOTIATE_SIGNING_ENABLED
-			command.Capabilities = 0
+			command.Capabilities = 0 #self.ClientCapabilities
 			command.Channel      = 0
 			command.PreviousSessionId    = 0
 			
 			header = SMB2Header_SYNC()
 			header.Command  = SMB2Command.SESSION_SETUP
-			header.CreditReq = 127
+			header.CreditReq = 0
 			
 			msg = SMBMessage(header, command)
 			message_id, sent_msg = await self.sendSMB(msg, ret_message=True)
@@ -648,8 +646,13 @@ class SMBConnection:
 			
 		msg, msg_data = self.OutstandingResponses.pop(message_id)
 		if msg is None:
+			# this indicates and exception, so the msg_data is the exception
 			raise msg_data
 		
+		if self.status != SMBConnectionStatus.NEGOTIATING:
+			if self.selected_dialect != NegotiateDialects.SMB202:
+				self.SequenceWindow += (msg.header.CreditCharge - 1)
+
 		if msg.header.Status != NTStatus.PENDING:
 			if message_id in self.OutstandingResponsesEvent:
 				del self.OutstandingResponsesEvent[message_id]
@@ -731,7 +734,7 @@ class SMBConnection:
 				self.SequenceWindow += 1
 			else:
 				msg.header.CreditCharge = 1
-				msg.header.CreditReq = 127
+				msg.header.CreditReq = 0
 				msg.header.MessageId = self.SequenceWindow
 				message_id = self.SequenceWindow
 				self.SequenceWindow += 1
@@ -752,6 +755,8 @@ class SMBConnection:
 		
 		if not msg.header.CreditCharge:
 			msg.header.CreditCharge = 1
+
+		
 		
 		if self.status != SMBConnectionStatus.SESSIONSETUP:
 			msg.header.CreditReq = 127
@@ -934,7 +939,7 @@ class SMBConnection:
 		if len(data) > self.MaxWriteSize:
 			data = data[:self.MaxWriteSize]
 			
-		if self.selected_dialect != NegotiateDialects.SMB202 and self.SupportsMultiCredit == True:
+		if self.selected_dialect > NegotiateDialects.SMB202 and self.SupportsMultiCredit == True:
 			header.CreditCharge = ( 1 + (len(data) - 1) // 65536)
 		else: 
 			data = data[:min(65536,len(data))]
@@ -1525,7 +1530,7 @@ if __name__ == '__main__':
 
 	logger.setLevel(2)
 	#url = 'smb+ntlm-password://TEST\\victim:Passw0rd!1@10.10.10.2'
-	url = 'smb+ntlm-password://work\\work:work@10.10.10.103'
+	url = 'smb302+ntlm-password://work\\work:work@10.10.10.103'
 	#url = 'smb+ntlm-password://smbtest\\smbtest:smbtest@10.200.200.154'
 	cu = SMBConnectionURL(url)
 	

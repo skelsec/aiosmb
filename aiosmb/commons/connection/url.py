@@ -65,7 +65,7 @@ class SMBConnectionURL:
 		if self.server_ip is not None:
 			self.ip = self.server_ip
 			
-		return SMBTarget(
+		t = SMBTarget(
 			ip = self.ip, 
 			port = self.port, 
 			hostname = self.hostname, 
@@ -74,6 +74,8 @@ class SMBConnectionURL:
 			domain = self.domain, 
 			proxy = self.get_proxy()
 		)
+		t.update_dialect(self.dialect)
+		return t
 
 	def get_credential(self):
 		return SMBCredential(

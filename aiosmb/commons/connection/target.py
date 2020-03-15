@@ -11,8 +11,31 @@ import ipaddress
 import enum
 import copy
 
+from aiosmb.protocol.common import NegotiateDialects, SMB2_NEGOTIATE_DIALTECTS_2, SMB2_NEGOTIATE_DIALTECTS_3, SMB2_NEGOTIATE_DIALTECTS
+
 class SMBConnectionDialect(enum.Enum):
-	SMB = 'SMB' #any
+	SMB = 'SMB' #any, will us a wildcard because SMB1 is not implremented
+	SMB2 = 'SMB2' #will offer all v2 versions
+	SMB3 = 'SMB3' #will offer all v3 versions
+	SMB202 = 'SMB202'
+	SMB210 = 'SMB210'
+	SMB222 = 'SMB222'
+	SMB224 = 'SMB224'
+	SMB300 = 'SMB300'
+	SMB302 = 'SMB302'
+	SMB310 = 'SMB310'
+	SMB311 = 'SMB311'
+
+smb_negotiate_dialect_lookup = {
+	SMBConnectionDialect.SMB202 : NegotiateDialects.SMB202,
+	SMBConnectionDialect.SMB210 : NegotiateDialects.SMB210,
+	SMBConnectionDialect.SMB222 : NegotiateDialects.SMB222,
+	SMBConnectionDialect.SMB224 : NegotiateDialects.SMB224,
+	SMBConnectionDialect.SMB300 : NegotiateDialects.SMB300,
+	SMBConnectionDialect.SMB302 : NegotiateDialects.SMB302,
+	SMBConnectionDialect.SMB310 : NegotiateDialects.SMB310,
+	SMBConnectionDialect.SMB311 : NegotiateDialects.SMB311,
+}
 
 class SMBConnectionProtocol(enum.Enum):
 	TCP = 'TCP'
@@ -28,7 +51,6 @@ class SMBTarget:
 						dc_ip=None, 
 						domain = None, 
 						proxy = None,
-						dialect = SMBConnectionDialect.SMB,
 						protocol = SMBConnectionProtocol.TCP):
 		self.ip = ip
 		self.port = port
@@ -37,10 +59,28 @@ class SMBTarget:
 		self.dc_ip = dc_ip
 		self.domain = domain
 		self.proxy = proxy
-		self.dialect = dialect
 		self.protocol = protocol
+		self.preferred_dialects = SMB2_NEGOTIATE_DIALTECTS_2
 
-		
+
+	def update_dialect(self, dialect):
+		if isinstance(dialect, SMBConnectionDialect) is False:
+			raise Exception('dialect must be a type of SMBConnectionDialect')
+		if dialect == SMBConnectionDialect.SMB:
+			self.preferred_dialects = SMB2_NEGOTIATE_DIALTECTS
+			self.preferred_dialects[NegotiateDialects.WILDCARD] = 1
+		elif dialect == SMBConnectionDialect.SMB2:
+			self.preferred_dialects = SMB2_NEGOTIATE_DIALTECTS_2
+		elif dialect == SMBConnectionDialect.SMB3:
+			self.preferred_dialects = SMB2_NEGOTIATE_DIALTECTS_3
+			
+		else:
+			self.preferred_dialects = {
+				smb_negotiate_dialect_lookup[dialect] : 1,
+				NegotiateDialects.WILDCARD : 1,
+			}
+		return
+
 	def to_target_string(self):
 		return 'cifs/%s@%s' % (self.hostname, self.domain)
 
