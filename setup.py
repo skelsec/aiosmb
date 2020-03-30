@@ -40,7 +40,7 @@ setup(
 	python_requires='>=3.7',
 	install_requires=[
 		'minikerberos>=0.2.0',
-		'winsspi>=0.0.5',
+		'winsspi>=0.0.7',
 		'six',
 		'aiocmd>=0.1.2',
 		'asysocks>=0.0.2',

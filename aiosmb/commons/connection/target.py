@@ -19,21 +19,21 @@ class SMBConnectionDialect(enum.Enum):
 	SMB3 = 'SMB3' #will offer all v3 versions
 	SMB202 = 'SMB202'
 	SMB210 = 'SMB210'
-	SMB222 = 'SMB222'
-	SMB224 = 'SMB224'
+	#SMB222 = 'SMB222'
+	#SMB224 = 'SMB224'
 	SMB300 = 'SMB300'
 	SMB302 = 'SMB302'
-	SMB310 = 'SMB310'
+	#SMB310 = 'SMB310'
 	SMB311 = 'SMB311'
 
 smb_negotiate_dialect_lookup = {
 	SMBConnectionDialect.SMB202 : NegotiateDialects.SMB202,
 	SMBConnectionDialect.SMB210 : NegotiateDialects.SMB210,
-	SMBConnectionDialect.SMB222 : NegotiateDialects.SMB222,
-	SMBConnectionDialect.SMB224 : NegotiateDialects.SMB224,
+	#SMBConnectionDialect.SMB222 : NegotiateDialects.SMB222,
+	#SMBConnectionDialect.SMB224 : NegotiateDialects.SMB224,
 	SMBConnectionDialect.SMB300 : NegotiateDialects.SMB300,
 	SMBConnectionDialect.SMB302 : NegotiateDialects.SMB302,
-	SMBConnectionDialect.SMB310 : NegotiateDialects.SMB310,
+	#SMBConnectionDialect.SMB310 : NegotiateDialects.SMB310,
 	SMBConnectionDialect.SMB311 : NegotiateDialects.SMB311,
 }
 

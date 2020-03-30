@@ -14,13 +14,19 @@ class NegotiateDialects(enum.Enum):
 SMB2_NEGOTIATE_DIALTECTS_2 = {
 	NegotiateDialects.SMB202 : 1,
 	NegotiateDialects.SMB210 : 1,
-	NegotiateDialects.SMB222 : 1,
-	NegotiateDialects.SMB224 : 1
+	#NegotiateDialects.SMB222 : 1,
+	#NegotiateDialects.SMB224 : 1
 }
 SMB2_NEGOTIATE_DIALTECTS_3 = {
 	NegotiateDialects.SMB300 : 1,
 	NegotiateDialects.SMB302 : 1,
-	NegotiateDialects.SMB310 : 1,
+	#NegotiateDialects.SMB310 : 1,
 	NegotiateDialects.SMB311 : 1
 }
-SMB2_NEGOTIATE_DIALTECTS = {**SMB2_NEGOTIATE_DIALTECTS_2 , **SMB2_NEGOTIATE_DIALTECTS_3}
+SMB2_NEGOTIATE_DIALTECTS = {
+	NegotiateDialects.SMB202 : 1,
+	NegotiateDialects.SMB210 : 1,
+	NegotiateDialects.SMB300 : 1,
+	NegotiateDialects.SMB302 : 1,
+	NegotiateDialects.SMB311 : 1
+}

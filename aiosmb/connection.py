@@ -33,13 +33,12 @@ from aiosmb.wintypes.dtyp.constrcuted_security.security_descriptor import SECURI
 from aiosmb.commons.smbcontainer import *
 from aiosmb.commons.connection.target import *
 
+from aiosmb.crypto.pure.AES.AESCCM import aesCCMEncrypt, aesCCMDecrypt
+#from aiosmb.crypto.AESCCM_dome import aesCCMEncrypt, aesCCMDecrypt
+from aiosmb.crypto.BASE import cipherMODE
 from aiosmb.crypto.from_impacket import KDF_CounterMode, AES_CMAC
 from aiosmb.crypto.compression.lznt1 import compress as lznt1_compress
 from aiosmb.crypto.compression.lznt1 import decompress as lznt1_decompress
-
-from Cryptodome.Cipher import AES
-
-
 
 class SMBConnectionStatus(enum.Enum):
 	NEGOTIATING = 'NEGOTIATING'
@@ -195,7 +194,7 @@ class SMBConnection:
 		self.SupportsEncryption = False
 		self.ClientCapabilities = 0
 		self.ServerCapabilities = 0
-		self.ClientSecurityMode = 0
+		self.ClientSecurityMode = NegotiateSecurityMode.SMB2_NEGOTIATE_SIGNING_ENABLED | NegotiateSecurityMode.SMB2_NEGOTIATE_SIGNING_REQUIRED
 		self.ServerSecurityMode = 0
 		
 		
@@ -281,10 +280,18 @@ class SMBConnection:
 					msg = SMB2Transform.from_bytes(msg_data)
 					
 					if msg.header.EncryptionAlgorithm == SMB2Cipher.AES_128_CCM:
-						cipher = AES.new(self.DecryptionKey, AES.MODE_CCM, msg.header.Nonce[:11])
-						cipher.update(msg_data[20:])
-						dec_data = cipher.decrypt(msg.data)
-						#calc_signature = cipher.digest()
+						dec_data = aesCCMDecrypt(msg.data, msg_data[20:], self.DecryptionKey, msg.header.Nonce[:11], msg.header.Signature)
+						#print('dec_data %s' % dec_data)
+						#cipher = AES(self.DecryptionKey, mode = cipherMODE.CCM, nonce = msg.header.Nonce[:11])
+						#cipher.update(msg_data[20:])
+						#dec_data = cipher.decrypt(msg.data)
+						#calc_signature = cipher.verify()
+
+
+						#cipher = AES.new(self.DecryptionKey, AES.MODE_CCM, msg.header.Nonce[:11])
+						#cipher.update(msg_data[20:])
+						#dec_data = cipher.decrypt(msg.data)
+						##calc_signature = cipher.verify()
 
 						# TODO: add signature checking!!!!!
 
@@ -435,7 +442,7 @@ class SMBConnection:
 	def update_integrity(self, msg_data):
 		#if is_neg is True:
 		#	self.PreauthIntegrityHashValue = b'\x00'*64
-		print('update_integrity with data : %s' % msg_data)
+		#print('update_integrity with data : %s' % msg_data)
 		ctx = hashlib.sha512()
 		ctx.update(self.PreauthIntegrityHashValue + msg_data)
 		self.PreauthIntegrityHashValue = ctx.digest()
@@ -455,7 +462,7 @@ class SMBConnection:
 			header.Flags2   = SMBHeaderFlags2Enum.SMB_FLAGS2_UNICODE
 				
 			command = SMB_COM_NEGOTIATE_REQ()				
-			command.Dialects = ['SMB 2.???']
+			command.Dialects = ['SMB 2.???','SMB 2.002']
 			
 			msg = SMBMessage(header, command)
 			message_id = await self.sendSMB(msg)
@@ -468,14 +475,16 @@ class SMBConnection:
 			
 			del self.supported_dialects[NegotiateDialects.WILDCARD]
 
-		print(rply.command.Capabilities)
+			#print(rply.command.Capabilities)
 
 		command = NEGOTIATE_REQ()
-		command.SecurityMode    = NegotiateSecurityMode.SMB2_NEGOTIATE_SIGNING_ENABLED | NegotiateSecurityMode.SMB2_NEGOTIATE_SIGNING_REQUIRED
-		command.Capabilities    = rply.command.Capabilities if rply is not None else self.ClientCapabilities
+		command.SecurityMode    = self.ClientSecurityMode
+		command.Capabilities    = 0
 		command.ClientGuid      = self.ClientGUID
 		command.Dialects        = [dialect for dialect in self.supported_dialects]
 
+		#if all(dialect in SMB2_NEGOTIATE_DIALTECTS_2 for dialect in self.supported_dialects):
+		#	command.Capabilities    = NegotiateCapabilities.ENCRYPTION
 		if all(dialect in SMB2_NEGOTIATE_DIALTECTS_3 for dialect in self.supported_dialects):
 			command.Capabilities    = NegotiateCapabilities.ENCRYPTION
 
@@ -516,7 +525,7 @@ class SMBConnection:
 		rply, rply_data = await self.recvSMB(message_id, ret_data=True) #negotiate MessageId should be 1
 		if isinstance(rply, SMBMessage):
 			raise Exception('Server replied with SMBv1 message, doesnt support SMBv2')
-		print('NEG RPLY updates')
+		#print('NEG RPLY updates')
 		self.update_integrity(rply_data)
 		
 		if rply.header.Status != NTStatus.SUCCESS:
@@ -591,7 +600,7 @@ class SMBConnection:
 			header.CreditReq = 0
 			
 			msg = SMBMessage(header, command)
-			message_id, sent_msg = await self.sendSMB(msg, ret_message=True)
+			message_id = await self.sendSMB(msg)
 			#self.update_integrity(sent_msg.to_bytes())
 			rply, rply_data = await self.recvSMB(message_id, ret_data=True)
 			
@@ -686,11 +695,12 @@ class SMBConnection:
 		hdr.EncryptionAlgorithm = SMB2Cipher.AES_128_CCM
 		hdr.SessionId = self.SessionId
 
-		
-		cipher = AES.new(self.EncryptionKey, AES.MODE_CCM, nonce)
-		cipher.update(hdr.to_bytes()[20:])
-		enc_data = cipher.encrypt(msg_data)
-		hdr.Signature = cipher.digest()
+		enc_data, hdr.Signature = aesCCMEncrypt(msg_data, hdr.to_bytes()[20:], self.EncryptionKey, nonce)
+
+		#cipher = AES.new(self.EncryptionKey, AES.MODE_CCM, nonce)
+		#cipher.update(hdr.to_bytes()[20:])
+		#enc_data = cipher.encrypt(msg_data)
+		#hdr.Signature = cipher.digest()
 		return SMB2Transform(hdr, enc_data)
 
 
@@ -776,7 +786,7 @@ class SMBConnection:
 			msg = self.encrypt_message(msg.to_bytes())
 
 		else:
-			print('SEND updates')
+			#print('SEND updates')
 			self.update_integrity(msg.to_bytes())
 
 		#creating an event for outstanding response
@@ -939,7 +949,7 @@ class SMBConnection:
 		if len(data) > self.MaxWriteSize:
 			data = data[:self.MaxWriteSize]
 			
-		if self.selected_dialect > NegotiateDialects.SMB202 and self.SupportsMultiCredit == True:
+		if self.selected_dialect != NegotiateDialects.SMB202 and self.SupportsMultiCredit == True:
 			header.CreditCharge = ( 1 + (len(data) - 1) // 65536)
 		else: 
 			data = data[:min(65536,len(data))]
@@ -1530,7 +1540,8 @@ if __name__ == '__main__':
 
 	logger.setLevel(2)
 	#url = 'smb+ntlm-password://TEST\\victim:Passw0rd!1@10.10.10.2'
-	url = 'smb302+ntlm-password://work\\work:work@10.10.10.103'
+	url = 'smb222+ntlm-password://TEST\\victim:Passw0rd!1@10.10.10.2'
+	#url = 'smb202+ntlm-password://work\\work:work@10.10.10.103'
 	#url = 'smb+ntlm-password://smbtest\\smbtest:smbtest@10.200.200.154'
 	cu = SMBConnectionURL(url)
 	
