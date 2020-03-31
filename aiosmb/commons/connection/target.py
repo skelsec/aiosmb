@@ -85,7 +85,7 @@ class SMBTarget:
 		return 'cifs/%s@%s' % (self.hostname, self.domain)
 
 	def get_copy(self, ip, port, hostname = None):
-		return SMBTarget(
+		t = SMBTarget(
 			ip = ip, 
 			port = port, 
 			hostname = hostname, 
@@ -93,10 +93,11 @@ class SMBTarget:
 			dc_ip= self.dc_ip, 
 			domain = self.domain, 
 			proxy = copy.deepcopy(self.proxy),
-			dialect = self.dialect,
 			protocol = self.protocol
 		)
 
+		self.preferred_dialects
+		return t
 	
 	@staticmethod
 	def from_connection_string(s):
