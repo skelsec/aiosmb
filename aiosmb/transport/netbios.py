@@ -51,25 +51,10 @@ class NetBIOSTransport:
 				msg_data = buffer[:total_size][4:]
 				buffer = buffer[total_size:]
 				total_size = None
-				
-				if msg_data[0] == 0xFF:
-					#version1
-					msg = SMBMessage.from_bytes(msg_data)
-				elif msg_data[0] == 0xFE:
-					#version2
-					msg = SMB2Message.from_bytes(msg_data)
-				elif msg_data[0] == 0xFD:
-					#encrypted transform
-					msg = SMB2Transform.from_bytes(msg_data)
-				elif msg_data[0] == 0xFC:
-					#compressed transform
-					msg = SMB2Transform.from_bytes(msg_data)
-				else:
-					raise Exception('Unknown SMB version!')
 					
 				#print('%s nbmsg! ' % (self.network_transport.writer.get_extra_info('peername')[0], ))
 				#print('[NetBIOS] MSG dispatched')
-				await self.in_queue.put( (msg, None) )
+				await self.in_queue.put( (msg_data, None) )
 				await self.parse_buffer(buffer, total_size)
 		
 		return buffer
@@ -100,13 +85,11 @@ class NetBIOSTransport:
 		
 	async def handle_outgoing(self):
 		"""
-		Reads SMBv1/2 outgoing message objects from out_queue, wraps them in NetBIOS object, then serializes them, then sends them to socket_out_queue
+		Reads SMBv1/2 outgoing message data bytes from out_queue, wraps them in NetBIOS object, then serializes them, then sends them to socket_out_queue
 		"""
 		try:
 			while True:
-				smb_msg = await self.out_queue.get()
-				#print(smb_msg)
-				smb_msg_data = smb_msg.to_bytes()
+				smb_msg_data = await self.out_queue.get()
 				data  = b'\x00'
 				data += len(smb_msg_data).to_bytes(3, byteorder='big', signed = False)
 				data += smb_msg_data

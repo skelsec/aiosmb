@@ -20,12 +20,13 @@ except:
 	pass
 
 class pureAES(symmetricBASE):
-	def __init__(self, key, mode = cipherMODE.ECB, IV = None, pad = None, padMode = None):
+	def __init__(self, key, mode = cipherMODE.ECB, IV = None, nonce = None, pad = None, padMode = None):
 		self.key = key
 		self.mode = mode
 		self.IV = IV
 		self.pad = pad
 		self.padMode = padMode
+		self.nonce = nonce
 
 		symmetricBASE.__init__(self)
 
@@ -35,14 +36,29 @@ class pureAES(symmetricBASE):
 		elif self.mode == cipherMODE.CBC:
 			self._cipher = AESModeOfOperationCBC(self.key, iv = self.IV)
 		elif self.mode == cipherMODE.CTR:
-			self._cipher = AESModeOfOperationCTR(self.key, iv = self.IV)
+			self._cipher = AESModeOfOperationCTR(self.key, counter = self.IV)
 		else:
 			raise Exception('Unknown cipher mode!')
 
 	def encrypt(self, data):
 		return self._cipher.encrypt(data)
+	
 	def decrypt(self, data):
 		return self._cipher.decrypt(data)
+	
+	def update(self, data):
+		if self.mode != cipherMODE.CCM:
+			raise Exception('Not applicable!')
+
+		return self._cipher.update(data)
+
+	def digest(self):
+		if self.mode != cipherMODE.CCM:
+			raise Exception('Not applicable!')
+
+		return self._cipher.digest()
+
+
 
 class pyCryptoAES(symmetricBASE):
 	def __init__(self, key, mode = cipherMODE.ECB, IV = None, pad = None, padMode = None):

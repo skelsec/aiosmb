@@ -5,6 +5,7 @@ class cipherMODE(enum.Enum):
 	ECB = enum.auto()
 	CBC = enum.auto()
 	CTR = enum.auto()
+	CCM = enum.auto()
 
 class symmetricBASE():
 	def __init__(self):
@@ -22,6 +23,14 @@ class symmetricBASE():
 
 	@abstractmethod
 	def decrypt(self):
+		pass
+
+	@abstractmethod
+	def update(self, data):
+		pass
+
+	@abstractmethod
+	def digest(self):
 		pass
 
 class hashBASE():

@@ -80,17 +80,16 @@ class SMBDRSUAPI:
 		self.dce.set_auth_level(RPC_C_AUTHN_LEVEL_PKT_PRIVACY)
 
 		await rr(self.dce.connect())
-			
+		
 		if open == True:
 			await rr(self.open())
-
 		return True,None
 	
 	@red
 	async def open(self):
 		if not self.dce:
 			await rr(self.connect())
-
+		
 		await rr(self.dce.bind(drsuapi.MSRPC_UUID_DRSUAPI))
 		request = drsuapi.DRSBind()
 		request['puuidClientDsa'] = drsuapi.NTDSAPI_CLIENT_GUID

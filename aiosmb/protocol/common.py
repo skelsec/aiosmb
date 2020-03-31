@@ -10,3 +10,23 @@ class NegotiateDialects(enum.Enum):
 	SMB302 = 0x0302 #SMB 3.0.2 dialect revision number.<12>
 	SMB310 = 0x0310 #SMB 3.1.1 dialect revision number.<13>
 	SMB311 = 0x0311 #SMB 3.1.1 dialect revision number.<13>
+
+SMB2_NEGOTIATE_DIALTECTS_2 = {
+	NegotiateDialects.SMB202 : 1,
+	NegotiateDialects.SMB210 : 1,
+	#NegotiateDialects.SMB222 : 1,
+	#NegotiateDialects.SMB224 : 1
+}
+SMB2_NEGOTIATE_DIALTECTS_3 = {
+	NegotiateDialects.SMB300 : 1,
+	NegotiateDialects.SMB302 : 1,
+	#NegotiateDialects.SMB310 : 1,
+	NegotiateDialects.SMB311 : 1
+}
+SMB2_NEGOTIATE_DIALTECTS = {
+	NegotiateDialects.SMB202 : 1,
+	NegotiateDialects.SMB210 : 1,
+	NegotiateDialects.SMB300 : 1,
+	NegotiateDialects.SMB302 : 1,
+	NegotiateDialects.SMB311 : 1
+}

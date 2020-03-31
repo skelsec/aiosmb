@@ -53,7 +53,7 @@ class DCERPCTCPConnection:
 				self.writer.write(data)
 				await self.writer.drain()
 		except asyncio.CancelledError:
-			#the SMB connection is terminating
+			#the connection is terminating
 			return
 			
 		except Exception as e:
@@ -147,13 +147,16 @@ class DCERPCTCPTransport:
 				if data is None:
 					self.__last_exception = res
 					self.exception_evt.set()
+					self.data_in_evt.set()
 					return
 				self.buffer += data
 				self.data_in_evt.set()
 		except asyncio.CancelledError:
+			self.exception_evt.set()
 			return
 		except Exception as e:
 			logger.exception('__handle_incoming')
+			self.exception_evt.set()
 			return
 	
 	@red
@@ -185,11 +188,11 @@ class DCERPCTCPTransport:
 		
 		if self._max_send_frag:
 			offset = 0
-			while 1:
+			while True:
 				toSend = data[offset:offset+self._max_send_frag]
 				if not toSend:
 					break
-				await self.connection.out_queue.put(data)
+				await self.connection.out_queue.put(toSend)
 				offset += len(toSend)
 				
 		else:

@@ -6,10 +6,38 @@ from aiosmb.protocol.smb2.headers import *
 from aiosmb.protocol.smb2.commands import *
 from aiosmb.protocol.smb2.command_codes import *
 
+class SMB2Compression:
+	def __init__(self, header = None, data = None):
+		self.header = header
+		self.data   = data
+	
+	@staticmethod
+	def from_bytes(bbuff):
+		return SMB2Compression.from_buffer(io.BytesIO(bbuff))
+
+	@staticmethod
+	def from_buffer(buff):
+		msg = SMB2Compression()
+		pos = buff.tell()
+		t = buff.read(1)
+		buff.seek(pos,0)
+		if t == b'\xFC':
+			msg.header = SMB2Header_COMPRESSION_TRANSFORM.from_buffer(buff)
+		else:
+			raise Exception('Unknown packet type for SMB2Compression! %s' % t)
+		
+		msg.data = buff.read()
+		return msg
+
+	def to_bytes(self):
+		t = self.header.to_bytes()
+		t += self.data
+		return t
+
 class SMB2Transform:
-	def __init__(self):
-		self.header = None
-		self.data   = None
+	def __init__(self, header = None, data = None):
+		self.header = header
+		self.data   = data
 	
 	@staticmethod
 	def from_bytes(bbuff):
@@ -21,17 +49,18 @@ class SMB2Transform:
 		pos = buff.tell()
 		t = buff.read(1)
 		buff.seek(pos,0)
-		if t == 0xFD:
-			#encrypted
+		if t == b'\xFD':
 			msg.header = SMB2Header_TRANSFORM.from_buffer(buff)
-		elif t == 0xFD:
-			#encrypted
-			msg.header = SMB2Header_COMPRESSION_TRANSFORM.from_buffer(buff)
 		else:
 			raise Exception('Unknown packet type for SMB2Transform! %s' % t)
 		
 		msg.data = buff.read()
 		return msg
+
+	def to_bytes(self):
+		t = self.header.to_bytes()
+		t += self.data
+		return t
 
 class SMB2Message:
 	def __init__(self,header = None,command = None ):

