@@ -147,12 +147,9 @@ class DCERPC5Connection:
 
 		_,_ = await rr(self.transport.send(packet.get_packet()))
 		
-		print(6)
-		data, err = await self.recv_one()
-		print(err)
+		data, err = await rr(self.recv_one())
 
 		resp = MSRPCHeader(data)
-		print(resp.dump())
 
 		if resp['type'] == MSRPC_BINDACK or resp['type'] == MSRPC_ALTERCTX_R:
 			bindResp = MSRPCBindAck(resp.getData())
@@ -524,16 +521,15 @@ class DCERPC5Connection:
 
 	@red
 	async def recv_one(self):
-		print(7)
 		finished = False
 		forceRecv = 0
 		retAnswer = b''
 		while not finished:
 			# At least give me the MSRPCRespHeader, especially important for 
 			# TCP/UDP Transports
-			print(8)
+			
 			response_data, _ = await rr(self.transport.recv(MSRPCRespHeader._SIZE))
-			print('DATA: %s' % repr(response_data))
+			#print('DATA: %s' % repr(response_data))
 			response_header = MSRPCRespHeader(response_data)
 			# Ok, there might be situation, especially with large packets, that 
 			# the transport layer didn't send us the full packet's contents
