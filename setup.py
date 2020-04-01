@@ -44,6 +44,8 @@ setup(
 		'six',
 		'aiocmd>=0.1.2',
 		'asysocks>=0.0.2',
+		'tqdm',
+		'prompt-toolkit<3.0.0'
 	],
 	
 	classifiers=(
