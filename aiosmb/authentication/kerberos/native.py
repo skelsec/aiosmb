@@ -68,7 +68,7 @@ class SMBKerberos:
 
 		if self.iterations == 0:
 			#tgt = await self.kc.get_TGT(override_etype=[18])
-			tgt = await self.kc.get_TGT(override_etype=[17])
+			tgt = await self.kc.get_TGT(override_etype=[18])
 			tgs, encpart, self.session_key = await self.kc.get_TGS(self.spn)
 		ap_opts = []
 		if is_rpc == True:
@@ -83,6 +83,8 @@ class SMBKerberos:
 				
 			else:
 				#mutual authentication part here
+				self.seq_number = seq_number
+
 				aprep = AP_REP.load(authData).native
 				cipher = _enctype_table[int(aprep['enc-part']['etype'])]()
 				cipher_text = aprep['enc-part']['cipher']
@@ -96,8 +98,8 @@ class SMBKerberos:
 				apreppart_data['cusec'] = now.microsecond
 				apreppart_data['ctime'] = now.replace(microsecond=0)
 				apreppart_data['seq-number'] = enc_part['seq-number']
-				print('seq %s' % enc_part['seq-number'])
-				self.seq_number = enc_part['seq-number']
+				#print('seq %s' % enc_part['seq-number'])
+				
 				apreppart_data_enc = cipher.encrypt(self.session_key, 12, EncAPRepPart(apreppart_data).dump(), None)
 				
 				#overriding current session key

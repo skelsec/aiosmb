@@ -265,7 +265,7 @@ class DCERPC5Connection:
 						self.__sequence = 0
 						await rr(self.recv_one()) #recieving the result of alter_context command
 
-						self.__sequence = 0
+						self.__sequence = self.gssapi.gssapi.selected_authentication_context.seq_number
 					else:
 						auth3 = MSRPCHeader()
 						auth3['type'] = MSRPC_AUTH3
