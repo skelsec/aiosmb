@@ -6,6 +6,7 @@ from aiosmb.commons.connection.proxy import SMBProxyType
 from aiosmb.network.socks import SocksProxyConnection
 from aiosmb.network.multiplexornetwork import MultiplexorProxyConnection
 from aiosmb.commons.utils.decorators import red, rr
+from aiosmb.dcerpc.v5.rpcrt import MSRPCRespHeader
 
 class DCERPCTCPConnection:
 	def __init__(self, ip, port):
@@ -30,8 +31,18 @@ class DCERPCTCPConnection:
 		"""
 		try:
 			while not self.disconnected.is_set() or not self.shutdown_evt.is_set():
-				data = await self.reader.read(4096)
-				await self.in_queue.put((data, None))
+				try:
+					msg_data = b''
+					data = await self.reader.readexactly(24)
+					msg_data += data
+					response_header = MSRPCRespHeader(msg_data)
+					
+					data = await self.reader.readexactly(response_header['frag_len'] - 24)
+					msg_data += data
+					await self.in_queue.put((msg_data, None))
+				except Exception as e:
+					await self.in_queue.put((None, e))
+					return
 		
 		except asyncio.CancelledError:
 			#the SMB connection is terminating
@@ -116,6 +127,7 @@ class DCERPCTCPTransport:
 		self.data_in_evt = asyncio.Event()
 		self.exception_evt = asyncio.Event()
 		self.connection = None
+		self.msg_in_queue = asyncio.Queue()
 
 		self.__last_exception = None
 		self.__incoming_task = None
@@ -142,15 +154,26 @@ class DCERPCTCPTransport:
 
 	async def __handle_incoming(self):
 		try:
+			data = b''
 			while True:
-				data, res = await self.connection.in_queue.get()
-				if data is None:
-					self.__last_exception = res
-					self.exception_evt.set()
-					self.data_in_evt.set()
-					return
-				self.buffer += data
-				self.data_in_evt.set()
+				x, res = await self.connection.in_queue.get()
+				if res is not None:
+					print('res %s' % res)
+				data += x
+				if len(data) >= 24: #MSRPCRespHeader._SIZE
+					response_header = MSRPCRespHeader(data)
+					while len(data) < response_header['frag_len']:
+						x, res = await self.connection.in_queue.get()
+						data += x
+
+					response_data = data[:response_header['frag_len']]
+					data = data[response_header['frag_len']:]
+				
+					await self.msg_in_queue.put(response_data)
+				
+
+
+
 		except asyncio.CancelledError:
 			self.exception_evt.set()
 			return
@@ -164,7 +187,7 @@ class DCERPCTCPTransport:
 		self.connection, _ = await rr(self.get_connection_layer())
 		await self.connection.connect()
 
-		self.__incoming_task = asyncio.create_task(self.__handle_incoming())
+		#self.__incoming_task = asyncio.create_task(self.__handle_incoming())
 		
 		return True, None
 	
@@ -203,17 +226,13 @@ class DCERPCTCPTransport:
 	@red
 	async def recv(self, count, forceRecv = 0):
 		try:
-			while len(self.buffer) < count:
-				#waiting until buffer has enough data
-				self.data_in_evt.clear()
-				await asyncio.wait_for(self.data_in_evt.wait(), timeout = self.target.timeout)
+			#print('recv')
+			#print(self.buffer)
+			print('waiting')
+			data, err = await asyncio.wait_for(self.connection.in_queue.get(), timeout = self.target.timeout)
 			
-			if self.__last_exception is not None:
-				return None, self.__last_exception
-
-			data = self.buffer[:count]
-			self.buffer = self.buffer[count:]
-			return data, None
+			print('consumed: %s' % data)
+			return data, err
 		except Exception as e:
 			return None, e
 		

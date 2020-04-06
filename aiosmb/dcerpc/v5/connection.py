@@ -75,223 +75,243 @@ class DCERPC5Connection:
 		"""
 		Performs bind operation. Does authentication and sets up the keys for further communication
 		"""
-		bind = MSRPCBind()
-		#item['TransferSyntax']['Version'] = 1
-		ctx = self.ctx
-		for _ in range(bogus_binds):
+		try:
+			print('[bind] start')
+			bind = MSRPCBind()
+			#item['TransferSyntax']['Version'] = 1
+			ctx = self.ctx
+			for _ in range(bogus_binds):
+				item = CtxItem()
+				item['ContextID'] = ctx
+				item['TransItems'] = 1
+				item['ContextID'] = ctx
+				# We generate random UUIDs for bogus binds
+				item['AbstractSyntax'] = generate() + stringver_to_bin('2.0')
+				item['TransferSyntax'] = uuidtup_to_bin(transfer_syntax)
+				bind.addCtxItem(item)
+				self.ctx += 1
+				ctx += 1
+
+			# The true one :)
 			item = CtxItem()
+			item['AbstractSyntax'] = iface_uuid
+			item['TransferSyntax'] = uuidtup_to_bin(transfer_syntax)
 			item['ContextID'] = ctx
 			item['TransItems'] = 1
-			item['ContextID'] = ctx
-			# We generate random UUIDs for bogus binds
-			item['AbstractSyntax'] = generate() + stringver_to_bin('2.0')
-			item['TransferSyntax'] = uuidtup_to_bin(transfer_syntax)
 			bind.addCtxItem(item)
-			self.ctx += 1
-			ctx += 1
 
-		# The true one :)
-		item = CtxItem()
-		item['AbstractSyntax'] = iface_uuid
-		item['TransferSyntax'] = uuidtup_to_bin(transfer_syntax)
-		item['ContextID'] = ctx
-		item['TransItems'] = 1
-		bind.addCtxItem(item)
+			packet = MSRPCHeader()
+			packet['type'] = MSRPC_BIND
+			packet['pduData'] = bind.getData()
+			packet['call_id'] = self.callid
+			
+			if alter:
+				packet['type'] = MSRPC_ALTERCTX
 
-		packet = MSRPCHeader()
-		packet['type'] = MSRPC_BIND
-		packet['pduData'] = bind.getData()
-		packet['call_id'] = self.callid
-		
-		if alter:
-			packet['type'] = MSRPC_ALTERCTX
+			if self.auth_level != RPC_C_AUTHN_LEVEL_NONE:
+				#authentication required
+				if self.auth_type == RPC_C_AUTHN_WINNT:
+					
+					#seal flag MUST be turned on in the handshake flags!!!!!!!
+					#it is "signaled via the is_rpc variable"
+					auth, res = await self.gssapi.ntlm.authenticate(None, is_rpc = True)
 
-		if self.auth_level != RPC_C_AUTHN_LEVEL_NONE:
-			#authentication required
-			if self.auth_type == RPC_C_AUTHN_WINNT:
-				
-				#seal flag MUST be turned on in the handshake flags!!!!!!!
-				#it is "signaled via the is_rpc variable"
-				auth, res = await self.gssapi.ntlm.authenticate(None, is_rpc = True)
+				elif self.auth_type == RPC_C_AUTHN_NETLOGON:
+					return False, Exception('RPC_C_AUTHN_NETLOGON Not implemented!')
 
-			elif self.auth_type == RPC_C_AUTHN_NETLOGON:
-				raise Exception('Not implemented!')
+				elif self.auth_type == RPC_C_AUTHN_GSS_NEGOTIATE:
+					print('[bind] gss_nego_1')
+					auth, res  = await self.gssapi.gssapi.authenticate(
+						None, 
+						flags = GSSAPIFlags.GSS_C_CONF_FLAG |\
+								GSSAPIFlags.GSS_C_INTEG_FLAG | \
+								GSSAPIFlags.GSS_C_SEQUENCE_FLAG | \
+								GSSAPIFlags.GSS_C_REPLAY_FLAG | \
+								GSSAPIFlags.GSS_C_MUTUAL_FLAG | \
+								GSSAPIFlags.GSS_C_DCE_STYLE,
+						seq_number = 0, 
+						is_rpc = True
+					)
+					print('gss1: %s' % auth)
+				else:
+					return None, Exception('Unsupported auth type!')
 
-			elif self.auth_type == RPC_C_AUTHN_GSS_NEGOTIATE:
-				auth, res  = await self.gssapi.gssapi.authenticate(
-					None, 
-					flags = GSSAPIFlags.GSS_C_CONF_FLAG |\
+				sec_trailer = SEC_TRAILER()
+				sec_trailer['auth_type']   = self.auth_type
+				sec_trailer['auth_level']  = self.auth_level
+				sec_trailer['auth_ctx_id'] = self.ctx + 79231 
+
+				pad = (4 - (len(packet.get_packet()) % 4)) % 4
+				if pad != 0:
+					packet['pduData'] += b'\xFF'*pad
+					sec_trailer['auth_pad_len']=pad
+
+				packet['sec_trailer'] = sec_trailer
+				packet['auth_data'] = auth
+
+			print('[bind] auth_1')
+			_,_ = await rr(self.transport.send(packet.get_packet()))
+			
+			print('[bind] auth_rec_1')
+			data, err = await rr(self.recv_one())
+			print(data)
+			print('[bind] auth_response_1')
+			resp = MSRPCHeader(data)
+
+			if resp['type'] == MSRPC_BINDACK or resp['type'] == MSRPC_ALTERCTX_R:
+				bindResp = MSRPCBindAck(resp.getData())
+			elif resp['type'] == MSRPC_BINDNAK or resp['type'] == MSRPC_FAULT:
+				if resp['type'] == MSRPC_FAULT:
+					resp = MSRPCRespHeader(resp.getData())
+					status_code = unpack('<L', resp['pduData'][:4])[0]
+				else:
+					resp = MSRPCBindNak(resp['pduData'])
+					status_code = resp['RejectedReason']
+				if status_code in rpc_status_codes:
+					return False, DCERPCException(error_code = status_code)
+				elif status_code in rpc_provider_reason:
+					return False, DCERPCException("Bind context rejected: %s" % rpc_provider_reason[status_code])
+				else:
+					return False, DCERPCException('Unknown DCE RPC fault status code: %.8x' % status_code)
+			else:
+				return False, DCERPCException('Unknown DCE RPC packet type received: %d' % resp['type'])
+
+			# check ack results for each context, except for the bogus ones
+			for ctx in range(bogus_binds+1,bindResp['ctx_num']+1):
+				ctxItems = bindResp.getCtxItem(ctx)
+				if ctxItems['Result'] != 0:
+					msg = "Bind context %d rejected: " % ctx
+					msg += rpc_cont_def_result.get(ctxItems['Result'], 'Unknown DCE RPC context result code: %.4x' % ctxItems['Result'])
+					msg += "; "
+					reason = bindResp.getCtxItem(ctx)['Reason']
+					msg += rpc_provider_reason.get(reason, 'Unknown reason code: %.4x' % reason)
+					if (ctxItems['Result'], reason) == (2, 1): # provider_rejection, abstract syntax not supported
+						msg += " (this usually means the interface isn't listening on the given endpoint)"
+					raise DCERPCException(msg)
+
+				# Save the transfer syntax for later use
+				self.transfer_syntax = ctxItems['TransferSyntax']
+
+			# The received transmit size becomes the client's receive size, and the received receive size becomes the client's transmit size.
+			self.__max_xmit_size = bindResp['max_rfrag']
+
+			print('[bind] auth_2')
+			if self.auth_level != RPC_C_AUTHN_LEVEL_NONE:
+				if self.auth_type == RPC_C_AUTHN_WINNT:
+					response, res = await self.gssapi.ntlm.authenticate(bindResp['auth_data'], is_rpc = True)
+					
+					self.__sessionKey = self.gssapi.ntlm.get_session_key()
+					
+
+				elif self.auth_type == RPC_C_AUTHN_NETLOGON:
+					response = None
+				elif self.auth_type == RPC_C_AUTHN_GSS_NEGOTIATE:
+					response, res  = await self.gssapi.gssapi.authenticate(
+						bindResp['auth_data'], 
+						is_rpc = True, 
+						flags = GSSAPIFlags.GSS_C_CONF_FLAG |\
 							GSSAPIFlags.GSS_C_INTEG_FLAG | \
 							GSSAPIFlags.GSS_C_SEQUENCE_FLAG | \
 							GSSAPIFlags.GSS_C_REPLAY_FLAG | \
 							GSSAPIFlags.GSS_C_MUTUAL_FLAG | \
-							GSSAPIFlags.GSS_C_DCE_STYLE,
-					seq_number = 0, 
-					is_rpc = True
-				)
-			else:
-				Exception('Unsupported auth type!')
+							GSSAPIFlags.GSS_C_DCE_STYLE
+					)
+					print('gss2: %s' % response)
+																								
+					self.__sessionKey = self.gssapi.gssapi.get_session_key()
 
-			sec_trailer = SEC_TRAILER()
-			sec_trailer['auth_type']   = self.auth_type
-			sec_trailer['auth_level']  = self.auth_level
-			sec_trailer['auth_ctx_id'] = self.ctx + 79231 
+				self.__sequence = 0
 
-			pad = (4 - (len(packet.get_packet()) % 4)) % 4
-			if pad != 0:
-				packet['pduData'] += b'\xFF'*pad
-				sec_trailer['auth_pad_len']=pad
-
-			packet['sec_trailer'] = sec_trailer
-			packet['auth_data'] = auth
-
-		_,_ = await rr(self.transport.send(packet.get_packet()))
-		
-		data, err = await rr(self.recv_one())
-
-		resp = MSRPCHeader(data)
-
-		if resp['type'] == MSRPC_BINDACK or resp['type'] == MSRPC_ALTERCTX_R:
-			bindResp = MSRPCBindAck(resp.getData())
-		elif resp['type'] == MSRPC_BINDNAK or resp['type'] == MSRPC_FAULT:
-			if resp['type'] == MSRPC_FAULT:
-				resp = MSRPCRespHeader(resp.getData())
-				status_code = unpack('<L', resp['pduData'][:4])[0]
-			else:
-				resp = MSRPCBindNak(resp['pduData'])
-				status_code = resp['RejectedReason']
-			if status_code in rpc_status_codes:
-				raise DCERPCException(error_code = status_code)
-			elif status_code in rpc_provider_reason:
-				raise DCERPCException("Bind context rejected: %s" % rpc_provider_reason[status_code])
-			else:
-				raise DCERPCException('Unknown DCE RPC fault status code: %.8x' % status_code)
-		else:
-			raise DCERPCException('Unknown DCE RPC packet type received: %d' % resp['type'])
-
-		# check ack results for each context, except for the bogus ones
-		for ctx in range(bogus_binds+1,bindResp['ctx_num']+1):
-			ctxItems = bindResp.getCtxItem(ctx)
-			if ctxItems['Result'] != 0:
-				msg = "Bind context %d rejected: " % ctx
-				msg += rpc_cont_def_result.get(ctxItems['Result'], 'Unknown DCE RPC context result code: %.4x' % ctxItems['Result'])
-				msg += "; "
-				reason = bindResp.getCtxItem(ctx)['Reason']
-				msg += rpc_provider_reason.get(reason, 'Unknown reason code: %.4x' % reason)
-				if (ctxItems['Result'], reason) == (2, 1): # provider_rejection, abstract syntax not supported
-					msg += " (this usually means the interface isn't listening on the given endpoint)"
-				raise DCERPCException(msg)
-
-			# Save the transfer syntax for later use
-			self.transfer_syntax = ctxItems['TransferSyntax']
-
-		# The received transmit size becomes the client's receive size, and the received receive size becomes the client's transmit size.
-		self.__max_xmit_size = bindResp['max_rfrag']
-
-		if self.auth_level != RPC_C_AUTHN_LEVEL_NONE:
-			if self.auth_type == RPC_C_AUTHN_WINNT:
-				response, res = await self.gssapi.ntlm.authenticate(bindResp['auth_data'], is_rpc = True)
-				self.__sessionKey = self.gssapi.ntlm.get_session_key()
-				
-
-			elif self.auth_type == RPC_C_AUTHN_NETLOGON:
-				response = None
-			elif self.auth_type == RPC_C_AUTHN_GSS_NEGOTIATE:
-				response, res  = await self.gssapi.gssapi.authenticate(
-					bindResp['auth_data'], 
-					is_rpc = True, 
-					flags = GSSAPIFlags.GSS_C_CONF_FLAG |\
-						GSSAPIFlags.GSS_C_INTEG_FLAG | \
-						GSSAPIFlags.GSS_C_SEQUENCE_FLAG | \
-						GSSAPIFlags.GSS_C_REPLAY_FLAG | \
-						GSSAPIFlags.GSS_C_MUTUAL_FLAG | \
-						GSSAPIFlags.GSS_C_DCE_STYLE
-				)
-																							
-				self.__sessionKey = self.gssapi.gssapi.get_session_key()
-
-			self.__sequence = 0
-
-			if self.auth_level in (RPC_C_AUTHN_LEVEL_CONNECT, RPC_C_AUTHN_LEVEL_PKT_INTEGRITY, RPC_C_AUTHN_LEVEL_PKT_PRIVACY):
-				if self.auth_type == RPC_C_AUTHN_WINNT:
-					if self.gssapi.ntlm.is_extended_security() == True:
-						self.__clientSigningKey = self.gssapi.ntlm.get_signkey() 
-						self.__serverSigningKey = self.gssapi.ntlm.get_signkey('Server')
-						self.__clientSealingKey = self.gssapi.ntlm.get_sealkey() 
-						self.__serverSealingKey = self.gssapi.ntlm.get_sealkey('Server')
-						cipher3 = RC4(self.__clientSealingKey)
-						self.__clientSealingHandle = cipher3.encrypt
-						cipher4 = RC4(self.__serverSealingKey)
-						self.__serverSealingHandle = cipher4.encrypt
+				if self.auth_level in (RPC_C_AUTHN_LEVEL_CONNECT, RPC_C_AUTHN_LEVEL_PKT_INTEGRITY, RPC_C_AUTHN_LEVEL_PKT_PRIVACY):
+					if self.auth_type == RPC_C_AUTHN_WINNT:
+						if self.gssapi.ntlm.is_extended_security() == True:
+							self.__clientSigningKey = self.gssapi.ntlm.get_signkey() 
+							self.__serverSigningKey = self.gssapi.ntlm.get_signkey('Server')
+							self.__clientSealingKey = self.gssapi.ntlm.get_sealkey() 
+							self.__serverSealingKey = self.gssapi.ntlm.get_sealkey('Server')
+							cipher3 = RC4(self.__clientSealingKey)
+							self.__clientSealingHandle = cipher3.encrypt
+							cipher4 = RC4(self.__serverSealingKey)
+							self.__serverSealingHandle = cipher4.encrypt
+							
+						else:
+							# Same key for everything
+							self.__clientSigningKey = self.gssapi.ntlm.get_session_key()
+							self.__serverSigningKey = self.gssapi.ntlm.get_session_key()
+							self.__clientSealingKey = self.gssapi.ntlm.get_session_key()
+							self.__serverSealingKey = self.gssapi.ntlm.get_session_key()
+							cipher = RC4(self.__clientSigningKey)
+							self.__clientSealingHandle = cipher.encrypt
+							self.__serverSealingHandle = cipher.encrypt
 						
+					elif self.auth_type == RPC_C_AUTHN_NETLOGON:
+						raise Exception('RPC_C_AUTHN_NETLOGON is not implemented!')
+
+				sec_trailer = SEC_TRAILER()
+				sec_trailer['auth_type'] = self.auth_type
+				sec_trailer['auth_level'] = self.auth_level
+				sec_trailer['auth_ctx_id'] = self.ctx + 79231 
+
+				if response is not None:
+					if self.auth_type == RPC_C_AUTHN_GSS_NEGOTIATE:
+						alter_ctx = MSRPCHeader()
+						alter_ctx['type'] = MSRPC_ALTERCTX
+						alter_ctx['pduData'] = bind.getData()
+						alter_ctx['sec_trailer'] = sec_trailer
+						alter_ctx['auth_data'] = response
+						
+						await rr(self.transport.send(alter_ctx.get_packet(), forceWriteAndx = 1))
+						
+						self.__sequence = 0
+						await rr(self.recv_one()) #recieving the result of alter_context command
+
+						self.__sequence = 0
 					else:
-						# Same key for everything
-						self.__clientSigningKey = self.gssapi.ntlm.get_session_key()
-						self.__serverSigningKey = self.gssapi.ntlm.get_session_key()
-						self.__clientSealingKey = self.gssapi.ntlm.get_session_key()
-						self.__serverSealingKey = self.gssapi.ntlm.get_session_key()
-						cipher = RC4(self.__clientSigningKey)
-						self.__clientSealingHandle = cipher.encrypt
-						self.__serverSealingHandle = cipher.encrypt
-					
-				elif self.auth_type == RPC_C_AUTHN_NETLOGON:
-					raise Exception('RPC_C_AUTHN_NETLOGON is not implemented!')
+						auth3 = MSRPCHeader()
+						auth3['type'] = MSRPC_AUTH3
+						# pad (4 bytes): Can be set to any arbitrary value when set and MUST be 
+						# ignored on receipt. The pad field MUST be immediately followed by a 
+						# sec_trailer structure whose layout, location, and alignment are as 
+						# specified in section 2.2.2.11
+						auth3['pduData'] = b' ' * 4 #SkelSec: I have spent 3 hours to find this bug, that I caused by replacing spaces to tabs :(
+						auth3['sec_trailer'] = sec_trailer
+						#SkelSec auth3['auth_data'] = response.getData()
+						auth3['auth_data'] = response
 
-			sec_trailer = SEC_TRAILER()
-			sec_trailer['auth_type'] = self.auth_type
-			sec_trailer['auth_level'] = self.auth_level
-			sec_trailer['auth_ctx_id'] = self.ctx + 79231 
+						# Use the same call_id
+						self.callid = resp['call_id']
+						auth3['call_id'] = self.callid
+						await rr(self.transport.send(auth3.get_packet(), forceWriteAndx = 1))
 
-			if response is not None:
-				if self.auth_type == RPC_C_AUTHN_GSS_NEGOTIATE:
-					alter_ctx = MSRPCHeader()
-					alter_ctx['type'] = MSRPC_ALTERCTX
-					alter_ctx['pduData'] = bind.getData()
-					alter_ctx['sec_trailer'] = sec_trailer
-					alter_ctx['auth_data'] = response
-					
-					await rr(self.transport.send(alter_ctx.get_packet(), forceWriteAndx = 1))
-					
-					self.__sequence = 0
-					await rr(self.recv_one()) #recieving the result of alter_context command
-
-					self.__sequence = 0
-				else:
-					auth3 = MSRPCHeader()
-					auth3['type'] = MSRPC_AUTH3
-					# pad (4 bytes): Can be set to any arbitrary value when set and MUST be 
-					# ignored on receipt. The pad field MUST be immediately followed by a 
-					# sec_trailer structure whose layout, location, and alignment are as 
-					# specified in section 2.2.2.11
-					auth3['pduData'] = b' ' * 4 #SkelSec: I have spent 3 hours to find this bug, that I caused by replacing spaces to tabs :(
-					auth3['sec_trailer'] = sec_trailer
-					#SkelSec auth3['auth_data'] = response.getData()
-					auth3['auth_data'] = response
-
-					# Use the same call_id
-					self.callid = resp['call_id']
-					auth3['call_id'] = self.callid
-					await rr(self.transport.send(auth3.get_packet(), forceWriteAndx = 1))
-
-			self.callid += 1
-
-		return resp, None	 # means packet is signed, if verifier is wrong it fails
+				self.callid += 1
+			print('[bind] auth_finish')
+			return resp, None	 # means packet is signed, if verifier is wrong it fails
+		
+		except Exception as e:
+			import traceback
+			traceback.print_exc()
+			return False, e
 
 	@red
 	async def request(self, request, uuid=None, checkError=True):
 		"""
 		Creates a requests then dispateches it to _transport.send for singing/encryption asn sending
 		"""
-
+		print('dce request_1')
+		#traceback.print_stack()
 		if self.transfer_syntax == self.NDR64Syntax:
 			request.changeTransferSyntax(self.NDR64Syntax)
 			isNDR64 = True
 		else:
 			isNDR64 = False
-			
+		
+		#print('dce request_call_1 %s' % request.dump())
 		await rr(self.call(request.opnum, request, uuid))
+		print('w')
 		answer, _ = await rr(self.recv())
-
+		print(answer)
+		print('dce request_call_res_1')
+		
 		__import__(request.__module__)
 		module = sys.modules[request.__module__]
 		respClass = getattr(module, request.__class__.__name__ + 'Response')
@@ -318,13 +338,16 @@ class DCERPC5Connection:
 			response =  respClass(answer, isNDR64 = isNDR64)
 			return response, None
 
+		print('dce request_finish')
+
 	@red
 	async def send(self, data):
-	
+		print('send_1')
 		if isinstance(data, MSRPCHeader) is not True:
 			# Must be an Impacket, transform to structure
 			data = DCERPC_RawCall(data.OP_NUM, data.get_packet())
 
+		print('send pkt %s' % data.dump())
 		try:
 			if data['uuid'] != b'':
 				data['flags'] |= PFC_OBJECT_UUID
@@ -387,27 +410,34 @@ class DCERPC5Connection:
 
 	@red
 	async def recv(self):
-
+		print('dce_recv_1')
+		traceback.print_stack()
 		finished = False
 		forceRecv = 0
 		retAnswer = b''
 		while not finished:
+			print('dce_recv_loop_1')
 			# At least give me the MSRPCRespHeader, especially important for 
 			# TCP/UDP Transports
-			response_data, _ = await rr(self.transport.recv(MSRPCRespHeader._SIZE))
-			
+			response_data, _ = await rr(self.transport.recv(1))
 			response_header = MSRPCRespHeader(response_data)
-			# Ok, there might be situation, especially with large packets, that 
-			# the transport layer didn't send us the full packet's contents
-			# So we gotta check we received it all
-			while len(response_data) < response_header['frag_len']:
-				data, _ = await rr(self.transport.recv(response_header['frag_len']-len(response_data)))
-				response_data += data
+
+			#response_data, _ = await rr(self.transport.recv(MSRPCRespHeader._SIZE))
+			#print('dce_recv_loop_recv_1')
+			#response_header = MSRPCRespHeader(response_data)
+			## Ok, there might be situation, especially with large packets, that 
+			## the transport layer didn't send us the full packet's contents
+			## So we gotta check we received it all
+			#while len(response_data) < response_header['frag_len']:
+			#	print('dce_recv_loop_2')
+			#	data, _ = await rr(self.transport.recv(response_header['frag_len']-len(response_data)))
+			#	response_data += data
 
 			off = response_header.get_header_size()
 			
 			if response_header['type'] == MSRPC_FAULT and response_header['frag_len'] >= off+4:
 				status_code = unpack("<L",response_data[off:off+4])[0]
+				print('status: %s' % status_code)
 				if status_code in rpc_status_codes:
 					raise DCERPCException(rpc_status_codes[status_code])
 				elif status_code & 0xffff in rpc_status_codes:
@@ -493,6 +523,7 @@ class DCERPC5Connection:
 								self.__sequence, 
 								self.__serverSealingHandle
 							)
+							
 							# Yes.. NTLM2 doesn't increment sequence when receiving
 							# the packet :P
 							self.__sequence += 1
@@ -527,17 +558,21 @@ class DCERPC5Connection:
 		while not finished:
 			# At least give me the MSRPCRespHeader, especially important for 
 			# TCP/UDP Transports
-			
-			response_data, _ = await rr(self.transport.recv(MSRPCRespHeader._SIZE))
-			#print('DATA: %s' % repr(response_data))
+
+			response_data, err = await self.transport.recv(1) #test
+			print('recv_one response_data %s' % response_data)
 			response_header = MSRPCRespHeader(response_data)
-			# Ok, there might be situation, especially with large packets, that 
-			# the transport layer didn't send us the full packet's contents
-			# So we gotta check we received it all
-			while len(response_data) < response_header['frag_len']:
-				data, _ = await rr(self.transport.recv(response_header['frag_len']-len(response_data)))
-				#print('DATA1: %s' % repr(response_data))
-				response_data += data
+
+			#response_data, _ = await rr(self.transport.recv(MSRPCRespHeader._SIZE))
+			##print('DATA: %s' % repr(response_data))
+			#response_header = MSRPCRespHeader(response_data)
+			## Ok, there might be situation, especially with large packets, that 
+			## the transport layer didn't send us the full packet's contents
+			## So we gotta check we received it all
+			#while len(response_data) < response_header['frag_len']:
+			#	data, _ = await rr(self.transport.recv(response_header['frag_len']-len(response_data)))
+			#	#print('DATA1: %s' % repr(response_data))
+			#	response_data += data
 
 			off = response_header.get_header_size()
 
@@ -622,6 +657,8 @@ class DCERPC5Connection:
 					#sealedMessage, signature = self.__gss.GSS_Wrap(self.__sessionKey, plain_data, self.__sequence)
 					#print('HERE!')
 					sealedMessage, signature = await self.gssapi.gssapi.encrypt(plain_data, self.__sequence)
+					#print('sealedMessage %s' % sealedMessage)
+					#print('signature %s' % signature)
 					#sealedMessage, signature = await self.gssapi.encrypt(plain_data, self.__sequence)
 
 

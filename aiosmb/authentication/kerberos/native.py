@@ -16,7 +16,8 @@ import datetime
 from minikerberos.common import *
 
 from minikerberos.protocol.asn1_structs import AP_REP, EncAPRepPart, EncryptedData
-from minikerberos.gssapi.gssapi import get_gssapi
+#from minikerberos.gssapi.gssapi import get_gssapi
+from aiosmb.authentication.kerberos.gssapi import get_gssapi
 from minikerberos.protocol.structures import ChecksumFlags
 from minikerberos.protocol.encryption import Enctype, Key, _enctype_table
 from minikerberos.protocol.constants import MESSAGE_TYPE
@@ -37,6 +38,7 @@ class SMBKerberos:
 		self.gssapi = None
 		self.iterations = 0
 		self.etype = None
+		self.seq_number = None
 	
 		self.setup()
 		
@@ -66,7 +68,7 @@ class SMBKerberos:
 
 		if self.iterations == 0:
 			#tgt = await self.kc.get_TGT(override_etype=[18])
-			tgt = await self.kc.get_TGT()
+			tgt = await self.kc.get_TGT(override_etype=[17])
 			tgs, encpart, self.session_key = await self.kc.get_TGS(self.spn)
 		ap_opts = []
 		if is_rpc == True:
@@ -94,7 +96,8 @@ class SMBKerberos:
 				apreppart_data['cusec'] = now.microsecond
 				apreppart_data['ctime'] = now.replace(microsecond=0)
 				apreppart_data['seq-number'] = enc_part['seq-number']
-				
+				print('seq %s' % enc_part['seq-number'])
+				self.seq_number = enc_part['seq-number']
 				apreppart_data_enc = cipher.encrypt(self.session_key, 12, EncAPRepPart(apreppart_data).dump(), None)
 				
 				#overriding current session key
