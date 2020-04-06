@@ -76,7 +76,6 @@ class DCERPC5Connection:
 		Performs bind operation. Does authentication and sets up the keys for further communication
 		"""
 		try:
-			print('[bind] start')
 			bind = MSRPCBind()
 			#item['TransferSyntax']['Version'] = 1
 			ctx = self.ctx
@@ -120,7 +119,6 @@ class DCERPC5Connection:
 					return False, Exception('RPC_C_AUTHN_NETLOGON Not implemented!')
 
 				elif self.auth_type == RPC_C_AUTHN_GSS_NEGOTIATE:
-					print('[bind] gss_nego_1')
 					auth, res  = await self.gssapi.gssapi.authenticate(
 						None, 
 						flags = GSSAPIFlags.GSS_C_CONF_FLAG |\
@@ -132,7 +130,6 @@ class DCERPC5Connection:
 						seq_number = 0, 
 						is_rpc = True
 					)
-					print('gss1: %s' % auth)
 				else:
 					return None, Exception('Unsupported auth type!')
 
@@ -149,13 +146,9 @@ class DCERPC5Connection:
 				packet['sec_trailer'] = sec_trailer
 				packet['auth_data'] = auth
 
-			print('[bind] auth_1')
 			_,_ = await rr(self.transport.send(packet.get_packet()))
 			
-			print('[bind] auth_rec_1')
-			data, err = await rr(self.recv_one())
-			print(data)
-			print('[bind] auth_response_1')
+			data, _ = await rr(self.recv_one())
 			resp = MSRPCHeader(data)
 
 			if resp['type'] == MSRPC_BINDACK or resp['type'] == MSRPC_ALTERCTX_R:
@@ -195,7 +188,6 @@ class DCERPC5Connection:
 			# The received transmit size becomes the client's receive size, and the received receive size becomes the client's transmit size.
 			self.__max_xmit_size = bindResp['max_rfrag']
 
-			print('[bind] auth_2')
 			if self.auth_level != RPC_C_AUTHN_LEVEL_NONE:
 				if self.auth_type == RPC_C_AUTHN_WINNT:
 					response, res = await self.gssapi.ntlm.authenticate(bindResp['auth_data'], is_rpc = True)
@@ -216,7 +208,6 @@ class DCERPC5Connection:
 							GSSAPIFlags.GSS_C_MUTUAL_FLAG | \
 							GSSAPIFlags.GSS_C_DCE_STYLE
 					)
-					print('gss2: %s' % response)
 																								
 					self.__sessionKey = self.gssapi.gssapi.get_session_key()
 
@@ -284,12 +275,9 @@ class DCERPC5Connection:
 						await rr(self.transport.send(auth3.get_packet(), forceWriteAndx = 1))
 
 				self.callid += 1
-			print('[bind] auth_finish')
 			return resp, None	 # means packet is signed, if verifier is wrong it fails
 		
 		except Exception as e:
-			import traceback
-			traceback.print_exc()
 			return False, e
 
 	@red
@@ -297,20 +285,14 @@ class DCERPC5Connection:
 		"""
 		Creates a requests then dispateches it to _transport.send for singing/encryption asn sending
 		"""
-		print('dce request_1')
-		#traceback.print_stack()
 		if self.transfer_syntax == self.NDR64Syntax:
 			request.changeTransferSyntax(self.NDR64Syntax)
 			isNDR64 = True
 		else:
 			isNDR64 = False
 		
-		#print('dce request_call_1 %s' % request.dump())
 		await rr(self.call(request.opnum, request, uuid))
-		print('w')
 		answer, _ = await rr(self.recv())
-		print(answer)
-		print('dce request_call_res_1')
 		
 		__import__(request.__module__)
 		module = sys.modules[request.__module__]
@@ -338,16 +320,13 @@ class DCERPC5Connection:
 			response =  respClass(answer, isNDR64 = isNDR64)
 			return response, None
 
-		print('dce request_finish')
 
 	@red
 	async def send(self, data):
-		print('send_1')
 		if isinstance(data, MSRPCHeader) is not True:
 			# Must be an Impacket, transform to structure
 			data = DCERPC_RawCall(data.OP_NUM, data.get_packet())
 
-		print('send pkt %s' % data.dump())
 		try:
 			if data['uuid'] != b'':
 				data['flags'] |= PFC_OBJECT_UUID
@@ -410,34 +389,18 @@ class DCERPC5Connection:
 
 	@red
 	async def recv(self):
-		print('dce_recv_1')
-		traceback.print_stack()
 		finished = False
-		forceRecv = 0
 		retAnswer = b''
 		while not finished:
-			print('dce_recv_loop_1')
 			# At least give me the MSRPCRespHeader, especially important for 
 			# TCP/UDP Transports
 			response_data, _ = await rr(self.transport.recv(1))
 			response_header = MSRPCRespHeader(response_data)
 
-			#response_data, _ = await rr(self.transport.recv(MSRPCRespHeader._SIZE))
-			#print('dce_recv_loop_recv_1')
-			#response_header = MSRPCRespHeader(response_data)
-			## Ok, there might be situation, especially with large packets, that 
-			## the transport layer didn't send us the full packet's contents
-			## So we gotta check we received it all
-			#while len(response_data) < response_header['frag_len']:
-			#	print('dce_recv_loop_2')
-			#	data, _ = await rr(self.transport.recv(response_header['frag_len']-len(response_data)))
-			#	response_data += data
-
 			off = response_header.get_header_size()
 			
 			if response_header['type'] == MSRPC_FAULT and response_header['frag_len'] >= off+4:
 				status_code = unpack("<L",response_data[off:off+4])[0]
-				print('status: %s' % status_code)
 				if status_code in rpc_status_codes:
 					raise DCERPCException(rpc_status_codes[status_code])
 				elif status_code & 0xffff in rpc_status_codes:
@@ -457,7 +420,6 @@ class DCERPC5Connection:
 				# Forcing Read Recv, we need more packets!
 				forceRecv = 1
 			
-			#print('response_data: %s' % response_data.hex())
 			answer = response_data[off:]
 			auth_len = response_header['auth_len']
 			if auth_len:
@@ -560,19 +522,7 @@ class DCERPC5Connection:
 			# TCP/UDP Transports
 
 			response_data, err = await self.transport.recv(1) #test
-			print('recv_one response_data %s' % response_data)
 			response_header = MSRPCRespHeader(response_data)
-
-			#response_data, _ = await rr(self.transport.recv(MSRPCRespHeader._SIZE))
-			##print('DATA: %s' % repr(response_data))
-			#response_header = MSRPCRespHeader(response_data)
-			## Ok, there might be situation, especially with large packets, that 
-			## the transport layer didn't send us the full packet's contents
-			## So we gotta check we received it all
-			#while len(response_data) < response_header['frag_len']:
-			#	data, _ = await rr(self.transport.recv(response_header['frag_len']-len(response_data)))
-			#	#print('DATA1: %s' % repr(response_data))
-			#	response_data += data
 
 			off = response_header.get_header_size()
 
@@ -654,17 +604,10 @@ class DCERPC5Connection:
 					#from impacket.dcerpc.v5 import nrpc
 					#sealedMessage, signature = nrpc.SEAL(plain_data, self.__confounder, self.__sequence, self.__sessionKey, False)
 				elif self.auth_type == RPC_C_AUTHN_GSS_NEGOTIATE:
-					#sealedMessage, signature = self.__gss.GSS_Wrap(self.__sessionKey, plain_data, self.__sequence)
-					#print('HERE!')
 					sealedMessage, signature = await self.gssapi.gssapi.encrypt(plain_data, self.__sequence)
-					#print('sealedMessage %s' % sealedMessage)
-					#print('signature %s' % signature)
-					#sealedMessage, signature = await self.gssapi.encrypt(plain_data, self.__sequence)
-
 
 				rpc_packet['pduData'] = sealedMessage
-				#print(sealedMessage)
-				#print(self.__auth_level)
+
 			elif self.auth_level == RPC_C_AUTHN_LEVEL_PKT_INTEGRITY: 
 				if self.auth_type == RPC_C_AUTHN_WINNT:
 					if self.gssapi.ntlm.is_extended_security() == True:

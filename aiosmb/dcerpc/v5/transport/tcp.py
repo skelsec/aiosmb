@@ -156,23 +156,22 @@ class DCERPCTCPTransport:
 		try:
 			data = b''
 			while True:
-				x, res = await self.connection.in_queue.get()
-				if res is not None:
-					print('res %s' % res)
+				x, err = await self.connection.in_queue.get()
+				if err is not None:
+					raise err
 				data += x
 				if len(data) >= 24: #MSRPCRespHeader._SIZE
 					response_header = MSRPCRespHeader(data)
 					while len(data) < response_header['frag_len']:
-						x, res = await self.connection.in_queue.get()
+						x, err = await self.connection.in_queue.get()
+						if err is not None:
+							raise err
 						data += x
 
 					response_data = data[:response_header['frag_len']]
 					data = data[response_header['frag_len']:]
 				
 					await self.msg_in_queue.put(response_data)
-				
-
-
 
 		except asyncio.CancelledError:
 			self.exception_evt.set()
@@ -226,12 +225,7 @@ class DCERPCTCPTransport:
 	@red
 	async def recv(self, count, forceRecv = 0):
 		try:
-			#print('recv')
-			#print(self.buffer)
-			print('waiting')
 			data, err = await asyncio.wait_for(self.connection.in_queue.get(), timeout = self.target.timeout)
-			
-			print('consumed: %s' % data)
 			return data, err
 		except Exception as e:
 			return None, e

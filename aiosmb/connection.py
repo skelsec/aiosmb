@@ -513,9 +513,7 @@ class SMBConnection:
 						self.SupportsChainedCompression
 					)
 				)
-		#print('aaaaa')
-		#input(command.NegotiateContextList)
-		#print('aaaaa')
+		
 		header = SMB2Header_SYNC()
 		header.Command  = SMB2Command.NEGOTIATE
 		header.CreditReq = 0
@@ -525,7 +523,6 @@ class SMBConnection:
 		rply, rply_data = await self.recvSMB(message_id, ret_data=True) #negotiate MessageId should be 1
 		if isinstance(rply, SMBMessage):
 			raise Exception('Server replied with SMBv1 message, doesnt support SMBv2')
-		#print('NEG RPLY updates')
 		self.update_integrity(rply_data)
 		
 		if rply.header.Status != NTStatus.SUCCESS:
@@ -611,7 +608,6 @@ class SMBConnection:
 				break
 
 			if rply.header.Status != NTStatus.SUCCESS:
-				print('RPLY updates')
 				self.update_integrity(rply_data)
 			
 			authdata = rply.command.Buffer
@@ -705,7 +701,6 @@ class SMBConnection:
 
 
 	def compress_message(self, msg):
-		print('COMPRESSION')
 		msg_data = msg.to_bytes()
 		
 		if self.SupportsChainedCompression is False:
@@ -786,7 +781,6 @@ class SMBConnection:
 			msg = self.encrypt_message(msg.to_bytes())
 
 		else:
-			#print('SEND updates')
 			self.update_integrity(msg.to_bytes())
 
 		#creating an event for outstanding response
