@@ -134,7 +134,7 @@ class SMBNTLMMultiplexor:
 			#print(sspi_url)
 			self.sspi = SSPINTLMClient(sspi_url)
 			await self.sspi.connect()
-			return True
+			return True, None
 		except Exception as e:
 			import traceback
 			traceback.print_exc()

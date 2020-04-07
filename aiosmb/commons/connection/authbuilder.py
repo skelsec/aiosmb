@@ -97,7 +97,8 @@ class AuthenticatorBuilder:
 				elif target.proxy.type in [SMBProxyType.MULTIPLEXOR, SMBProxyType.MULTIPLEXOR_SSL]:
 					kcred.target = KerberosTarget(target.dc_ip)
 					kcred.target.proxy = copy.deepcopy(target.proxy)
-
+			else:
+				kcred.target = KerberosTarget(target.dc_ip)
 			handler = SMBKerberos(kcred)
 			
 			#setting up SPNEGO
