@@ -40,11 +40,7 @@ class SocksProxyConnection:
 		"""
 		self.proxy_task.cancel()		
 		
-	async def connect(self):
-		"""
-		
-		"""
-		
+	async def connect(self):		
 		self.out_queue = asyncio.Queue()
 		self.in_queue = asyncio.Queue()
 		comms = SocksQueueComms(self.out_queue, self.in_queue)

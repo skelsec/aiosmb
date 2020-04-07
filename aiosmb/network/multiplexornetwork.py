@@ -25,15 +25,16 @@ class MultiplexorProxyConnection:
 
 
 		#creating connection string
-		if self.target.proxy.type == SMBProxyType.MULTIPLEXOR:
-			con_str = 'ws://%s:%s' % (self.target.proxy.ip, self.target.proxy.port)
-		else:
-			con_str = 'wss://%s:%s' % (self.target.proxy.ip, self.target.proxy.port)
+		#if self.target.proxy.type == SMBProxyType.MULTIPLEXOR:
+		#	con_str = 'ws://%s:%s' % (self.target.proxy.ip, self.target.proxy.port)
+		#else:
+		#	con_str = 'wss://%s:%s' % (self.target.proxy.ip, self.target.proxy.port)
+		con_str = self.target.proxy.target.get_server_url()
 		#creating operator and connecting to multiplexor server
 		self.operator = MultiplexorOperator(con_str, logging_sink = logger)
 		await self.operator.connect()
 		#creating socks5 proxy
-		server_info = await self.operator.start_socks5(self.target.proxy.agent_id)
+		server_info = await self.operator.start_socks5(self.target.proxy.target.agent_id)
 		await self.operator.terminate()
 		#print(server_info)
 
@@ -41,7 +42,7 @@ class MultiplexorProxyConnection:
 		tp = SMBProxy()
 		tp.ip = server_info['listen_ip']
 		tp.port = server_info['listen_port']
-		tp.timeout = self.target.proxy.timeout
+		tp.timeout = self.target.proxy.target.timeout
 		tp.type = SMBProxyType.SOCKS5
 
 		newtarget = copy.deepcopy(self.target)
