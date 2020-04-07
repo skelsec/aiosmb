@@ -506,11 +506,15 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 		except Exception as e:
 			traceback.print_exc()
 
-	async def do_dcsync(self):
+	async def do_dcsync(self, username = None):
 		"""It's a suprse tool that will help us later"""
 		try:
-			async for secret, err in self.machine.dcsync():
+			users = []
+			if username is not None:
+				users.append(username)
+			async for secret, err in self.machine.dcsync(target_users=users):
 				if err is not None:
+					print('err')
 					raise err
 				print(str(secret))
 		

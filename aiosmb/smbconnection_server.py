@@ -284,8 +284,9 @@ class SMBServerConnection:
 		self.SessionId = int.from_bytes(os.urandom(8), 'big', signed = False)
 		auth_data = rply.command.Buffer
 		print('clinet buffer: %s' % auth_data)
-		data, res = await self.client_gssapi.authenticate(auth_data)
-
+		data, res, err = await self.client_gssapi.authenticate(auth_data)
+		if err is not None:
+			raise err
 
 		command = SESSION_SETUP_REPLY()
 		command.SessionFlags = 0

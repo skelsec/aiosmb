@@ -3,6 +3,7 @@ import platform
 
 import copy
 from aiosmb.commons.connection.credential import *
+from aiosmb.commons.connection.proxy import  SMBProxyType
 from aiosmb.authentication.spnego.native import SPNEGO
 from aiosmb.authentication.ntlm.native import NTLMAUTHHandler, NTLMHandlerSettings
 from aiosmb.authentication.kerberos.native import SMBKerberos
@@ -83,13 +84,19 @@ class AuthenticatorBuilder:
 			kcred = SMBKerberosCredential()
 			kcred.ccred = kc
 			kcred.spn = KerberosSPN.from_target_string(target.to_target_string())
-			kcred.target = KerberosTarget(target.dc_ip)
+			
 			if target.proxy is not None:
-				kcred.target.proxy = KerberosProxy()
-				kcred.target.proxy.target = copy.deepcopy(target.proxy.target)
-				kcred.target.proxy.target.endpoint_ip = target.dc_ip
-				kcred.target.proxy.target.endpoint_port = 88
-				kcred.target.proxy.creds = copy.deepcopy(target.proxy.auth)
+				if target.proxy.type in [SMBProxyType.SOCKS5, SMBProxyType.SOCKS5_SSL, SMBProxyType.SOCKS4, SMBProxyType.SOCKS4_SSL]:
+					kcred.target = KerberosTarget(target.dc_ip)
+					kcred.target.proxy = KerberosProxy()
+					kcred.target.proxy.target = copy.deepcopy(target.proxy.target)
+					kcred.target.proxy.target.endpoint_ip = target.dc_ip
+					kcred.target.proxy.target.endpoint_port = 88
+					kcred.target.proxy.creds = copy.deepcopy(target.proxy.auth)
+				
+				elif target.proxy.type in [SMBProxyType.MULTIPLEXOR, SMBProxyType.MULTIPLEXOR_SSL]:
+					kcred.target = KerberosTarget(target.dc_ip)
+					kcred.target.proxy = copy.deepcopy(target.proxy)
 
 			handler = SMBKerberos(kcred)
 			

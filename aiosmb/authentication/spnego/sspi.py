@@ -49,15 +49,16 @@ class SPNEGO_SSPI:
 			if self.mode.upper() == 'CLIENT':
 				res, data = self.sspi.authGSSClientStep(token)
 				if res == SSPIResult.OK:
-					return data[0][1], True
+					return data[0][1], True, None
 				elif res == SSPIResult.CONTINUE:
-					return data[0][1], False
+					return data[0][1], False, None
 				else:
 					raise Exception('SSPI errors')
 					
 			else:
 				raise Exception('SERVER is not supported now')
 		except Exception as e:
+			return None, None, e
 			import traceback
 			traceback.print_exc()
 	
