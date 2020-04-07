@@ -64,13 +64,17 @@ class SMBNTLMSSPI:
 			if authData is None:
 				data, res = self.sspi.negotiate(is_rpc = is_rpc)
 				self.ntlm_ctx.load_negotiate(data)
-				return data, res
+				return data, res, None
 			else:
 				self.ntlm_ctx.load_challenge( authData)
+				#data, res, err = self.sspi.authenticate(authData, is_rpc = is_rpc)
+				#if err is not None:
+				#	return None, None, err
 				data, res = self.sspi.authenticate(authData, is_rpc = is_rpc)
+
 				self.ntlm_ctx.load_authenticate( data)
 				self.ntlm_ctx.load_sessionkey(self.get_session_key())
 				
-				return data, res
+				return data, res, None
 			
 	

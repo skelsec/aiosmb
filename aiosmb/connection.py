@@ -573,7 +573,9 @@ class SMBConnection:
 		while status == NTStatus.MORE_PROCESSING_REQUIRED and maxiter > 0:
 			command = SESSION_SETUP_REQ()
 			try:
-				command.Buffer, res  = await self.gssapi.authenticate(authdata)
+				command.Buffer, res, err  = await self.gssapi.authenticate(authdata)
+				if err is not None:
+					raise err
 				if fake_auth == True:
 					if self.gssapi.selected_authentication_context is not None and self.gssapi.selected_authentication_context.ntlmChallenge is not None:
 						return

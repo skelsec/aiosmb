@@ -127,6 +127,7 @@ class DCERPCTCPTransport:
 		self.data_in_evt = asyncio.Event()
 		self.exception_evt = asyncio.Event()
 		self.connection = None
+		self.is_proxy = False
 		self.msg_in_queue = asyncio.Queue()
 
 		self.__last_exception = None
@@ -141,9 +142,11 @@ class DCERPCTCPTransport:
 			return DCERPCTCPConnection(self.target.ip, self.target.port), None
 			
 		elif self.target.proxy.type in [SMBProxyType.SOCKS5, SMBProxyType.SOCKS5_SSL, SMBProxyType.SOCKS4, SMBProxyType.SOCKS4_SSL]:
+			self.is_proxy = True
 			return SocksProxyConnection(target = self.target), None
 
 		elif self.target.proxy.type in [SMBProxyType.MULTIPLEXOR, SMBProxyType.MULTIPLEXOR_SSL]:
+			self.is_proxy = True
 			mpc = MultiplexorProxyConnection(self.target)
 			socks_proxy = await mpc.connect()
 			return socks_proxy, None
@@ -205,28 +208,52 @@ class DCERPCTCPTransport:
 	
 	@red
 	async def send(self, data, forceWriteAndx = 0, forceRecv = 0):
-		if self.__last_exception is not None:
-			return None, self.__last_exception
-		
-		if self._max_send_frag:
-			offset = 0
-			while True:
-				toSend = data[offset:offset+self._max_send_frag]
-				if not toSend:
-					break
-				await self.connection.out_queue.put(toSend)
-				offset += len(toSend)
-				
-		else:
-			await self.connection.out_queue.put(data)
-		
-		return True, None
+		try:
+			if self.__last_exception is not None:
+				return None, self.__last_exception
+			
+			if self._max_send_frag:
+				offset = 0
+				while True:
+					toSend = data[offset:offset+self._max_send_frag]
+					if not toSend:
+						break
+					await self.connection.out_queue.put(toSend)
+					offset += len(toSend)
+					
+			else:
+				await self.connection.out_queue.put(data)
+			
+			return True, None
+		except Exception as e:
+			return None, e
 	
 	@red
 	async def recv(self, count, forceRecv = 0):
 		try:
-			data, err = await asyncio.wait_for(self.connection.in_queue.get(), timeout = self.target.timeout)
-			return data, err
+			if self.is_proxy is False:
+				# the TCP call already buffers one messages per get
+				data, err = await asyncio.wait_for(self.connection.in_queue.get(), timeout = self.target.timeout)
+				return data, err
+			
+			err = None
+			while True:
+				if len(self.buffer) >= 24:
+					response_header = MSRPCRespHeader(self.buffer)
+					if len(self.buffer) >= response_header['frag_len']:
+						msg_data = self.buffer[:response_header['frag_len']]
+						self.buffer = self.buffer[response_header['frag_len']:]
+						return msg_data, err
+
+				data, err = await asyncio.wait_for(self.connection.in_queue.get(), timeout = 10)
+				if err is not None:
+					return None, err
+				
+				self.buffer += data
+				
+
+
 		except Exception as e:
+			print(e)
 			return None, e
 		

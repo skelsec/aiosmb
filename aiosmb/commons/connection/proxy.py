@@ -50,8 +50,9 @@ class SMBProxy:
 		query = parse_qs(url.query)
 		if 'proxytype' not in query and 'sametype' not in query:
 			return None
-		
+
 		proxy.type = SMBProxyType(query['proxytype'][0].upper())
+
 		if proxy.type in [SMBProxyType.SOCKS4, SMBProxyType.SOCKS4_SSL, SMBProxyType.SOCKS5, SMBProxyType.SOCKS5_SSL]:
 			cu = SocksClientURL.from_params(url_str)
 			cu.endpoint_port = 445
@@ -59,7 +60,6 @@ class SMBProxy:
 		else:
 			proxy.target = SMBMultiplexorProxy.from_params(url_str)
 		
-		#proxy.target = cu.get_target()
 		return proxy
 
 	def __str__(self):
@@ -79,6 +79,8 @@ class SMBMultiplexorProxy:
 		self.password = None
 		self.domain = None
 		self.agent_id = None
+		self.virtual_socks_port = None
+		self.virtual_socks_ip = None
 	
 	def sanity_check(self):
 		if self.ip is None:
@@ -110,8 +112,6 @@ class SMBMultiplexorProxy:
 
 						data = query[k][0]
 						for c in multiplexorproxyurl_param2var[k[5:]][1]:
-							print(c)
-							print(data)
 							data = c(data)
 
 						setattr(

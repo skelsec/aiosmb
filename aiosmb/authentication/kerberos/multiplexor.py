@@ -161,15 +161,15 @@ class SMBKerberosMultiplexor:
 					apreq, res = await self.ksspi.authenticate('cifs/%s' % self.settings.target, flags = str(flags.value))
 
 					self.iterations += 1
-					return apreq, True
+					return apreq, True, None
 				
 				elif self.iterations == 1:
 					data, err = await self.ksspi.authenticate('cifs/%s' % self.settings.target, flags = str(flags.value), token_data = authData)
 					if err is not None:
-						raise err
+						return None, None, err
 					self.session_key, err = await self.ksspi.get_session_key()
 					if err is not None:
-						raise err
+						return None, None, err
 						
 					aprep = AP_REP.load(data).native
 					subkey = Key(aprep['enc-part']['etype'], self.session_key)
@@ -178,11 +178,11 @@ class SMBKerberosMultiplexor:
 					if aprep['enc-part']['etype'] != 23: #no need for seq number in rc4
 						raw_seq_data, err = await self.ksspi.get_seq_number()
 						if err is not None:
-							raise err
+							return None, None, err
 						self.seq_number = GSSWrapToken.from_bytes(raw_seq_data[16:]).SND_SEQ
 					
 					self.iterations += 1
-					return data, False
+					return data, False, None
 					
 				else:
 					raise Exception('SSPI Kerberos -RPC - auth encountered too many calls for authenticate.')
@@ -194,9 +194,9 @@ class SMBKerberosMultiplexor:
 				if res is None:
 					self.session_key, res = await self.ksspi.get_session_key()
 
-				return apreq, res
+				return apreq, res, None
 		except Exception as e:
-			return None, err
+			return None, None, err
 
 	async def start_remote_kerberos(self):
 		try:

@@ -113,13 +113,15 @@ class DCERPC5Connection:
 					
 					#seal flag MUST be turned on in the handshake flags!!!!!!!
 					#it is "signaled via the is_rpc variable"
-					auth, res = await self.gssapi.ntlm.authenticate(None, is_rpc = True)
+					auth, res, err = await self.gssapi.ntlm.authenticate(None, is_rpc = True)
+					if err is not None:
+						return None, err
 
 				elif self.auth_type == RPC_C_AUTHN_NETLOGON:
 					return False, Exception('RPC_C_AUTHN_NETLOGON Not implemented!')
 
 				elif self.auth_type == RPC_C_AUTHN_GSS_NEGOTIATE:
-					auth, res  = await self.gssapi.gssapi.authenticate(
+					auth, res, err  = await self.gssapi.gssapi.authenticate(
 						None, 
 						flags = GSSAPIFlags.GSS_C_CONF_FLAG |\
 								GSSAPIFlags.GSS_C_INTEG_FLAG | \
@@ -130,6 +132,8 @@ class DCERPC5Connection:
 						seq_number = 0, 
 						is_rpc = True
 					)
+					if err is not None:
+						return None, err
 				else:
 					return None, Exception('Unsupported auth type!')
 
@@ -190,7 +194,9 @@ class DCERPC5Connection:
 
 			if self.auth_level != RPC_C_AUTHN_LEVEL_NONE:
 				if self.auth_type == RPC_C_AUTHN_WINNT:
-					response, res = await self.gssapi.ntlm.authenticate(bindResp['auth_data'], is_rpc = True)
+					response, res, err = await self.gssapi.ntlm.authenticate(bindResp['auth_data'], is_rpc = True)
+					if err is not None:
+						return None, err
 					
 					self.__sessionKey = self.gssapi.ntlm.get_session_key()
 					
@@ -198,7 +204,7 @@ class DCERPC5Connection:
 				elif self.auth_type == RPC_C_AUTHN_NETLOGON:
 					response = None
 				elif self.auth_type == RPC_C_AUTHN_GSS_NEGOTIATE:
-					response, res  = await self.gssapi.gssapi.authenticate(
+					response, res, err  = await self.gssapi.gssapi.authenticate(
 						bindResp['auth_data'], 
 						is_rpc = True, 
 						flags = GSSAPIFlags.GSS_C_CONF_FLAG |\
@@ -208,6 +214,8 @@ class DCERPC5Connection:
 							GSSAPIFlags.GSS_C_MUTUAL_FLAG | \
 							GSSAPIFlags.GSS_C_DCE_STYLE
 					)
+					if err is not None:
+						return None, err
 																								
 					self.__sessionKey = self.gssapi.gssapi.get_session_key()
 

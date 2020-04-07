@@ -68,15 +68,16 @@ class SPNEGO:
 	def select_common_athentication_type(self, mech_types):
 		for auth_type_name in self.authentication_contexts:
 			if auth_type_name in mech_types:
-				print(auth_type_name)
 				return auth_type_name, self.authentication_contexts[auth_type_name]
 				
 		return None, None
 		
 	async def process_ctx_authenticate(self, token_data, include_negstate = False, flags = None, seq_number = 0, is_rpc = False):
-		result, to_continue = await self.selected_authentication_context.authenticate(token_data, flags = flags, seq_number = seq_number, is_rpc = is_rpc)
+		result, to_continue, err = await self.selected_authentication_context.authenticate(token_data, flags = flags, seq_number = seq_number, is_rpc = is_rpc)
+		if err is not None:
+			return None, None, err
 		if not result:
-			return None, False
+			return None, False, None
 		response = {}
 		if include_negstate == True:
 			if to_continue == True:
@@ -85,7 +86,7 @@ class SPNEGO:
 				response['negState'] = NegState('accept-completed')
 		
 		response['responseToken'] = result
-		return response, to_continue
+		return response, to_continue, None
 		
 	def get_extra_info(self):
 		if hasattr(self.selected_authentication_context, 'get_extra_info'):
@@ -137,7 +138,10 @@ class SPNEGO:
 
 
 			if self.selected_authentication_context is not None:
-				response, to_continue = await self.process_ctx_authenticate(negtoken['mechToken'], flags = flags, seq_number = seq_number, is_rpc = is_rpc, include_negstate = True)
+				response, to_continue, err = await self.process_ctx_authenticate(negtoken['mechToken'], flags = flags, seq_number = seq_number, is_rpc = is_rpc, include_negstate = True)
+				if err is not None:
+					return None, None, err
+
 				if self.iteration_ctr == 0:
 					response['supportedMech'] = MechType(self.selected_mechtype)
 				negtoken = NegotiationToken({'negTokenResp':NegTokenResp(response)})
@@ -147,7 +151,7 @@ class SPNEGO:
 
 				self.iteration_ctr += 1
 				#return GSSAPI({'type': GSSType('1.3.6.1.5.5.2'), 'value':negtoken}).dump(), to_continue
-				return negtoken.dump(), to_continue
+				return negtoken.dump(), to_continue, None
 
 			#neg_token_raw = NegotiationToken.load(token)
 			#neg_token = neg_token_raw.native
@@ -203,12 +207,14 @@ class SPNEGO:
 					if len(mechtypes) == 1:
 						self.selected_authentication_context = self.authentication_contexts[selected_name]
 						self.selected_mechtype = selected_name
-						result, to_continue = await self.selected_authentication_context.authenticate(None, is_rpc = is_rpc)
+						result, to_continue, err = await self.selected_authentication_context.authenticate(None, is_rpc = is_rpc)
+						if err is not None:
+							return None, None, err
 						if is_rpc == False:
 							response['mechToken'] = result
 						else:
 							if not result:
-								return None, False
+								return None, False, None
 							if str(response['mechTypes'][0]) == '1.2.840.48018.1.2.2':
 								response['mechToken'] = KRB5Token(result).to_bytes()
 								
@@ -222,7 +228,7 @@ class SPNEGO:
 					
 					
 					#spnego = GSS_SPNEGO({'NegotiationToken':negtoken})
-					return GSSAPI({'type': GSSType('1.3.6.1.5.5.2'), 'value':negtoken}).dump(), True
+					return GSSAPI({'type': GSSType('1.3.6.1.5.5.2'), 'value':negtoken}).dump(), True, None
 					
 					
 				else:
@@ -237,17 +243,21 @@ class SPNEGO:
 					self.selected_authentication_context = self.authentication_contexts[neg_token.mechTypes[0]]
 					self.selected_mechtype = neg_token['supportedMech']
 	
-					response, to_continue = await self.process_ctx_authenticate(neg_token['responseToken'], flags = flags, seq_number = seq_number, is_rpc = is_rpc)
-					return NegTokenResp(response).dump(), to_continue
+					response, to_continue, err = await self.process_ctx_authenticate(neg_token['responseToken'], flags = flags, seq_number = seq_number, is_rpc = is_rpc)
+					if err is not None:
+						return None, None, None
+					return NegTokenResp(response).dump(), to_continue, None
 					
 			else:
 				#everything is netotiated, but authentication needs more setps
 				neg_token_raw = NegotiationToken.load(token)
 				neg_token = neg_token_raw.native
-				response, to_continue = await self.process_ctx_authenticate(neg_token['responseToken'], flags = flags, seq_number = seq_number, is_rpc = is_rpc)
+				response, to_continue, err = await self.process_ctx_authenticate(neg_token['responseToken'], flags = flags, seq_number = seq_number, is_rpc = is_rpc)
+				if err is not None:
+					return None, None, err
 				if not response:
-					return None, False
-				return NegotiationToken({'negTokenResp':NegTokenResp(response)}).dump(), to_continue
+					return None, False, None
+				return NegotiationToken({'negTokenResp':NegTokenResp(response)}).dump(), to_continue, None
 	
 def test():
 	test_data = bytes.fromhex('a03e303ca00e300c060a2b06010401823702020aa22a04284e544c4d5353500001000000978208e2000000000000000000000000000000000a00d73a0000000f')

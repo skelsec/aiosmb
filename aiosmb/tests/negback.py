@@ -19,9 +19,7 @@
 		msg = SMBMessage(header, command)
 		message_id = await self.sendSMB(msg)
 		#recieveing reply, should be version2, because currently we dont support v1 :(
-		print(1)
 		rply = await self.recvSMB(message_id) #negotiate MessageId should be 1
-		print('First reply: %s' % rply)
 		if rply.header.Status == NTStatus.SUCCESS:
 			if isinstance(rply, SMB2Message):
 				if rply.command.DialectRevision == NegotiateDialects.WILDCARD:

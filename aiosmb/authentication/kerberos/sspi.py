@@ -66,7 +66,7 @@ class SMBKerberosSSPI:
 				token, self.actual_ctx_flags, err = self.ksspi.get_ticket_for_spn(self.target, flags = flags, is_rpc = True, token_data = authData)
 				#print(token.hex())
 				self.iterations += 1
-				return token, True
+				return token, True, None
 			
 			elif self.iterations == 1:
 				flags = ISC_REQ.USE_DCE_STYLE		
@@ -80,12 +80,12 @@ class SMBKerberosSSPI:
 				self.gssapi = get_gssapi(subkey)
 				
 				self.iterations += 1
-				return token, False
+				return token, False, None
 				
 			else:
 				raise Exception('SSPI Kerberos -RPC - auth encountered too many calls for authenticate.')
 			
 		else:
 			apreq, self.actual_ctx_flags, err = self.ksspi.get_ticket_for_spn(self.target, flags = flags)
-			return apreq, False
+			return apreq, False, None
 		
