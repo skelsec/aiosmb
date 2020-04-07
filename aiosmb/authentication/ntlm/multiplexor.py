@@ -91,9 +91,9 @@ class SMBNTLMMultiplexor:
 	
 	async def authenticate(self, authData = None, flags = None, seq_number = 0, is_rpc = False):
 		if self.sspi is None:
-			res = await self.start_remote_sspi()
-			if res is None:
-				raise Exception('Failed to start remote SSPI')
+			res, err = await self.start_remote_sspi()
+			if err is not None:
+				return None, None, err
 
 		if is_rpc is True and flags is None:
 			flags = ISC_REQ.REPLAY_DETECT | ISC_REQ.CONFIDENTIALITY| ISC_REQ.USE_SESSION_KEY| ISC_REQ.INTEGRITY| ISC_REQ.SEQUENCE_DETECT| ISC_REQ.CONNECTION
@@ -104,7 +104,7 @@ class SMBNTLMMultiplexor:
 				data, res = await self.sspi.authenticate(flags = flags)
 				if res is None:
 					self.ntlm_ctx.load_negotiate(data)
-				return data, res
+				return data, res, None
 			else:
 				self.ntlm_ctx.load_challenge( authData)
 				data, res = await self.sspi.challenge(authData, flags = flags)
@@ -114,10 +114,10 @@ class SMBNTLMMultiplexor:
 					if res is None:
 						self.ntlm_ctx.load_sessionkey(self.get_session_key())
 				
-				return data, res
+				return data, res, None
 				
 		else:
-			raise Exception('Server mode not implemented!')
+			return None, None, Exception('Server mode not implemented!')
 
 
 	async def start_remote_sspi(self):
@@ -138,6 +138,6 @@ class SMBNTLMMultiplexor:
 		except Exception as e:
 			import traceback
 			traceback.print_exc()
-			return None
+			return None, e
 			
 	

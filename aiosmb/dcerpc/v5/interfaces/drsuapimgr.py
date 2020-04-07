@@ -142,197 +142,202 @@ class SMBDRSUAPI:
 
 		return True,None
 	
-	@red
 	async def get_user_secrets(self, username):
-		ra = {
-			'userPrincipalName': '1.2.840.113556.1.4.656',
-			'sAMAccountName': '1.2.840.113556.1.4.221',
-			'unicodePwd': '1.2.840.113556.1.4.90',
-			'dBCSPwd': '1.2.840.113556.1.4.55',
-			'ntPwdHistory': '1.2.840.113556.1.4.94',
-			'lmPwdHistory': '1.2.840.113556.1.4.160',
-			'supplementalCredentials': '1.2.840.113556.1.4.125',
-			'objectSid': '1.2.840.113556.1.4.146',
-			'pwdLastSet': '1.2.840.113556.1.4.96',
-			'userAccountControl':'1.2.840.113556.1.4.8'
-		}
-		formatOffered = drsuapi.DS_NT4_ACCOUNT_NAME_SANS_DOMAIN
-		
-		crackedName, _ = await rr(
-			self.DRSCrackNames(
-				formatOffered,
-				drsuapi.DS_NAME_FORMAT.DS_UNIQUE_ID_NAME,
-				name=username
+		try:
+			ra = {
+				'userPrincipalName': '1.2.840.113556.1.4.656',
+				'sAMAccountName': '1.2.840.113556.1.4.221',
+				'unicodePwd': '1.2.840.113556.1.4.90',
+				'dBCSPwd': '1.2.840.113556.1.4.55',
+				'ntPwdHistory': '1.2.840.113556.1.4.94',
+				'lmPwdHistory': '1.2.840.113556.1.4.160',
+				'supplementalCredentials': '1.2.840.113556.1.4.125',
+				'objectSid': '1.2.840.113556.1.4.146',
+				'pwdLastSet': '1.2.840.113556.1.4.96',
+				'userAccountControl':'1.2.840.113556.1.4.8'
+			}
+			formatOffered = drsuapi.DS_NT4_ACCOUNT_NAME_SANS_DOMAIN
+			
+			crackedName, _ = await rr(
+				self.DRSCrackNames(
+					formatOffered,
+					drsuapi.DS_NAME_FORMAT.DS_UNIQUE_ID_NAME,
+					name=username
+				)
 			)
-		)
-		
-		###### TODO: CHECKS HERE
-		
-		#guid = GUID.from_string(crackedName['pmsgOut']['V1']['pResult']['rItems'][0]['pName'][:-1][1:-1])
-		guid = crackedName['pmsgOut']['V1']['pResult']['rItems'][0]['pName'][:-1][1:-1]
-		
-		userRecord, _ = await rr(self.DRSGetNCChanges(guid, ra))
-		
-		replyVersion = 'V%d' % userRecord['pdwOutVersion']
-		if userRecord['pmsgOut'][replyVersion]['cNumObjects'] == 0:
-			raise Exception('DRSGetNCChanges didn\'t return any object!')
-		
-		#print(userRecord.dump())
-		#print(userRecord['pmsgOut'][replyVersion]['PrefixTableSrc']['pPrefixEntry'])
-		
-		record = userRecord
-		prefixTable = userRecord['pmsgOut'][replyVersion]['PrefixTableSrc']['pPrefixEntry']
-		##### decryption!
-		logger.debug('Decrypting hash for user: %s' % record['pmsgOut'][replyVersion]['pNC']['StringName'][:-1])
-		
-		us = SMBUserSecrets()
-		user_properties = None
+			
+			###### TODO: CHECKS HERE
+			
+			#guid = GUID.from_string(crackedName['pmsgOut']['V1']['pResult']['rItems'][0]['pName'][:-1][1:-1])
+			guid = crackedName['pmsgOut']['V1']['pResult']['rItems'][0]['pName'][:-1][1:-1]
+			
+			userRecord, err = await self.DRSGetNCChanges(guid, ra)
+			if err is not None:
+				return None, err
+			
+			replyVersion = 'V%d' % userRecord['pdwOutVersion']
+			if userRecord['pmsgOut'][replyVersion]['cNumObjects'] == 0:
+				raise Exception('DRSGetNCChanges didn\'t return any object!')
+			
+			#print(userRecord.dump())
+			#print(userRecord['pmsgOut'][replyVersion]['PrefixTableSrc']['pPrefixEntry'])
+			
+			record = userRecord
+			prefixTable = userRecord['pmsgOut'][replyVersion]['PrefixTableSrc']['pPrefixEntry']
+			##### decryption!
+			logger.debug('Decrypting hash for user: %s' % record['pmsgOut'][replyVersion]['pNC']['StringName'][:-1])
+			
+			us = SMBUserSecrets()
+			user_properties = None
 
-		rid = int.from_bytes(record['pmsgOut'][replyVersion]['pObjects']['Entinf']['pName']['Sid'][-4:], 'little', signed = False)
-		
-		for attr in record['pmsgOut'][replyVersion]['pObjects']['Entinf']['AttrBlock']['pAttr']:
-		
-			try:
-				attId = drsuapi.OidFromAttid(prefixTable, attr['attrTyp'])
-				LOOKUP_TABLE = self.ATTRTYP_TO_ATTID
-			except Exception as e:
-				logger.error('Failed to execute OidFromAttid with error %s, fallbacking to fixed table' % e)
-				logger.error('Exception', exc_info=True)
-				# Fallbacking to fixed table and hope for the best
-				attId = attr['attrTyp']
-				LOOKUP_TABLE = self.NAME_TO_ATTRTYP
-				
-			if attId == LOOKUP_TABLE['dBCSPwd']:
-				if attr['AttrVal']['valCount'] > 0:
-					encrypteddBCSPwd = b''.join(attr['AttrVal']['pAVal'][0]['pVal'])
-					encryptedLMHash = drsuapi.DecryptAttributeValue(self.dce.get_session_key(), encrypteddBCSPwd)
-					us.lm_hash = drsuapi.removeDESLayer(encryptedLMHash, rid)
-				else:
-					us.lm_hash = bytes.fromhex('aad3b435b51404eeaad3b435b51404ee')
+			rid = int.from_bytes(record['pmsgOut'][replyVersion]['pObjects']['Entinf']['pName']['Sid'][-4:], 'little', signed = False)
+			
+			for attr in record['pmsgOut'][replyVersion]['pObjects']['Entinf']['AttrBlock']['pAttr']:
+			
+				try:
+					attId = drsuapi.OidFromAttid(prefixTable, attr['attrTyp'])
+					LOOKUP_TABLE = self.ATTRTYP_TO_ATTID
+				except Exception as e:
+					logger.error('Failed to execute OidFromAttid with error %s, fallbacking to fixed table' % e)
+					logger.error('Exception', exc_info=True)
+					# Fallbacking to fixed table and hope for the best
+					attId = attr['attrTyp']
+					LOOKUP_TABLE = self.NAME_TO_ATTRTYP
 					
-			elif attId == LOOKUP_TABLE['unicodePwd']:
-				if attr['AttrVal']['valCount'] > 0:
-					encryptedUnicodePwd = b''.join(attr['AttrVal']['pAVal'][0]['pVal'])
-					encryptedNTHash = drsuapi.DecryptAttributeValue(self.dce.get_session_key(), encryptedUnicodePwd)
-					us.nt_hash = drsuapi.removeDESLayer(encryptedNTHash, rid)
-				else:
-					us.nt_hash = bytes.fromhex('31d6cfe0d16ae931b73c59d7e0c089c0')
-					
-			elif attId == LOOKUP_TABLE['userPrincipalName']:
-				if attr['AttrVal']['valCount'] > 0:
-					try:
-						us.domain = b''.join(attr['AttrVal']['pAVal'][0]['pVal']).decode('utf-16le').split('@')[-1]
-					except:
-						us.domain = None
-				else:
-					us.domain = None
+				if attId == LOOKUP_TABLE['dBCSPwd']:
+					if attr['AttrVal']['valCount'] > 0:
+						encrypteddBCSPwd = b''.join(attr['AttrVal']['pAVal'][0]['pVal'])
+						encryptedLMHash = drsuapi.DecryptAttributeValue(self.dce.get_session_key(), encrypteddBCSPwd)
+						us.lm_hash = drsuapi.removeDESLayer(encryptedLMHash, rid)
+					else:
+						us.lm_hash = bytes.fromhex('aad3b435b51404eeaad3b435b51404ee')
 						
-			elif attId == LOOKUP_TABLE['sAMAccountName']:
-				if attr['AttrVal']['valCount'] > 0:
-					try:
-						us.username = b''.join(attr['AttrVal']['pAVal'][0]['pVal']).decode('utf-16le')
-					except Exception as e:
+				elif attId == LOOKUP_TABLE['unicodePwd']:
+					if attr['AttrVal']['valCount'] > 0:
+						encryptedUnicodePwd = b''.join(attr['AttrVal']['pAVal'][0]['pVal'])
+						encryptedNTHash = drsuapi.DecryptAttributeValue(self.dce.get_session_key(), encryptedUnicodePwd)
+						us.nt_hash = drsuapi.removeDESLayer(encryptedNTHash, rid)
+					else:
+						us.nt_hash = bytes.fromhex('31d6cfe0d16ae931b73c59d7e0c089c0')
+						
+				elif attId == LOOKUP_TABLE['userPrincipalName']:
+					if attr['AttrVal']['valCount'] > 0:
+						try:
+							us.domain = b''.join(attr['AttrVal']['pAVal'][0]['pVal']).decode('utf-16le').split('@')[-1]
+						except:
+							us.domain = None
+					else:
+						us.domain = None
+							
+				elif attId == LOOKUP_TABLE['sAMAccountName']:
+					if attr['AttrVal']['valCount'] > 0:
+						try:
+							us.username = b''.join(attr['AttrVal']['pAVal'][0]['pVal']).decode('utf-16le')
+						except Exception as e:
+							logger.error('Cannot get sAMAccountName for %s' % record['pmsgOut'][replyVersion]['pNC']['StringName'][:-1])
+							us.username = 'unknown'
+					else:
 						logger.error('Cannot get sAMAccountName for %s' % record['pmsgOut'][replyVersion]['pNC']['StringName'][:-1])
 						us.username = 'unknown'
-				else:
-					logger.error('Cannot get sAMAccountName for %s' % record['pmsgOut'][replyVersion]['pNC']['StringName'][:-1])
-					us.username = 'unknown'
-						
-			elif attId == LOOKUP_TABLE['objectSid']:
-				if attr['AttrVal']['valCount'] > 0:
-					us.object_sid = SID.from_bytes(b''.join(attr['AttrVal']['pAVal'][0]['pVal']))
-				else:
-					logger.error('Cannot get objectSid for %s' % record['pmsgOut'][replyVersion]['pNC']['StringName'][:-1])
-					us.object_sid = rid
-			elif attId == LOOKUP_TABLE['pwdLastSet']:
-				if attr['AttrVal']['valCount'] > 0:
-					try:
-						
-						us.pwd_last_set = FILETIME.from_bytes(b''.join(attr['AttrVal']['pAVal'][0]['pVal'])).datetime.isoformat()
-					except Exception as e:
-						
-						logger.error('Cannot get pwdLastSet for %s' % record['pmsgOut'][replyVersion]['pNC']['StringName'][:-1])
-						us.pwd_last_set = None
-						
-			elif attId == LOOKUP_TABLE['userAccountControl']:
-				if attr['AttrVal']['valCount'] > 0:
-					us.user_account_status = int.from_bytes(b''.join(attr['AttrVal']['pAVal'][0]['pVal']), 'little', signed = False)
-				else:
-					us.user_account_status = None
-					
-			if attId == LOOKUP_TABLE['lmPwdHistory']:
-				if attr['AttrVal']['valCount'] > 0:
-					encryptedLMHistory = b''.join(attr['AttrVal']['pAVal'][0]['pVal'])
-					tmpLMHistory = drsuapi.DecryptAttributeValue(self.dce.get_session_key(), encryptedLMHistory)
-					for i in range(0, len(tmpLMHistory) // 16):
-						LMHashHistory = drsuapi.removeDESLayer(tmpLMHistory[i * 16:(i + 1) * 16], rid)
-						us.lm_history.append(LMHashHistory)
-				else:
-					logger.debug('No lmPwdHistory for user %s' % record['pmsgOut'][replyVersion]['pNC']['StringName'][:-1])
-			elif attId == LOOKUP_TABLE['ntPwdHistory']:
-				if attr['AttrVal']['valCount'] > 0:
-					encryptedNTHistory = b''.join(attr['AttrVal']['pAVal'][0]['pVal'])
-					tmpNTHistory = drsuapi.DecryptAttributeValue(self.dce.get_session_key(), encryptedNTHistory)
-					for i in range(0, len(tmpNTHistory) // 16):
-						NTHashHistory = drsuapi.removeDESLayer(tmpNTHistory[i * 16:(i + 1) * 16], rid)
-						us.nt_history.append(NTHashHistory)
-				else:
-					logger.debug('No ntPwdHistory for user %s' % record['pmsgOut'][replyVersion]['pNC']['StringName'][:-1])
-					
-			elif attId == LOOKUP_TABLE['supplementalCredentials']:
-				if attr['AttrVal']['valCount'] > 0:
-					blob = b''.join(attr['AttrVal']['pAVal'][0]['pVal'])
-					supplementalCredentials = drsuapi.DecryptAttributeValue(self.dce.get_session_key(), blob)
-					if len(supplementalCredentials) < 24:
-						supplementalCredentials = None
-						
+							
+				elif attId == LOOKUP_TABLE['objectSid']:
+					if attr['AttrVal']['valCount'] > 0:
+						us.object_sid = SID.from_bytes(b''.join(attr['AttrVal']['pAVal'][0]['pVal']))
 					else:
+						logger.error('Cannot get objectSid for %s' % record['pmsgOut'][replyVersion]['pNC']['StringName'][:-1])
+						us.object_sid = rid
+				elif attId == LOOKUP_TABLE['pwdLastSet']:
+					if attr['AttrVal']['valCount'] > 0:
 						try:
-							user_properties = samr.USER_PROPERTIES(supplementalCredentials)
+							
+							us.pwd_last_set = FILETIME.from_bytes(b''.join(attr['AttrVal']['pAVal'][0]['pVal'])).datetime.isoformat()
 						except Exception as e:
-							# On some old w2k3 there might be user properties that don't
-							# match [MS-SAMR] structure, discarding them
-							pass
-			
-		
-		if user_properties is not None:
-			propertiesData = user_properties['UserProperties']
-			for propertyCount in range(user_properties['PropertyCount']):
-				userProperty = samr.USER_PROPERTY(propertiesData)
-				propertiesData = propertiesData[len(userProperty):]
-				# For now, we will only process Newer Kerberos Keys and CLEARTEXT
-				if userProperty['PropertyName'].decode('utf-16le') == 'Primary:Kerberos-Newer-Keys':
-					propertyValueBuffer = bytes.fromhex(userProperty['PropertyValue'].decode())
-					kerbStoredCredentialNew = samr.KERB_STORED_CREDENTIAL_NEW(propertyValueBuffer)
-					data = kerbStoredCredentialNew['Buffer']
-					for credential in range(kerbStoredCredentialNew['CredentialCount']):
-						keyDataNew = samr.KERB_KEY_DATA_NEW(data)
-						data = data[len(keyDataNew):]
-						keyValue = propertyValueBuffer[keyDataNew['KeyOffset']:][:keyDataNew['KeyLength']]
-
-						if  keyDataNew['KeyType'] in self.KERBEROS_TYPE:
-							answer =  (self.KERBEROS_TYPE[keyDataNew['KeyType']],keyValue)
+							
+							logger.error('Cannot get pwdLastSet for %s' % record['pmsgOut'][replyVersion]['pNC']['StringName'][:-1])
+							us.pwd_last_set = None
+							
+				elif attId == LOOKUP_TABLE['userAccountControl']:
+					if attr['AttrVal']['valCount'] > 0:
+						us.user_account_status = int.from_bytes(b''.join(attr['AttrVal']['pAVal'][0]['pVal']), 'little', signed = False)
+					else:
+						us.user_account_status = None
+						
+				if attId == LOOKUP_TABLE['lmPwdHistory']:
+					if attr['AttrVal']['valCount'] > 0:
+						encryptedLMHistory = b''.join(attr['AttrVal']['pAVal'][0]['pVal'])
+						tmpLMHistory = drsuapi.DecryptAttributeValue(self.dce.get_session_key(), encryptedLMHistory)
+						for i in range(0, len(tmpLMHistory) // 16):
+							LMHashHistory = drsuapi.removeDESLayer(tmpLMHistory[i * 16:(i + 1) * 16], rid)
+							us.lm_history.append(LMHashHistory)
+					else:
+						logger.debug('No lmPwdHistory for user %s' % record['pmsgOut'][replyVersion]['pNC']['StringName'][:-1])
+				elif attId == LOOKUP_TABLE['ntPwdHistory']:
+					if attr['AttrVal']['valCount'] > 0:
+						encryptedNTHistory = b''.join(attr['AttrVal']['pAVal'][0]['pVal'])
+						tmpNTHistory = drsuapi.DecryptAttributeValue(self.dce.get_session_key(), encryptedNTHistory)
+						for i in range(0, len(tmpNTHistory) // 16):
+							NTHashHistory = drsuapi.removeDESLayer(tmpNTHistory[i * 16:(i + 1) * 16], rid)
+							us.nt_history.append(NTHashHistory)
+					else:
+						logger.debug('No ntPwdHistory for user %s' % record['pmsgOut'][replyVersion]['pNC']['StringName'][:-1])
+						
+				elif attId == LOOKUP_TABLE['supplementalCredentials']:
+					if attr['AttrVal']['valCount'] > 0:
+						blob = b''.join(attr['AttrVal']['pAVal'][0]['pVal'])
+						supplementalCredentials = drsuapi.DecryptAttributeValue(self.dce.get_session_key(), blob)
+						if len(supplementalCredentials) < 24:
+							supplementalCredentials = None
+							
 						else:
-							answer =  (hex(keyDataNew['KeyType']),keyValue)
-						# We're just storing the keys, not printing them, to make the output more readable
-						# This is kind of ugly... but it's what I came up with tonight to get an ordered
-						# set :P. Better ideas welcomed ;)
-						us.kerberos_keys.append(answer)
-				elif userProperty['PropertyName'].decode('utf-16le') == 'Primary:CLEARTEXT':
-					# [MS-SAMR] 3.1.1.8.11.5 Primary:CLEARTEXT Property
-					# This credential type is the cleartext password. The value format is the UTF-16 encoded cleartext password.
-					# SkelSec: well, almost. actually the property is the hex-encoded bytes of an UTF-16LE encoded plaintext string
-					encoded_pw = bytes.fromhex(userProperty['PropertyValue'].decode('ascii'))
-					try:
-						answer = encoded_pw.decode('utf-16le')
-					except UnicodeDecodeError:
-						# This could be because we're decoding a machine password. Printing it hex
-						answer = encoded_pw.decode('utf-8')
-
-					us.cleartext_pwds.append(answer)
+							try:
+								user_properties = samr.USER_PROPERTIES(supplementalCredentials)
+							except Exception as e:
+								# On some old w2k3 there might be user properties that don't
+								# match [MS-SAMR] structure, discarding them
+								pass
+				
 			
+			if user_properties is not None:
+				propertiesData = user_properties['UserProperties']
+				for propertyCount in range(user_properties['PropertyCount']):
+					userProperty = samr.USER_PROPERTY(propertiesData)
+					propertiesData = propertiesData[len(userProperty):]
+					# For now, we will only process Newer Kerberos Keys and CLEARTEXT
+					if userProperty['PropertyName'].decode('utf-16le') == 'Primary:Kerberos-Newer-Keys':
+						propertyValueBuffer = bytes.fromhex(userProperty['PropertyValue'].decode())
+						kerbStoredCredentialNew = samr.KERB_STORED_CREDENTIAL_NEW(propertyValueBuffer)
+						data = kerbStoredCredentialNew['Buffer']
+						for credential in range(kerbStoredCredentialNew['CredentialCount']):
+							keyDataNew = samr.KERB_KEY_DATA_NEW(data)
+							data = data[len(keyDataNew):]
+							keyValue = propertyValueBuffer[keyDataNew['KeyOffset']:][:keyDataNew['KeyLength']]
+
+							if  keyDataNew['KeyType'] in self.KERBEROS_TYPE:
+								answer =  (self.KERBEROS_TYPE[keyDataNew['KeyType']],keyValue)
+							else:
+								answer =  (hex(keyDataNew['KeyType']),keyValue)
+							# We're just storing the keys, not printing them, to make the output more readable
+							# This is kind of ugly... but it's what I came up with tonight to get an ordered
+							# set :P. Better ideas welcomed ;)
+							us.kerberos_keys.append(answer)
+					elif userProperty['PropertyName'].decode('utf-16le') == 'Primary:CLEARTEXT':
+						# [MS-SAMR] 3.1.1.8.11.5 Primary:CLEARTEXT Property
+						# This credential type is the cleartext password. The value format is the UTF-16 encoded cleartext password.
+						# SkelSec: well, almost. actually the property is the hex-encoded bytes of an UTF-16LE encoded plaintext string
+						encoded_pw = bytes.fromhex(userProperty['PropertyValue'].decode('ascii'))
+						try:
+							answer = encoded_pw.decode('utf-16le')
+						except UnicodeDecodeError:
+							# This could be because we're decoding a machine password. Printing it hex
+							answer = encoded_pw.decode('utf-8')
+
+						us.cleartext_pwds.append(answer)
+				
 		
-		return us, None
+			return us, None
+		
+		except Exception as e:
+			return None, e
 			
 	@red
 	async def DRSCrackNames(self, formatOffered=drsuapi.DS_NAME_FORMAT.DS_DISPLAY_NAME, formatDesired=drsuapi.DS_NAME_FORMAT.DS_FQDN_1779_NAME, name=''):
@@ -343,54 +348,56 @@ class SMBDRSUAPI:
 		resp, _ = await rr(drsuapi.hDRSCrackNames(self.dce, self.handle, 0, formatOffered, formatDesired, (name,)))
 		return resp, None
 	
-	@red
 	async def DRSGetNCChanges(self, guid, req_attributes = {}):
-		if self.handle is None:
-			await rr(self.open())
+		try:
+			if self.handle is None:
+				await rr(self.open())
 
-		logger.debug('Calling DRSGetNCChanges for %s ' % guid)
-		request = drsuapi.DRSGetNCChanges()
-		request['hDrs'] = self.handle
-		request['dwInVersion'] = 8
+			logger.debug('Calling DRSGetNCChanges for %s ' % guid)
+			request = drsuapi.DRSGetNCChanges()
+			request['hDrs'] = self.handle
+			request['dwInVersion'] = 8
 
-		request['pmsgIn']['tag'] = 8
-		request['pmsgIn']['V8']['uuidDsaObjDest'] = self.__NtdsDsaObjectGuid
-		request['pmsgIn']['V8']['uuidInvocIdSrc'] = self.__NtdsDsaObjectGuid
+			request['pmsgIn']['tag'] = 8
+			request['pmsgIn']['V8']['uuidDsaObjDest'] = self.__NtdsDsaObjectGuid
+			request['pmsgIn']['V8']['uuidInvocIdSrc'] = self.__NtdsDsaObjectGuid
 
-		dsName = drsuapi.DSNAME()
-		dsName['SidLen'] = 0
-		dsName['Guid'] = string_to_bin(guid)#guid.to_bytes()
-		dsName['Sid'] = ''
-		dsName['NameLen'] = 0
-		dsName['StringName'] = ('\x00')
+			dsName = drsuapi.DSNAME()
+			dsName['SidLen'] = 0
+			dsName['Guid'] = string_to_bin(guid)#guid.to_bytes()
+			dsName['Sid'] = ''
+			dsName['NameLen'] = 0
+			dsName['StringName'] = ('\x00')
 
-		dsName['structLen'] = len(dsName.getData())
+			dsName['structLen'] = len(dsName.getData())
 
-		request['pmsgIn']['V8']['pNC'] = dsName
+			request['pmsgIn']['V8']['pNC'] = dsName
 
-		request['pmsgIn']['V8']['usnvecFrom']['usnHighObjUpdate'] = 0
-		request['pmsgIn']['V8']['usnvecFrom']['usnHighPropUpdate'] = 0
+			request['pmsgIn']['V8']['usnvecFrom']['usnHighObjUpdate'] = 0
+			request['pmsgIn']['V8']['usnvecFrom']['usnHighPropUpdate'] = 0
 
-		request['pmsgIn']['V8']['pUpToDateVecDest'] = NULL
+			request['pmsgIn']['V8']['pUpToDateVecDest'] = NULL
 
-		request['pmsgIn']['V8']['ulFlags'] =  drsuapi.DRS_INIT_SYNC | drsuapi.DRS_WRIT_REP
-		request['pmsgIn']['V8']['cMaxObjects'] = 1
-		request['pmsgIn']['V8']['cMaxBytes'] = 0
-		request['pmsgIn']['V8']['ulExtendedOp'] = drsuapi.EXOP_REPL_OBJ
-		if self.__ppartialAttrSet is None:
-			self.__prefixTable = []
-			self.__ppartialAttrSet = drsuapi.PARTIAL_ATTR_VECTOR_V1_EXT()
-			self.__ppartialAttrSet['dwVersion'] = 1
-			self.__ppartialAttrSet['cAttrs'] = len(req_attributes)
-			for attId in list(req_attributes.values()):
-				self.__ppartialAttrSet['rgPartialAttr'].append(drsuapi.MakeAttid(self.__prefixTable , attId))
-		request['pmsgIn']['V8']['pPartialAttrSet'] = self.__ppartialAttrSet
-		request['pmsgIn']['V8']['PrefixTableDest']['PrefixCount'] = len(self.__prefixTable)
-		request['pmsgIn']['V8']['PrefixTableDest']['pPrefixEntry'] = self.__prefixTable
-		request['pmsgIn']['V8']['pPartialAttrSetEx1'] = NULL
+			request['pmsgIn']['V8']['ulFlags'] =  drsuapi.DRS_INIT_SYNC | drsuapi.DRS_WRIT_REP
+			request['pmsgIn']['V8']['cMaxObjects'] = 1
+			request['pmsgIn']['V8']['cMaxBytes'] = 0
+			request['pmsgIn']['V8']['ulExtendedOp'] = drsuapi.EXOP_REPL_OBJ
+			if self.__ppartialAttrSet is None:
+				self.__prefixTable = []
+				self.__ppartialAttrSet = drsuapi.PARTIAL_ATTR_VECTOR_V1_EXT()
+				self.__ppartialAttrSet['dwVersion'] = 1
+				self.__ppartialAttrSet['cAttrs'] = len(req_attributes)
+				for attId in list(req_attributes.values()):
+					self.__ppartialAttrSet['rgPartialAttr'].append(drsuapi.MakeAttid(self.__prefixTable , attId))
+			request['pmsgIn']['V8']['pPartialAttrSet'] = self.__ppartialAttrSet
+			request['pmsgIn']['V8']['PrefixTableDest']['PrefixCount'] = len(self.__prefixTable)
+			request['pmsgIn']['V8']['PrefixTableDest']['pPrefixEntry'] = self.__prefixTable
+			request['pmsgIn']['V8']['pPartialAttrSetEx1'] = NULL
 
-		data, _ = await rr(self.dce.request(request))
-		return data, None
+			data, err = await self.dce.request(request)
+			return data, err
+		except Exception as e:
+			return None, e
 	
 	@red
 	async def close(self):

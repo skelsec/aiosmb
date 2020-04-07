@@ -280,12 +280,11 @@ class NTLMAUTHHandler:
 			if self.ntlmNegotiate is None:
 				###parse client NTLMNegotiate message
 				self.ntlmNegotiate = NTLMNegotiate.from_bytes(authData)
-				return self.ntlmChallenge.to_bytes(), True 
+				return self.ntlmChallenge.to_bytes(), True , None
 
 			elif self.ntlmAuthenticate is None:
 				self.ntlmAuthenticate = NTLMAuthenticate.from_bytes(authData, self.use_NTLMv2)
 				creds = NTLMcredential.construct(self.ntlmNegotiate, self.ntlmChallenge, self.ntlmAuthenticate)
-				print(creds)
 
 				# TODO: check when is sessionkey needed and check when is singing needed, and calculate the keys!
 				# self.calc_SessionBaseKey()
@@ -295,9 +294,9 @@ class NTLMAUTHHandler:
 				#self.calc_key_exchange_key()
 
 				if auth_credential.verify(self.credential):
-					return AuthResult.FAIL, auth_credential
+					return AuthResult.FAIL, auth_credential, None
 				else:
-					return AuthResult.FAIL, auth_credential
+					return AuthResult.FAIL, auth_credential, None
 
 			else:
 				raise Exception('Too many calls to do_AUTH function!')
@@ -315,7 +314,7 @@ class NTLMAUTHHandler:
 				#negotiate message was already calulcated in setup
 				self.ntlmNegotiate = NTLMNegotiate.construct(self.flags, domainname = self.settings.template['domain_name'], workstationname = self.settings.template['workstation_name'], version = self.settings.template.get('version'))			
 				self.ntlmNegotiate_raw = self.ntlmNegotiate.to_bytes()
-				return self.ntlmNegotiate_raw, True
+				return self.ntlmNegotiate_raw, True, None
 				
 			else:
 				#server challenge incoming
@@ -339,7 +338,7 @@ class NTLMAUTHHandler:
 						lmresp = LMResponse()
 						lmresp.Response = b'\x00'
 						self.ntlmAuthenticate = NTLMAuthenticate.construct(self.flags, lm_response= lmresp)
-						return self.ntlmAuthenticate.to_bytes(), False
+						return self.ntlmAuthenticate.to_bytes(), False, None
 						
 					if self.flags & NegotiateFlags.NEGOTIATE_EXTENDED_SESSIONSECURITY:
 						#Extended auth!
@@ -365,7 +364,7 @@ class NTLMAUTHHandler:
 						lmresp = LMResponse()
 						lmresp.Response = b'\x00'
 						self.ntlmAuthenticate = NTLMAuthenticate.construct(self.flags, lm_response= lmresp)
-						return self.ntlmAuthenticate.to_bytes(), False
+						return self.ntlmAuthenticate.to_bytes(), False, None
 						
 					else:
 						#comment this out for testing!
@@ -383,7 +382,7 @@ class NTLMAUTHHandler:
 						self.ntlmAuthenticate = NTLMAuthenticate.construct(self.flags, domainname= self.settings.credential.domain, workstationname= self.settings.credential.workstation, username= self.settings.credential.username, lm_response= self.ntlm_credentials.LMResponse, nt_response= self.ntlm_credentials.NTResponse, version = self.ntlmNegotiate.Version, encrypted_session = self.EncryptedRandomSessionKey, mic = mic)
 						
 				self.ntlmAuthenticate_raw = self.ntlmAuthenticate.to_bytes()
-				return self.ntlmAuthenticate_raw, False
+				return self.ntlmAuthenticate_raw, False, None
 				
 		elif self.mode.upper() == 'RELAY':
 			if self.iteration_cnt == 0:

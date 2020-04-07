@@ -22,13 +22,13 @@ class SMBProxyType(enum.Enum):
 
 multiplexorproxyurl_param2var = {
 	'type' : ('version', [stru, SMBProxyType]),
-	'host' : ('server_ip', [str]),
-	'port' : ('server_port', [int]),
+	'host' : ('ip', [str]),
+	'port' : ('port', [int]),
 	'timeout': ('timeout', [int]),
 	'user' : ('username', [str]),
 	'pass' : ('password', [str]),
 	#'authtype' : ('authtype', [SOCKS5Method]),
-	'agentid' : ('agentid', [str]),
+	'agentid' : ('agent_id', [str]),
 	'domain' : ('domain', [str])
 
 }
@@ -50,15 +50,16 @@ class SMBProxy:
 		query = parse_qs(url.query)
 		if 'proxytype' not in query and 'sametype' not in query:
 			return None
-		
+
 		proxy.type = SMBProxyType(query['proxytype'][0].upper())
+
 		if proxy.type in [SMBProxyType.SOCKS4, SMBProxyType.SOCKS4_SSL, SMBProxyType.SOCKS5, SMBProxyType.SOCKS5_SSL]:
 			cu = SocksClientURL.from_params(url_str)
 			cu.endpoint_port = 445
+			proxy.target = cu.get_target()
 		else:
-			cu = SocksClientURL.from_params(url_str)
+			proxy.target = SMBMultiplexorProxy.from_params(url_str)
 		
-		proxy.target = cu.get_target()
 		return proxy
 
 	def __str__(self):
@@ -78,6 +79,8 @@ class SMBMultiplexorProxy:
 		self.password = None
 		self.domain = None
 		self.agent_id = None
+		self.virtual_socks_port = None
+		self.virtual_socks_ip = None
 	
 	def sanity_check(self):
 		if self.ip is None:
@@ -86,6 +89,12 @@ class SMBMultiplexorProxy:
 			raise Exception('MULTIPLEXOR server port is missing!')
 		if self.agent_id is None:
 				raise Exception('MULTIPLEXOR proxy requires agentid to be set!')
+
+	def get_server_url(self):
+		con_str = 'ws://%s:%s' % (self.ip, self.port)
+		if self.type == SMBProxyType.MULTIPLEXOR_SSL:
+			con_str = 'wss://%s:%s' % (self.ip, self.port)
+		return con_str
 
 	@staticmethod
 	def from_params(url_str):
@@ -103,7 +112,6 @@ class SMBMultiplexorProxy:
 
 						data = query[k][0]
 						for c in multiplexorproxyurl_param2var[k[5:]][1]:
-							#print(c)
 							data = c(data)
 
 						setattr(
@@ -113,6 +121,7 @@ class SMBMultiplexorProxy:
 						)
 		res.sanity_check()
 
+		return res
 
 #class SMBProxy:
 #	def __init__(self, 

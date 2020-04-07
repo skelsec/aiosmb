@@ -176,8 +176,6 @@ class SMBDirectory:
 				await connection.close(self.tree_id, file_id)
 		
 	def __str__(self):
-		import traceback
-		traceback.print_stack()
 		t = '===== DIRECTORY ===== \r\n'
 		for k in self.__dict__:
 			if k.startswith('parent_'):
