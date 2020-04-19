@@ -50,15 +50,15 @@ class SMBDirectory:
 					additional_information = SecurityInfo.ATTRIBUTE_SECURITY_INFORMATION | SecurityInfo.DACL_SECURITY_INFORMATION | SecurityInfo.OWNER_SECURITY_INFORMATION | SecurityInfo.GROUP_SECURITY_INFORMATION, 
 					flags = 0, 
 				)
-			except:
-				raise
+			except Exception as e:
+				return None, e
 
 			finally:
 				if file_id is not None:
 					await connection.close(self.tree_id, file_id)
 
 
-			return self.sid
+		return self.sid, None
 	
 
 	def get_console_output(self):
@@ -74,31 +74,36 @@ class SMBDirectory:
 		return lines
 		
 	async def create_subdir(self, dir_name, connection):
-		should_close = False #dont close the tree_id only if the directory hasnt been connected to yet
-		if not self.tree_id:
-			should_close = True
-			tree_entry = await connection.tree_connect(self.get_share_path())
-			self.tree_id = tree_entry.tree_id
-
-		file_id = None
-		newpath = dir_name
-		if self.fullpath != '':
-			newpath = '%s\\%s' % (self.fullpath, dir_name)
 		try:
-			file_id = await connection.create(
-				self.tree_id, 
-				newpath, 
-				FileAccessMask.GENERIC_ALL, 
-				ShareAccess.FILE_SHARE_READ | ShareAccess.FILE_SHARE_WRITE | ShareAccess.FILE_SHARE_DELETE,
-				CreateOptions.FILE_DIRECTORY_FILE | CreateOptions.FILE_SYNCHRONOUS_IO_NONALERT, 
-				CreateDisposition.FILE_CREATE, 
-				0
-			)
-		finally:
-			if file_id is not None:
-				await connection.close(self.tree_id, file_id)
-			if should_close is True:       
-				await connection.tree_disconnect(self.tree_id)
+			should_close = False #dont close the tree_id only if the directory hasnt been connected to yet
+			if not self.tree_id:
+				should_close = True
+				tree_entry = await connection.tree_connect(self.get_share_path())
+				self.tree_id = tree_entry.tree_id
+
+			file_id = None
+			newpath = dir_name
+			if self.fullpath != '':
+				newpath = '%s\\%s' % (self.fullpath, dir_name)
+			try:
+				file_id = await connection.create(
+					self.tree_id, 
+					newpath, 
+					FileAccessMask.GENERIC_ALL, 
+					ShareAccess.FILE_SHARE_READ | ShareAccess.FILE_SHARE_WRITE | ShareAccess.FILE_SHARE_DELETE,
+					CreateOptions.FILE_DIRECTORY_FILE | CreateOptions.FILE_SYNCHRONOUS_IO_NONALERT, 
+					CreateDisposition.FILE_CREATE, 
+					0
+				)
+				return True, None
+			finally:
+				if file_id is not None:
+					await connection.close(self.tree_id, file_id)
+				if should_close is True:       
+					await connection.tree_disconnect(self.tree_id)
+
+		except Exception as e:
+			return False, e
 	
 	async def delete_subdir(self, dir_name):
 		raise Exception('delete subdir not implemented!')
@@ -118,8 +123,7 @@ class SMBDirectory:
 		try:
 			file_id = await connection.create(self.tree_id, self.fullpath, desired_access, share_mode, create_options, create_disposition, file_attrs)
 		except Exception as e:
-			print(e)
-			return
+			return False, e
 		try:
 			while True:
 				fileinfos = await connection.query_directory(self.tree_id, file_id)
@@ -168,9 +172,9 @@ class SMBDirectory:
 						file.allocation_size = info.AllocationSize
 						file.attributes = info.FileAttributes		
 						self.files[file.name] = file
+			return True, None
 		except Exception as e:
-			print(e)
-			return
+			return False, e
 		finally:
 			if file_id is not None:
 				await connection.close(self.tree_id, file_id)

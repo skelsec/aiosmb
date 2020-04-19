@@ -305,11 +305,15 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			print('file not in current directory!')
 			return
 		file_obj = self.__current_directory.files[file_name]
-		sid = await file_obj.get_security_descriptor(self.connection)
+		sid, err = await file_obj.get_security_descriptor(self.connection)
+		if err is not None:
+			raise err
 		print(str(sid))
 
 	async def do_dirsid(self):
-		sid = await self.__current_directory.get_security_descriptor(self.connection)
+		sid, err = await self.__current_directory.get_security_descriptor(self.connection)
+		if err is not None:
+			raise err
 		print(str(sid))
 
 	def _cd_completions(self):
@@ -470,7 +474,9 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 				file_obj = self.__current_directory.files[file_name]
 				with tqdm.tqdm(desc = 'Downloading %s' % file_name, total=file_obj.size, unit='B', unit_scale=True, unit_divisor=1024) as pbar:
 					with open(file_name, 'wb') as outfile:
-						async for data in self.machine.get_file_data(file_obj):
+						async for data, err in self.machine.get_file_data(file_obj):
+							if err is not None:
+								raise err
 							if data is None:
 								break
 							outfile.write(data)
@@ -570,7 +576,82 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 		except Exception as e:
 			traceback.print_exc()
 
-			
+	async def do_tasklist(self):
+		"""List scheduled tasks """
+		try:
+			async for taskname, err in await self.machine.tasks_list():
+				if err is not None:
+					raise err
+				print(taskname)
+		
+		except SMBException as e:
+			logger.debug(traceback.format_exc())
+			print(e.pprint())
+		except SMBMachineException as e:
+			logger.debug(traceback.format_exc())
+			print(str(e))
+		except DCERPCException as e:
+			logger.debug(traceback.format_exc())
+			print(str(e))
+		except Exception as e:
+			traceback.print_exc()
+
+	async def do_taskregister(self, template_file, task_name = None):
+		"""Registers a new scheduled task"""
+		try:
+			with open(template_file, 'r') as f:
+				template = f.read()
+
+			res, err = await self.machine.tasks_register(template, task_name = task_name)
+			if err is not None:
+				logger.info('[!] Failed to register new task!')
+				raise err
+		
+		except SMBException as e:
+			logger.debug(traceback.format_exc())
+			print(e.pprint())
+		except SMBMachineException as e:
+			logger.debug(traceback.format_exc())
+			print(str(e))
+		except DCERPCException as e:
+			logger.debug(traceback.format_exc())
+			print(str(e))
+		except Exception as e:
+			traceback.print_exc()
+
+	async def do_taskdel(self, task_name):
+		"""Deletes a scheduled task	"""
+		try:
+			await self.machine.tasks_delete(task_name)
+
+		except SMBException as e:
+			logger.debug(traceback.format_exc())
+			print(e.pprint())
+		except SMBMachineException as e:
+			logger.debug(traceback.format_exc())
+			print(str(e))
+		except DCERPCException as e:
+			logger.debug(traceback.format_exc())
+			print(str(e))
+		except Exception as e:
+			traceback.print_exc()
+
+
+	async def do_taskcmdexec(self, command):
+		""" Executes a shell command using the scheduled tasks service"""
+		try:
+			await self.machine.tasks_execute_commands([command])
+		except SMBException as e:
+			logger.debug(traceback.format_exc())
+			print(e.pprint())
+		except SMBMachineException as e:
+			logger.debug(traceback.format_exc())
+			print(str(e))
+		except DCERPCException as e:
+			logger.debug(traceback.format_exc())
+			print(str(e))
+		except Exception as e:
+			traceback.print_exc()
 
 async def amain(args):
 	client = SMBClient(args.smb_url)

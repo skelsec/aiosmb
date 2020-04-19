@@ -4,7 +4,7 @@ from aiosmb.commons.interfaces.blocking.file.protocol import *
 
 class SMBBlockingFileMgr:
 	"""
-	This class implamanets a file object manager which can open/read/write files over the smbconnection
+	This class implements a file object manager which can open/read/write files over the smbconnection
 	The input/output queues used for communicating are process/thread/async safe!
 	Therefore this creates a bridge between a non-async thread/process and the smb connection (file ops only!)
 	"""
@@ -17,15 +17,18 @@ class SMBBlockingFileMgr:
 
 	async def run(self):
 		while True:
+			ecmdid = None
 			try:
 				cmd = await self.in_q.coro_get()
+				if cmd is None:
+					return
 				if cmd.cmd_type == SMBFILECMD.OPEN:
 					try:
 						sf = SMBFile.from_remotepath(self.connection, cmd.path)
 						await sf.open(self.connection, cmd.mode)
 						self.filehandle[self.curhandle] = sf
 						self.curhandle += 1
-						res = SMBFileOpenReply(cmd.cmd_id, self.curhandle -1)
+						res = SMBFileOpenReply(cmd.cmd_id, self.curhandle -1, sf.size)
 						await self.out_q.coro_put(res)
 					except Exception as e:
 						res = SMBFileError(cmd.cmd_id, str(e))
@@ -72,6 +75,6 @@ class SMBBlockingFileMgr:
 						del self.filehandle[handle]
 					return
 			except Exception as e:
-				res = SMBFileError(cmd.cmd_id, str(e))
+				res = SMBFileError(ecmdid, str(e))
 				await self.out_q.coro_put(res)
 				return

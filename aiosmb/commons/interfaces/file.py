@@ -55,23 +55,50 @@ class SMBFile:
 		return SMBFile.from_uncpath(unc)
 
 	@staticmethod
+	async def delete_unc(connection, remotepath):
+		try:
+			remfile = SMBFile.from_remotepath(connection, remotepath)
+			tree_entry = await connection.tree_connect(remfile.share_path)
+			tree_id = tree_entry.tree_id
+
+			desired_access = FileAccessMask.DELETE | FileAccessMask.FILE_READ_ATTRIBUTES
+			share_mode = ShareAccess.FILE_SHARE_DELETE
+			create_options = CreateOptions.FILE_NON_DIRECTORY_FILE | CreateOptions.FILE_DELETE_ON_CLOSE 
+			create_disposition = CreateDisposition.FILE_OPEN
+			file_attrs = 0
+
+			file_id = await connection.create(tree_id, remfile.fullpath, desired_access, share_mode, create_options, create_disposition, file_attrs, return_reply = False)
+			if file_id is not None:
+				await connection.close(tree_id, file_id)
+
+			await connection.tree_disconnect(tree_id)
+			return True, None
+		
+		except Exception as e:
+			return False, e
+
+	@staticmethod
 	async def delete(connection, remotepath):
-		remfile = SMBFile.from_remotepath(connection, remotepath)
-		tree_entry = await connection.tree_connect(remfile.share_path)
-		tree_id = tree_entry.tree_id
+		try:
+			remfile = SMBFile.from_remotepath(connection, remotepath)
+			tree_entry = await connection.tree_connect(remfile.share_path)
+			tree_id = tree_entry.tree_id
 
-		desired_access = FileAccessMask.DELETE | FileAccessMask.FILE_READ_ATTRIBUTES
-		share_mode = ShareAccess.FILE_SHARE_DELETE
-		create_options = CreateOptions.FILE_NON_DIRECTORY_FILE | CreateOptions.FILE_DELETE_ON_CLOSE 
-		create_disposition = CreateDisposition.FILE_OPEN
-		file_attrs = 0
+			desired_access = FileAccessMask.DELETE | FileAccessMask.FILE_READ_ATTRIBUTES
+			share_mode = ShareAccess.FILE_SHARE_DELETE
+			create_options = CreateOptions.FILE_NON_DIRECTORY_FILE | CreateOptions.FILE_DELETE_ON_CLOSE 
+			create_disposition = CreateDisposition.FILE_OPEN
+			file_attrs = 0
 
-		file_id = await connection.create(tree_id, remfile.fullpath, desired_access, share_mode, create_options, create_disposition, file_attrs, return_reply = False)
-		if file_id is not None:
-			await connection.close(tree_id, file_id)
+			file_id = await connection.create(tree_id, remfile.fullpath, desired_access, share_mode, create_options, create_disposition, file_attrs, return_reply = False)
+			if file_id is not None:
+				await connection.close(tree_id, file_id)
 
-		await connection.tree_disconnect(tree_id)
-		return True
+			await connection.tree_disconnect(tree_id)
+			return True, None
+		
+		except Exception as e:
+			return False, e
 
 	async def get_security_descriptor(self, connection):
 		if self.sid is None:
@@ -92,14 +119,14 @@ class SMBFile:
 					additional_information = SecurityInfo.ATTRIBUTE_SECURITY_INFORMATION | SecurityInfo.DACL_SECURITY_INFORMATION | SecurityInfo.OWNER_SECURITY_INFORMATION | SecurityInfo.GROUP_SECURITY_INFORMATION, 
 					flags = 0, 
 				)
-			except:
-				raise
+			except Exception as e:
+				return None, e
 
 			finally:
 				if file_id is not None:
 					await connection.close(self.tree_id, file_id)
 
-			return self.sid
+		return self.sid, None
 
 	async def __read(self, size, offset):
 		"""
@@ -144,44 +171,48 @@ class SMBFile:
 		return total_bytes_written
 
 	async def open(self, connection, mode = 'r'):
-		self.__connection = connection
-		self.mode = mode
-		if 'p' in self.mode:
-			self.is_pipe = True
-			self.size = 0
-		
-		if not self.tree_id:
-			tree_entry = await connection.tree_connect(self.share_path)
-			self.tree_id = tree_entry.tree_id
-		
+		try:
+			self.__connection = connection
+			self.mode = mode
+			if 'p' in self.mode:
+				self.is_pipe = True
+				self.size = 0
+			
+			if not self.tree_id:
+				tree_entry = await connection.tree_connect(self.share_path)
+				self.tree_id = tree_entry.tree_id
+			
 
-		#then connect to file
-		if 'r' in mode and 'w' in mode:
-			raise ValueError('must have exactly one of read/write mode')
+			#then connect to file
+			if 'r' in mode and 'w' in mode:
+				raise ValueError('must have exactly one of read/write mode')
+				
+			if 'r' in mode:
+				desired_access = FileAccessMask.FILE_READ_DATA | FileAccessMask.FILE_READ_ATTRIBUTES
+				share_mode = ShareAccess.FILE_SHARE_READ
+				create_options = CreateOptions.FILE_NON_DIRECTORY_FILE | CreateOptions.FILE_SYNCHRONOUS_IO_NONALERT 
+				file_attrs = 0
+				create_disposition = CreateDisposition.FILE_OPEN
+				
+				self.file_id, smb_reply = await connection.create(self.tree_id, self.fullpath, desired_access, share_mode, create_options, create_disposition, file_attrs, return_reply = True)
+				self.size = smb_reply.EndofFile
+				
+			elif 'w' in mode:
+				desired_access = FileAccessMask.GENERIC_READ | FileAccessMask.GENERIC_WRITE
+				share_mode = ShareAccess.FILE_SHARE_READ | ShareAccess.FILE_SHARE_WRITE
+				create_options = CreateOptions.FILE_NON_DIRECTORY_FILE | CreateOptions.FILE_SYNCHRONOUS_IO_NONALERT 
+				file_attrs = 0
+				create_disposition = CreateDisposition.FILE_OPEN_IF #FILE_OPEN ? might cause an issue?
+				
+				self.file_id, smb_reply = await connection.create(self.tree_id, self.fullpath, desired_access, share_mode, create_options, create_disposition, file_attrs, return_reply = True)
+				self.size = smb_reply.EndofFile
+				
+			else:
+				raise Exception('ONLY read and write is supported at the moment!')
 			
-		if 'r' in mode:
-			desired_access = FileAccessMask.FILE_READ_DATA | FileAccessMask.FILE_READ_ATTRIBUTES
-			share_mode = ShareAccess.FILE_SHARE_READ
-			create_options = CreateOptions.FILE_NON_DIRECTORY_FILE | CreateOptions.FILE_SYNCHRONOUS_IO_NONALERT 
-			file_attrs = 0
-			create_disposition = CreateDisposition.FILE_OPEN
-			
-			self.file_id, smb_reply = await connection.create(self.tree_id, self.fullpath, desired_access, share_mode, create_options, create_disposition, file_attrs, return_reply = True)
-			self.size = smb_reply.EndofFile
-			
-		elif 'w' in mode:
-			desired_access = FileAccessMask.GENERIC_READ | FileAccessMask.GENERIC_WRITE
-			share_mode = ShareAccess.FILE_SHARE_READ | ShareAccess.FILE_SHARE_WRITE
-			create_options = CreateOptions.FILE_NON_DIRECTORY_FILE | CreateOptions.FILE_SYNCHRONOUS_IO_NONALERT 
-			file_attrs = 0
-			create_disposition = CreateDisposition.FILE_OPEN_IF #FILE_OPEN ? might cause an issue?
-			
-			self.file_id, smb_reply = await connection.create(self.tree_id, self.fullpath, desired_access, share_mode, create_options, create_disposition, file_attrs, return_reply = True)
-			self.size = smb_reply.EndofFile
-			
-		else:
-			raise Exception('ONLY read and write is supported at the moment!')
-		
+			return True, None
+		except Exception as e:
+			return False, e
 		
 	async def seek(self, offset, whence = 0):
 		if whence == 0:

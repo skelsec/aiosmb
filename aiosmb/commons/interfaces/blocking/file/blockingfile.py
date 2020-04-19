@@ -26,6 +26,7 @@ class SMBBlockingFile:
         self.next_id = 0
         self.buffer_size = buffer_size
         self.buffers = []
+        self.filesize = None
     
     def sr(self, cmd):
         self.in_q.put(cmd)
@@ -41,6 +42,7 @@ class SMBBlockingFile:
         cmd = SMBFileOpenCommand(cmd_id, unc_path, mode)
         reply = self.sr(cmd)
         self.handle = reply.handle
+        self.filesize = reply.filesize
 
     def read(self, count):
         #for line in traceback.format_stack():
@@ -53,13 +55,13 @@ class SMBBlockingFile:
                     data = section.read(self.position, count)
                     self.position += len(data)
                     return data
-            else:
-                print('NOT %s, %s' % (self.position, count))
+            #else:
+            #    print('NOT %s, %s' % (self.position, count))
 
         cmd_id = self.next_id
         self.next_id += 1
         tc = count
-        if self.buffer_size is not None and count < self.buffer_size:
+        if self.buffer_size is not None and count < self.buffer_size and self.filesize > self.buffer_size + self.position:
             tc = self.buffer_size
         cmd = SMBFileReadCommand(cmd_id, self.handle, self.position, tc)
         reply = self.sr(cmd)

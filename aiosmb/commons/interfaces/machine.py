@@ -14,6 +14,9 @@ from aiosmb.dcerpc.v5.interfaces.drsuapimgr import SMBDRSUAPI
 from aiosmb.dcerpc.v5.interfaces.servicemanager import SMBRemoteServieManager
 from aiosmb.dcerpc.v5.interfaces.remoteregistry import RRP
 from aiosmb.dcerpc.v5.interfaces.rprnmgr import SMBRPRN
+from aiosmb.dcerpc.v5.interfaces.tschmgr import SMBTSCH
+
+from aiosmb.dcerpc.v5 import tsch
 
 from aiosmb.commons.utils.decorators import red, rr, red_gen, rr_gen
 from aiosmb.commons.exceptions import SMBMachineException
@@ -122,6 +125,21 @@ def req_servicemanager(funct):
 			raise e
 	return wrapper
 
+def req_tsch(funct):
+	async def wrapper(*args, **kwargs):
+		this = args[0]
+		try:
+			if 'TSCH' in this.privtable:
+				if this.privtable['TSCH'] == False:
+					raise SMBMachineException('TSCH failed to open. Probably permission issues.')
+			if this.tsch is None:
+				await rr(this.connect_rpc('TSCH'))
+			x = await funct(*args, **kwargs)
+			return x
+		except Exception as e:
+			raise e
+	return wrapper
+
 def req_rprn(funct):
 	async def wrapper(*args, **kwargs):
 		this = args[0]
@@ -151,12 +169,28 @@ class SMBMachine:
 		self.lsad = None
 		self.rrp = None
 		self.rprn = None
+		self.tsch = None
 
 		self.filesystem = None
 		self.servicemanager = None
 
 		self.privtable = {}
 		self.blocking_mgr_tasks = {}
+
+
+	async def __aenter__(self):
+		return self
+		
+	async def __aexit__(self, exc_type, exc, traceback):
+		await asyncio.wait_for(self.close(), timeout = 3)
+
+	async def close(self):
+		# TODO: make it prettier!
+		try:
+			
+			await self.connection.terminate()
+		except Exception as e:
+			print(e)
 
 	def get_blocking_file(self):
 		"""
@@ -198,6 +232,11 @@ class SMBMachine:
 			self.privtable['RPRN'] = False
 			await rr(self.rprn.connect())
 			self.privtable['RPRN'] = True
+		elif service_name.upper() == 'TSCH':
+			self.tsch = SMBTSCH(self.connection)
+			self.privtable['TSCH'] = False
+			await rr(self.tsch.connect())
+			self.privtable['TSCH'] = True
 		else:
 			raise Exception('Unknown service name : %s' % service_name)
 		return True, None
@@ -275,7 +314,11 @@ class SMBMachine:
 
 
 	async def list_directory(self, directory):
-		await directory.list(self.connection)
+		_, err = await directory.list(self.connection)
+		if err is not None:
+			yield False, err
+			return
+		
 		for entry in directory.get_console_output():
 			yield entry
 
@@ -284,12 +327,20 @@ class SMBMachine:
 		remote_path must be a full UNC path with the file name included!
 
 		"""
-		smbfile = SMBFile.from_remotepath(self.connection, remote_path)
-		await smbfile.open(self.connection, 'w')
-		with open(local_path, 'rb') as f:
-			await smbfile.write_buffer(f)
-		await smbfile.close()
-		return True
+		try:
+			smbfile = SMBFile.from_remotepath(self.connection, remote_path)
+			_, err = await smbfile.open(self.connection, 'w')
+			if err is not None:
+				return False, None
+
+			with open(local_path, 'rb') as f:
+				await smbfile.write_buffer(f)
+				await asyncio.sleep(0) #to make sure we are not consuming all CPU
+
+			await smbfile.close()
+			return True, None
+		except Exception as e:
+			return False, e
 
 	async def get_file(self, out_path, file_obj):
 		with open(out_path, 'wb') as f:
@@ -304,12 +355,15 @@ class SMBMachine:
 				await file_obj.close()
 
 	async def get_file_data(self, file_obj):
-		await file_obj.open(self.connection, 'r')
+		_, err = await file_obj.open(self.connection, 'r')
+		if err is not None:
+			yield None, err
+			return
 		async for data in file_obj.read_chunked():
-			yield data
+			yield data, None
 
 	async def del_file(self, file_path):
-		await SMBFile.delete(self.connection, file_path)
+		return await SMBFile.delete(self.connection, file_path)
 
 	async def create_subdirectory(self, directory_name, parent_directory_obj):
 		await parent_directory_obj.create_subdir(directory_name, self.connection)
@@ -400,8 +454,8 @@ class SMBMachine:
 	@req_rrp
 	async def save_registry_hive(self, hive_name, remote_path):
 		#SAM C:\aaaa\sam.reg
-		res, _ = await rr(self.rrp.save_hive(hive_name, remote_path))
-		return True, None
+		res, err = await self.rrp.save_hive(hive_name, remote_path)
+		return res, err
 
 	@req_servicemanager
 	async def create_service(self, service_name, command, display_name = None):
@@ -437,6 +491,29 @@ class SMBMachine:
 
 		return True, None
 	
+
+	@req_tsch
+	async def tasks_list(self):
+		"""
+		Lists scheduled tasks
+		"""
+		return self.tsch.list_tasks()
+
+	@req_tsch
+	async def tasks_register(self, template, task_name = None, flags = tsch.TASK_CREATE, ssdl = None, logon_type = tsch.TASK_LOGON_NONE):
+		"""
+		Registers a new task
+		"""
+		return await self.tsch.register_task(template, task_name = task_name, flags = flags, ssdl = ssdl, logon_type = logon_type)
+
+	@req_tsch
+	async def tasks_execute_commands(self, commands):
+		return await self.tsch.run_commands(commands)
+
+	@req_tsch
+	async def tasks_delete(self, task_name):
+		return await self.tsch.delete_task(task_name)
+
 	@req_rprn
 	async def printerbug(self, attacker_host):
 		"""
@@ -460,4 +537,4 @@ class SMBMachine:
 	
 	async def list_mountpoints(self):
 		pass
-
+	

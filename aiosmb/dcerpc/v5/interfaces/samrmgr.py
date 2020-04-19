@@ -126,7 +126,6 @@ class SMBSAMR:
 		enumerationContext = 0
 		while status == NTStatus.MORE_ENTRIES:
 			resp, err = await samr.hSamrEnumerateUsersInDomain(self.dce, domain_handle, user_type, enumerationContext=enumerationContext)
-			print('hSamrEnumerateUsersInDomain err %s' % err)
 			if err is not None:
 				if err.error_code != NTStatus.MORE_ENTRIES.value:
 					yield None, None, err

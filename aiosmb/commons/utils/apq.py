@@ -40,8 +40,11 @@ class _ProcQueue(object):
 	@asyncio.coroutine    
 	def coro_get(self):
 		loop = asyncio.get_event_loop()
-		return (yield from loop.run_in_executor(self._executor, self.get))
-
+		try:
+			return (yield from loop.run_in_executor(self._executor, self.get))
+		except asyncio.CancelledError:
+			return None
+		
 	def cancel_join_thread(self):
 		self._cancelled_join = True
 		self._queue.cancel_join_thread()

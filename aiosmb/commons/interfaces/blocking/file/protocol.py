@@ -21,9 +21,10 @@ class SMBFileOpenCommand(SMBFileCommand):
         self.mode = mode
 
 class SMBFileOpenReply(SMBFileCommand):
-    def __init__(self, cmd_id = None, handle = None):
+    def __init__(self, cmd_id = None, handle = None, filesize = None):
         super().__init__(cmd_id, SMBFILECMD.OPEN)
         self.handle = handle
+        self.filesize = filesize
 
 class SMBFileReadCommand(SMBFileCommand):
     def __init__(self, cmd_id = None, handle = None, position = None, count = None):
