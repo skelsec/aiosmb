@@ -576,7 +576,7 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 		except Exception as e:
 			traceback.print_exc()
 
-	async def do_tasklist(self):
+	async def do_tasks(self):
 		"""List scheduled tasks """
 		try:
 			async for taskname, err in await self.machine.tasks_list():
