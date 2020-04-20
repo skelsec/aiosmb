@@ -154,7 +154,7 @@ class SMBConnection:
 		self.incoming_task = None
 		self.keepalive_task = None
 		# TODO: turn it back on 
-		self.supress_keepalive = True
+		self.supress_keepalive = False
 		self.activity_at = None
 		
 		self.selected_dialect = None
