@@ -49,7 +49,7 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			if self.conn_url is None and url is None:
 				print('No url was set, cant do logon')
 			if url is not None:
-				self.conn_url = SMBConnectionURL(url)
+				self.conn_url = SMBConnectionURL(url)				
 			
 			self.connection  = self.conn_url.get_connection()
 			
@@ -669,6 +669,7 @@ async def amain(args):
 def main():
 	import argparse
 	import platform
+	import logging
 	
 	parser = argparse.ArgumentParser(description='Interactive SMB client')
 	parser.add_argument('-v', '--verbose', action='count', default=0)
@@ -678,6 +679,9 @@ def main():
 	
 	args = parser.parse_args()
 	print(__banner__)
+
+	if args.verbose >=1:
+		logger.setLevel(logging.DEBUG)
 
 	if args.verbose > 2:
 		print('setting deepdebug')

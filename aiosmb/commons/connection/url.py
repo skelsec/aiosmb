@@ -5,6 +5,8 @@ from aiosmb.commons.connection.proxy import SMBProxy
 from aiosmb.commons.connection.target import SMBTarget, SMBConnectionDialect, SMBConnectionProtocol
 from aiosmb.commons.connection.authbuilder import AuthenticatorBuilder
 from aiosmb.connection import SMBConnection
+from getpass import getpass
+import base64
 
 
 class SMBConnectionURL:
@@ -160,6 +162,19 @@ class SMBConnectionURL:
 				self.username = url_e.username
 		
 		self.secret = url_e.password
+		
+		if self.secret_type == SMBCredentialsSecretType.PWPROMPT:
+			self.secret_type = SMBCredentialsSecretType.PASSWORD
+			self.secret = getpass()
+
+		if self.secret_type == SMBCredentialsSecretType.PWHEX:
+			self.secret_type = SMBCredentialsSecretType.PASSWORD
+			self.secret = bytes.fromhex(self.secret).decode()
+		
+		if self.secret_type == SMBCredentialsSecretType.PWB64:
+			self.secret_type = SMBCredentialsSecretType.PASSWORD
+			self.secret = base64.b64decode(self.secret).decode()
+		
 		if self.secret is None and self.username is None:
 			self.is_anonymous = True
 		

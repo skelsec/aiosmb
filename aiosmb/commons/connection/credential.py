@@ -4,6 +4,9 @@ import platform
 class SMBCredentialsSecretType(enum.Enum):
 	NT = 'NT'
 	PASSWORD = 'PASSWORD'
+	PWPROMPT = 'PWPROMPT'
+	PWHEX = 'PWHEX'
+	PWB64 = 'PWB64'
 	AES = 'AES'
 	RC4 = 'RC4'
 	CCACHE = 'CCACHE'
@@ -62,7 +65,7 @@ class SMBCredential:
 			auth_type = t
 			creds.secret_type = SMBCredentialsSecretType.NONE
 		creds.authentication_type = SMBAuthProtocol(auth_type.upper().replace('-','_'))
-		
+
 		#sanity check
 		if creds.secret_type == [SMBCredentialsSecretType.NT, SMBCredentialsSecretType.RC4]:
 			try:
