@@ -43,7 +43,7 @@ setup(
 		'winsspi>=0.0.9',
 		'six',
 		'aiocmd>=0.1.2',
-		'asysocks>=0.0.2',
+		'asysocks>=0.0.3',
 		'tqdm',
 		'prompt-toolkit<3.0.0'
 	],
