@@ -1221,7 +1221,9 @@ class SMBConnection:
 			logger.debug('Terminate 4!')
 			#terminating TCP connection
 			await asyncio.wait_for(self.disconnect(), timeout = self.target.timeout)
-			logger.debug('Terminate finished!')	
+			logger.debug('Terminate finished!')
+		except asyncio.CancelledError:
+			return
 		except:
 			logger.exception('')
 	
