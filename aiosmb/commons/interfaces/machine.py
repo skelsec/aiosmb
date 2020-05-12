@@ -262,7 +262,7 @@ class SMBMachine:
 			yield share, None
 
 	@req_srvs_gen
-	async def list_sessions(self, level = 1):
+	async def list_sessions(self, level = 10):
 		async for username, ip_addr, _ in rr_gen(self.srvs.list_sessions(level = level)):
 			sess = SMBUserSession(username = username, ip_addr = ip_addr.replace('\\','').strip())
 			self.sessions.append(sess)

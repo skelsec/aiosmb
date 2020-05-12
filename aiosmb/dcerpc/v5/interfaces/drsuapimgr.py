@@ -398,6 +398,19 @@ class SMBDRSUAPI:
 			return data, err
 		except Exception as e:
 			return None, e
+
+
+	async def DRSGetNT4ChangeLog(self):
+		if self.handle is None:
+			await rr(self.open())
+
+		try:
+			logger.debug('Calling DRSGetNT4ChangeLog')
+			resp, _ = await rr(drsuapi.hDRSGetNT4ChangeLog(self.dce, self.handle))
+			return resp, None
+		except Exception as e:
+			return None, e
+
 	
 	@red
 	async def close(self):

@@ -1312,6 +1312,7 @@ OPNUMS = {
  0 : (DRSBind,DRSBindResponse ),
  1 : (DRSUnbind,DRSUnbindResponse ),
  3 : (DRSGetNCChanges,DRSGetNCChangesResponse ),
+ 11: (DRSGetNT4ChangeLog, DRSGetNT4ChangeLogResponse ),
  12: (DRSCrackNames,DRSCrackNamesResponse ),
  16: (DRSDomainControllerInfo,DRSDomainControllerInfoResponse ),
 }
@@ -1327,6 +1328,19 @@ def checkNullString(string):
 		return string + '\x00'
 	else:
 		return string
+
+async def hDRSGetNT4ChangeLog(dce, hDrs, flags = DRS_NT4_CHGLOG_GET_CHANGE_LOG | DRS_NT4_CHGLOG_GET_SERIAL_NUMBERS, PreferredMaximumLength = 0x4000):
+	request = DRSGetNT4ChangeLog()
+	request['hDrs'] = hDrs
+	request['dwInVersion'] = 1
+
+	request['pmsgIn']['tag'] = 1
+	request['pmsgIn']['V1']['dwFlags'] = flags
+	request['pmsgIn']['V1']['PreferredMaximumLength'] = PreferredMaximumLength
+	request['pmsgIn']['V1']['cbRestart'] = 0
+	request['pmsgIn']['V1']['pRestart'] = NULL
+
+	return await dce.request(request)
 
 async def hDRSUnbind(dce, hDrs):
 	request = DRSUnbind()
