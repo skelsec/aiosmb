@@ -236,7 +236,9 @@ class SMBConnection:
 
 	def get_extra_info(self):
 		try:
-			ntlm_data = self.gssapi.get_extra_info().to_dict()
+			ntlm_data = self.gssapi.get_extra_info()
+			if ntlm_data is not None:
+				ntlm_data = ntlm_data.to_dict()
 		except:
 			traceback.print_exc()
 			ntlm_data = None
