@@ -83,7 +83,7 @@ class SMBKerberos:
 
 				from aiosmb.network.multiplexornetwork import MultiplexorProxyConnection
 				mpc = MultiplexorProxyConnection(self.target)
-				socks_proxy = await mpc.connect(is_kerberos = True)
+				socks_proxy, err = await mpc.connect(is_kerberos = True)
 
 				self.kc = AIOKerberosClient(self.ccred, socks_proxy)
 

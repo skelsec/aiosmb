@@ -148,8 +148,8 @@ class DCERPCTCPTransport:
 		elif self.target.proxy.type in [SMBProxyType.MULTIPLEXOR, SMBProxyType.MULTIPLEXOR_SSL]:
 			self.is_proxy = True
 			mpc = MultiplexorProxyConnection(self.target)
-			socks_proxy = await mpc.connect()
-			return socks_proxy, None
+			socks_proxy, err = await mpc.connect()
+			return socks_proxy, err
 
 		else:
 			raise Exception('Unknown proxy type %s' % self.target.proxy.type)

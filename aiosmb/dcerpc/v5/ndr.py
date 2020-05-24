@@ -1351,7 +1351,7 @@ class NDRUNION(NDRCONSTRUCTEDTYPE):
             data += b'\xbd'*pad
             soFar += pad
 
-        if self.structure is ():
+        if self.structure == ():
             return data
 
         for fieldName, fieldTypeOrClass in self.structure:
@@ -1438,7 +1438,7 @@ class NDRUNION(NDRCONSTRUCTEDTYPE):
             data = data[pad:]
             soFar += pad
 
-        if self.structure is ():
+        if self.structure == ():
             return soFar-soFar0
 
         for fieldName, fieldTypeOrClass in self.structure:

@@ -35,8 +35,12 @@ class NetBIOSTransport:
 		"""
 		Starts the input and output processing
 		"""
-		self.incoming_task = asyncio.create_task(self.handle_incoming())
-		self.outgoing_task = asyncio.create_task(self.handle_outgoing())
+		try:
+			self.incoming_task = asyncio.create_task(self.handle_incoming())
+			self.outgoing_task = asyncio.create_task(self.handle_outgoing())
+			return True, None
+		except Exception as e:
+			return False, e
 		
 	async def parse_buffer(self, buffer, total_size = None):
 		"""

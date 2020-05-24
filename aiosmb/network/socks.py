@@ -40,17 +40,20 @@ class SocksProxyConnection:
 		"""
 		self.proxy_task.cancel()		
 		
-	async def connect(self):		
-		self.out_queue = asyncio.Queue()
-		self.in_queue = asyncio.Queue()
-		comms = SocksQueueComms(self.out_queue, self.in_queue)
+	async def connect(self):
+		try:	
+			self.out_queue = asyncio.Queue()
+			self.in_queue = asyncio.Queue()
+			comms = SocksQueueComms(self.out_queue, self.in_queue)
 
-		self.target.proxy.target.endpoint_ip = self.target.ip
-		self.target.proxy.target.endpoint_port = int(self.target.port)
+			self.target.proxy.target.endpoint_ip = self.target.ip
+			self.target.proxy.target.endpoint_port = int(self.target.port)
 
-		self.client = SOCKSClient(comms, self.target.proxy.target, self.target.proxy.auth)
-		self.proxy_task = asyncio.create_task(self.client.run())
-		return
+			self.client = SOCKSClient(comms, self.target.proxy.target, self.target.proxy.auth)
+			self.proxy_task = asyncio.create_task(self.client.run())
+			return True, None
+		except Exception as e:
+			return False, e
 
 			
 

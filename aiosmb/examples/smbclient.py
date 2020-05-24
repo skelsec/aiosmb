@@ -56,10 +56,13 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			logger.debug(self.conn_url.get_credential())
 			logger.debug(self.conn_url.get_target())
 
-			await self.connection.login()
+			_, err = await self.connection.login()
+			if err is not None:
+				raise err
 			self.machine = SMBMachine(self.connection)
 		except Exception as e:
 			traceback.print_exc()
+			print('Login failed! Reason: %s' % str(err))
 		else:
 			print('Login success')
 

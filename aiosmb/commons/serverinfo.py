@@ -38,10 +38,14 @@ class NTLMServerInfo:
 					si.local_time = ti[k]
 		
 		if challenge.Version is not None:
-			si.os_major_version = challenge.Version.ProductMajorVersion
-			si.os_minor_version = challenge.Version.ProductMinorVersion
-			si.os_build = challenge.Version.ProductBuild
-			si.os_guess = challenge.Version.WindowsProduct
+			if challenge.Version.ProductMajorVersion is not None:
+				si.os_major_version = challenge.Version.ProductMajorVersion
+			if challenge.Version.ProductMinorVersion is not None:
+				si.os_minor_version = challenge.Version.ProductMinorVersion
+			if challenge.Version.ProductBuild is not None:
+				si.os_build = challenge.Version.ProductBuild
+			if challenge.Version.WindowsProduct is not None:
+				si.os_guess = challenge.Version.WindowsProduct
 				
 		return si
 

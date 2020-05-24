@@ -87,31 +87,34 @@ class TCPSocket:
 
 		#self.settings = settings
 		
-		con = asyncio.open_connection(self.settings.get_ip(), self.settings.get_port())
-		
 		try:
-			self.reader, self.writer = await asyncio.wait_for(con, int(self.settings.timeout))
-		except asyncio.TimeoutError:
-			logger.debug('[TCPSocket] Connection timeout')
-			raise SMBConnectionTimeoutException()
+			con = asyncio.open_connection(self.settings.get_ip(), self.settings.get_port())
 			
-		except ConnectionRefusedError:
-			logger.debug('[TCPSocket] Connection refused')
-			raise SMBConnectionRefusedException()
+			try:
+				self.reader, self.writer = await asyncio.wait_for(con, int(self.settings.timeout))
+			except asyncio.TimeoutError:
+				logger.debug('[TCPSocket] Connection timeout')
+				raise SMBConnectionTimeoutException()
+				
+			except ConnectionRefusedError:
+				logger.debug('[TCPSocket] Connection refused')
+				raise SMBConnectionRefusedException()
+				
+			except asyncio.CancelledError:
+				#the SMB connection is terminating
+				raise asyncio.CancelledError
+				
+			except Exception as e:
+				logger.exception('[TCPSocket] connect generic exception')
+				raise e
 			
-		except asyncio.CancelledError:
-			#the SMB connection is terminating
-			raise asyncio.CancelledError
-			
+			self.incoming_task = asyncio.create_task(self.handle_incoming())
+			self.outgoing_task = asyncio.create_task(self.handle_outgoing())
+
+
+			return True, None
 		except Exception as e:
-			logger.exception('[TCPSocket] connect generic exception')
-			raise e
-		
-		self.incoming_task = asyncio.create_task(self.handle_incoming())
-		self.outgoing_task = asyncio.create_task(self.handle_outgoing())
-
-
-		return
+			return False, e
 
 			
 			
