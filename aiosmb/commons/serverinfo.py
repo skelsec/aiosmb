@@ -50,18 +50,23 @@ class NTLMServerInfo:
 		return si
 
 	def to_dict(self):
-		return {
+		t = {
 			'domainname' : self.domainname,
 			'computername' : self.computername,
 			'dnscomputername' : self.dnscomputername,
 			'dnsdomainname' : self.dnsdomainname,
 			'local_time' : self.local_time,
 			'dnsforestname' : self.dnsforestname,
-			'os_major_version' : self.os_major_version.name if self.os_major_version.name is not None else None,
-			'os_minor_version' : self.os_minor_version.name if self.os_minor_version.name is not None else None,
 			'os_build' : self.os_build,
 			'os_guess' : self.os_guess,
+			'os_major_version' : None,
+			'os_minor_version' : None,
 		}
+		if self.os_major_version is not None:
+			t['os_major_version'] = self.os_major_version.name
+		if self.os_minor_version is not None:
+			t['os_minor_version'] = self.os_minor_version.name
+		return t
 		
 	def __str__(self):
 		t = '=== Server Info ====\r\n'

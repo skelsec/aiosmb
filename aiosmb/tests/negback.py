@@ -84,7 +84,7 @@
 				self.SupportsMultiChannel = NegotiateCapabilities.MULTI_CHANNEL in rply.command.Capabilities
 				
 			else:
-				logger.error('Server choose SMB v1 which is not supported currently')
+				logger.debug('Server choose SMB v1 which is not supported currently')
 				raise SMBUnsupportedSMBVersion()
 			
 		else:

@@ -265,7 +265,7 @@ class SMBConnection:
 				msg_data, err = await self.netbios_transport.in_queue.get()
 				self.activity_at = datetime.datetime.utcnow()
 				if err is not None:
-					logger.error('__handle_smb_in got error from transport layer %s' % err)
+					logger.debug('__handle_smb_in got error from transport layer %s' % err)
 					#setting all outstanding events to finished
 					for mid in self.OutstandingResponsesEvent:
 						self.OutstandingResponses[mid] = None, err
@@ -436,14 +436,21 @@ class SMBConnection:
 			return
 		
 		self.status = SMBConnectionStatus.CLOSED
-		if self.netbios_transport:
-			await self.netbios_transport.stop()
-		if self.network_transport:
-			await self.network_transport.disconnect()
-		if self.incoming_task:
+		try:
+			if self.netbios_transport is not None:
+				await self.netbios_transport.stop()
+		except:
+			pass
+		try:
+			if self.network_transport is not None:
+				await self.network_transport.disconnect()
+		except:
+			pass
+		
+		if self.incoming_task is not None:
 			self.incoming_task.cancel()
 		
-		if self.keepalive_task:
+		if self.keepalive_task is not None:
 			self.keepalive_task.cancel()
 
 	async def keepalive(self):
@@ -464,7 +471,7 @@ class SMBConnection:
 		except asyncio.CancelledError:
 			return
 		except Exception as e:
-			logger.error('Keepalive failed! Server probably disconnected!')
+			logger.debug('Keepalive failed! Server probably disconnected!')
 			await self.disconnect()
 
 	def update_integrity(self, msg_data):
@@ -1233,35 +1240,29 @@ class SMBConnection:
 		Terminates the connection. Closes all tree handles, logs off and disconnects the TCP connection.
 		"""
 		#return
-		try:
-			logger.debug('Terminate called!')			
+		try:		
 			if self.session_closed == True or self.status == SMBConnectionStatus.CLOSED:
-				logger.debug('Terminate 1!')
 				return
 			
 			if self.status == SMBConnectionStatus.RUNNING:
-				logger.debug('Terminate 2!')
 				#only doing the proper disconnection if the connection was already running
 				for tree_id in list(self.TreeConnectTable_id.keys()):
 					try:
-						await asyncio.wait_for(self.tree_diconnect(tree_id), timeout = self.target.timeout)
+						await asyncio.wait_for(self.tree_disconnect(tree_id), timeout = 1)
 					except:
 						pass
-				logger.debug('Terminate 3!')
 				#logging off
 				try:
-					await asyncio.wait_for(self.logoff(), timeout = self.target.timeout)
+					await asyncio.wait_for(self.logoff(), timeout = 1)
 				except Exception as e:
 					pass
 			
-			logger.debug('Terminate 4!')
-			#terminating TCP connection
-			await asyncio.wait_for(self.disconnect(), timeout = self.target.timeout)
+			await asyncio.wait_for(self.disconnect(), timeout = 1)
 			logger.debug('Terminate finished!')
 		except asyncio.CancelledError:
 			return
-		except:
-			logger.exception('')
+		except Exception as e:
+			logger.debug('terminate error %s' % str(e))
 	
 	async def ghosting(self):
 		#self.encryption_required = False

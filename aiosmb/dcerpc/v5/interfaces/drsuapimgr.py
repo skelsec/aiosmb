@@ -137,7 +137,7 @@ class SMBDRSUAPI:
 		if resp['pmsgOut']['V2']['cItems'] > 0:
 			self.__NtdsDsaObjectGuid = resp['pmsgOut']['V2']['rItems'][0]['NtdsDsaObjectGuid']
 		else:
-			logger.error("Couldn't get DC info for domain %s" % self.domainname)
+			logger.debug("Couldn't get DC info for domain %s" % self.domainname)
 			raise Exception('Fatal, aborting!')
 
 		return True,None
@@ -198,8 +198,8 @@ class SMBDRSUAPI:
 					attId = drsuapi.OidFromAttid(prefixTable, attr['attrTyp'])
 					LOOKUP_TABLE = self.ATTRTYP_TO_ATTID
 				except Exception as e:
-					logger.error('Failed to execute OidFromAttid with error %s, fallbacking to fixed table' % e)
-					logger.error('Exception', exc_info=True)
+					logger.debug('Failed to execute OidFromAttid with error %s, fallbacking to fixed table' % e)
+					logger.debug('Exception', exc_info=True)
 					# Fallbacking to fixed table and hope for the best
 					attId = attr['attrTyp']
 					LOOKUP_TABLE = self.NAME_TO_ATTRTYP
