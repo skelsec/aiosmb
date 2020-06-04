@@ -424,6 +424,7 @@ class SMBConnection:
 			self.incoming_task = asyncio.create_task(self.__handle_smb_in())
 			return True, None
 		except Exception as e:
+			await self.disconnect()
 			return False, e
 		
 	async def disconnect(self):

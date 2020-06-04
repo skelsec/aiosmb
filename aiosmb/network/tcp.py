@@ -114,6 +114,10 @@ class TCPSocket:
 
 			return True, None
 		except Exception as e:
+			try:
+				self.writer.close()
+			except:
+				pass
 			return False, e
 
 			
