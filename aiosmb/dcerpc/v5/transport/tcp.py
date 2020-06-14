@@ -254,6 +254,5 @@ class DCERPCTCPTransport:
 
 
 		except Exception as e:
-			print(e)
 			return None, e
 		

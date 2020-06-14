@@ -3,6 +3,7 @@ from aiosmb.dcerpc.v5.common.connection.smbdcefactory import SMBDCEFactory
 from aiosmb.dcerpc.v5 import rrp
 from aiosmb.dcerpc.v5.interfaces.servicemanager import *
 from aiosmb.commons.utils.decorators import red, rr
+from aiosmb import logger
 		
 class RRP:
 	def __init__(self, connection):
@@ -51,25 +52,25 @@ class RRP:
 					try:
 						await rrp.hBaseRegCloseKey(self.dce, self.hive_handles[hive_name])
 					except Exception as e:
-						print(e)
+						logger.exception('reg close 1')
 						pass
 			
 				try:
 					await rrp.hBaseRegCloseKey(self.dce, self.handle)
 				except Exception as e:
-					print(e)
+					logger.exception('reg close 2')
 					pass
 			try:
 				await self.dce.disconnect()
 			except Exception as e:
-				print(e)
+				logger.exception('reg close 3')
 				pass
 				
 		if self.service_manager:
 			try:
 				await self.service_manager.close()
 			except Exception as e:
-				print(e)
+				logger.exception('reg close 4')
 				pass
 				
 		return True, None

@@ -5,7 +5,7 @@ import fnmatch
 
 import shlex
 import tqdm
-from aiocmd import aiocmd
+from aiosmb.external.aiocmd.aiocmd import aiocmd
 from aiosmb.examples.smbpathcompleter import SMBPathCompleter
 
 from aiosmb import logger

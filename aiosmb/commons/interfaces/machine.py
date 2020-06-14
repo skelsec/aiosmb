@@ -190,7 +190,7 @@ class SMBMachine:
 			
 			await self.connection.terminate()
 		except Exception as e:
-			print(e)
+			logger.exception('machine.close')
 
 	def get_blocking_file(self):
 		"""
