@@ -18,7 +18,7 @@ class NetworkSelector:
 
         elif target.proxy.type in [SMBProxyType.MULTIPLEXOR, SMBProxyType.MULTIPLEXOR_SSL]:
             mpc = MultiplexorProxyConnection(target)
-            socks_proxy = await mpc.connect()
+            socks_proxy, err = await mpc.connect()
             return socks_proxy
 
         return None
