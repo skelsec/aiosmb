@@ -186,11 +186,18 @@ class SMBMachine:
 
 	async def close(self):
 		# TODO: make it prettier!
-		try:
-			
-			await self.connection.terminate()
-		except Exception as e:
-			logger.exception('machine.close')
+		if self.srvs is not None:
+			await self.srvs.close()
+		if self.samr is not None:
+			await self.samr.close()
+		if self.lsad is not None:
+			await self.lsad.close()
+		if self.rrp is not None:
+			await self.rrp.close()
+		if self.rprn is not None:
+			await self.rprn.close()
+		if self.tsch is not None:
+			await self.tsch.close()
 
 	def get_blocking_file(self):
 		"""
@@ -263,21 +270,24 @@ class SMBMachine:
 
 	@req_srvs_gen
 	async def list_sessions(self, level = 10):
-		async for username, ip_addr, _ in rr_gen(self.srvs.list_sessions(level = level)):
+		async for username, ip_addr, err in self.srvs.list_sessions(level = level):
+			if err is not None:
+				yield None, err
+				return
 			sess = SMBUserSession(username = username, ip_addr = ip_addr.replace('\\','').strip())
 			self.sessions.append(sess)
 			yield sess, None
 
 	@req_samr_gen
 	async def list_domains(self):
-		async for domain, _ in rr_gen(self.samr.list_domains()):
+		async for domain, err in self.samr.list_domains():
 			#self.domains.append(domain)
-			yield domain, None
+			yield domain, err
 	
 	@req_samr_gen
 	async def list_localgroups(self):
-		async for name, sid, _ in rr_gen(self.list_groups('Builtin')):
-			yield name, sid, None
+		async for name, sid, err in self.list_groups('Builtin'):
+			yield name, sid, err
 
 	@req_samr_gen
 	async def list_groups(self, domain_name, ret_sid = True):
@@ -334,11 +344,10 @@ class SMBMachine:
 				return False, None
 
 			with open(local_path, 'rb') as f:
-				await smbfile.write_buffer(f)
-				await asyncio.sleep(0) #to make sure we are not consuming all CPU
+				total_writen, err = await smbfile.write_buffer(f)
 
 			await smbfile.close()
-			return True, None
+			return total_writen, None
 		except Exception as e:
 			return False, e
 
@@ -359,8 +368,8 @@ class SMBMachine:
 		if err is not None:
 			yield None, err
 			return
-		async for data in file_obj.read_chunked():
-			yield data, None
+		async for data, err in file_obj.read_chunked():
+			yield data, err
 
 	async def del_file(self, file_path):
 		return await SMBFile.delete(self.connection, file_path)
@@ -400,9 +409,11 @@ class SMBMachine:
 		async for username, user_sid, err in self.samr.list_domain_users(domain_handle):
 			yield username, user_sid, err
 
-	@req_samr_gen
 	async def dcsync(self, target_domain = None, target_users = []):
 		try:
+			if self.samr is None:
+				await self.connect_rpc('SAMR')
+
 			if target_domain is None:
 				logger.debug('No domain defined, fetching it from SAMR')
 				
@@ -418,8 +429,12 @@ class SMBMachine:
 			
 			async with SMBDRSUAPI(self.connection, target_domain) as drsuapi:
 				try:
-					await rr(drsuapi.connect())
-					await rr(drsuapi.open())
+					_, err = await drsuapi.connect()
+					if err is not None:
+						raise err
+					_, err = await drsuapi.open()
+					if err is not None:
+						raise err
 				except Exception as e:
 					logger.exception('Failed to connect to DRSUAPI!')
 					raise e
@@ -428,7 +443,7 @@ class SMBMachine:
 				if len(target_users) > 0:
 					for username in target_users:
 						secrets, err = await drsuapi.get_user_secrets(username)
-						yield secrets, None
+						yield secrets, err
 								
 				else:
 					

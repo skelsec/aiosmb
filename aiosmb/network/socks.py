@@ -38,7 +38,14 @@ class SocksProxyConnection:
 		Disconnects from the socket.
 		Stops the reader and writer streams.
 		"""
-		self.proxy_task.cancel()		
+		if self.client is not None:
+			try:
+				await self.client.terminate()
+			except:
+				pass
+
+		if self.proxy_task is not None:
+			self.proxy_task.cancel()
 		
 	async def connect(self):
 		try:	

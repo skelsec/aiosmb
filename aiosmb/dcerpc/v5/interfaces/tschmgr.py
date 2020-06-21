@@ -27,9 +27,19 @@ class SMBTSCH:
 		return self
 		
 	async def __aexit__(self, exc_type, exc, traceback):
-		#await self.close()
+		await self.close()
 		return True,None
 	
+	@red
+	async def close(self):
+		if self.dce:
+			try:
+				await self.dce.disconnect()
+			except:
+				pass
+			return
+		
+		return True,None
 	@red
 	async def connect(self, open = True):
 		rpctransport = SMBDCEFactory(self.connection, filename=r'\atsvc')

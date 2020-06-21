@@ -62,7 +62,7 @@ class SMBSRVS:
 			resumeHandle = resp['ResumeHandle'] 
 			status = NTStatus(resp['ErrorCode'])	
 	
-	@red_gen
+	
 	async def list_sessions(self, level = 10):
 		if level not in [1, 10]:
 			raise Exception('Only levels 1 and 10 implemented!')
@@ -73,7 +73,8 @@ class SMBSRVS:
 			resp, err = await srvs.hNetrSessionEnum(self.dce, '\x00', NULL, level, resumeHandle = resumeHandle)
 			if err is not None:
 				if err.error_code != NTStatus.MORE_ENTRIES.value:
-					raise err
+					yield None, None, err
+					return
 				resp = err.get_packet()
 
 			if level == 1:
@@ -90,4 +91,4 @@ class SMBSRVS:
 					yield username, ip_addr, None
 			
 			resumeHandle = resp['ResumeHandle'] 
-			status = NTStatus(resp['ErrorCode'])	
+			status = NTStatus(resp['ErrorCode'])

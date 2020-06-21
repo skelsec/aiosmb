@@ -21,16 +21,23 @@ class SMBShare:
 		Connect to the share and fills connection related info in the SMBShare object
 		FULLPATH MUST BE SPECIFIED ALREADY FOR THIS OBJECT!
 		"""
-		tree_entry = await connection.tree_connect(self.fullpath)
-		self.tree_id = tree_entry.tree_id
-		self.maximal_access = tree_entry.maximal_access
-		self.unc_path = self.fullpath
-		init_dir = SMBDirectory()
-		init_dir.tree_id = self.tree_id
-		init_dir.fullpath = ''
-		init_dir.unc_path = self.unc_path
-		#init_dir.name = ''
-		self.subdirs[''] = init_dir
+		try:
+			tree_entry, err = await connection.tree_connect(self.fullpath)
+			if err is not None:
+				raise err
+			self.tree_id = tree_entry.tree_id
+			self.maximal_access = tree_entry.maximal_access
+			self.unc_path = self.fullpath
+			init_dir = SMBDirectory()
+			init_dir.tree_id = self.tree_id
+			init_dir.fullpath = ''
+			init_dir.unc_path = self.unc_path
+			#init_dir.name = ''
+			self.subdirs[''] = init_dir
+			return True, None
+			
+		except Exception as e:
+			return None, e
 		
 	def __str__(self):
 		t = '===== SHARE =====\r\n'

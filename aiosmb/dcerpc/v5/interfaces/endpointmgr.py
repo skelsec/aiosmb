@@ -30,97 +30,102 @@ class EPM:
 		return DCERPC5Connection(auth, target)
 
 
-	@red
 	async def connect(self):
-		dcerpc_target_str = r'%s:%s[%s]' % (self.protocol, self.smb_connection.target.ip, self.port)
-		self.dce = self.get_connection_from_stringbinding(dcerpc_target_str)
+		try:
+			dcerpc_target_str = r'%s:%s[%s]' % (self.protocol, self.smb_connection.target.ip, self.port)
+			self.dce = self.get_connection_from_stringbinding(dcerpc_target_str)
 
-		await rr(self.dce.connect())
-		await rr(self.dce.bind(MSRPC_UUID_PORTMAP))
+			await rr(self.dce.connect())
+			await rr(self.dce.bind(MSRPC_UUID_PORTMAP))
 
-		return True,None
+			return True,None
+		except Exception as e:
+			return False, e
 
-	@red
 	async def map(self, remoteIf):
-		
-		tower = EPMTower()
-		interface = EPMRPCInterface()
+		try:
+			tower = EPMTower()
+			interface = EPMRPCInterface()
 
-		interface['InterfaceUUID'] = remoteIf[:16]
-		interface['MajorVersion'] = unpack('<H', remoteIf[16:][:2])[0]
-		interface['MinorVersion'] = unpack('<H', remoteIf[18:])[0]
+			interface['InterfaceUUID'] = remoteIf[:16]
+			interface['MajorVersion'] = unpack('<H', remoteIf[16:][:2])[0]
+			interface['MinorVersion'] = unpack('<H', remoteIf[18:])[0]
 
-		dataRep = EPMRPCDataRepresentation()
-		dataRep['DataRepUuid'] = self.data_representation[:16]
-		dataRep['MajorVersion'] = unpack('<H', self.data_representation[16:][:2])[0]
-		dataRep['MinorVersion'] = unpack('<H', self.data_representation[18:])[0]
+			dataRep = EPMRPCDataRepresentation()
+			dataRep['DataRepUuid'] = self.data_representation[:16]
+			dataRep['MajorVersion'] = unpack('<H', self.data_representation[16:][:2])[0]
+			dataRep['MinorVersion'] = unpack('<H', self.data_representation[18:])[0]
 
-		protId = EPMProtocolIdentifier()
-		protId['ProtIdentifier'] = FLOOR_RPCV5_IDENTIFIER
+			protId = EPMProtocolIdentifier()
+			protId['ProtIdentifier'] = FLOOR_RPCV5_IDENTIFIER
 
-		if self.protocol == 'ncacn_np':
-			pipeName = EPMPipeName()
-			pipeName['PipeName'] = b'\x00'
+			if self.protocol == 'ncacn_np':
+				pipeName = EPMPipeName()
+				pipeName['PipeName'] = b'\x00'
 
-			hostName = EPMHostName()
-			#hostName['HostName'] = b('%s\x00' % self.smb_connection.target.get_hostname_or_ip())
-			hostName['HostName'] = b('%s\x00' % self.smb_connection.target.ip)
-			transportData = pipeName.getData() + hostName.getData()
+				hostName = EPMHostName()
+				#hostName['HostName'] = b('%s\x00' % self.smb_connection.target.get_hostname_or_ip())
+				hostName['HostName'] = b('%s\x00' % self.smb_connection.target.ip)
+				transportData = pipeName.getData() + hostName.getData()
 
-		elif self.protocol == 'ncacn_ip_tcp':
-			portAddr = EPMPortAddr()
-			portAddr['IpPort'] = 0
+			elif self.protocol == 'ncacn_ip_tcp':
+				portAddr = EPMPortAddr()
+				portAddr['IpPort'] = 0
 
-			hostAddr = EPMHostAddr()
-			import socket
-			hostAddr['Ip4addr'] = socket.inet_aton('0.0.0.0')
-			transportData = portAddr.getData() + hostAddr.getData()
-		elif self.protocol == 'ncacn_http':
-			portAddr = EPMPortAddr()
-			portAddr['PortIdentifier'] = FLOOR_HTTP_IDENTIFIER
-			portAddr['IpPort'] = 0
+				hostAddr = EPMHostAddr()
+				import socket
+				hostAddr['Ip4addr'] = socket.inet_aton('0.0.0.0')
+				transportData = portAddr.getData() + hostAddr.getData()
+			elif self.protocol == 'ncacn_http':
+				portAddr = EPMPortAddr()
+				portAddr['PortIdentifier'] = FLOOR_HTTP_IDENTIFIER
+				portAddr['IpPort'] = 0
 
-			hostAddr = EPMHostAddr()
-			import socket
-			hostAddr['Ip4addr'] = socket.inet_aton('0.0.0.0')
-			transportData = portAddr.getData() + hostAddr.getData()
+				hostAddr = EPMHostAddr()
+				import socket
+				hostAddr['Ip4addr'] = socket.inet_aton('0.0.0.0')
+				transportData = portAddr.getData() + hostAddr.getData()
 
-		else:
-			return None, Exception('Unsupported protocol! %s' % self.protocol)
+			else:
+				return None, Exception('Unsupported protocol! %s' % self.protocol)
 
-		tower['NumberOfFloors'] = 5
-		tower['Floors'] = interface.getData() + dataRep.getData() + protId.getData() + transportData
+			tower['NumberOfFloors'] = 5
+			tower['Floors'] = interface.getData() + dataRep.getData() + protId.getData() + transportData
 
-		request = ept_map()
-		request['max_towers'] = 1
-		request['map_tower']['tower_length'] = len(tower)
-		request['map_tower']['tower_octet_string'] = tower.getData()
+			request = ept_map()
+			request['max_towers'] = 1
+			request['map_tower']['tower_length'] = len(tower)
+			request['map_tower']['tower_octet_string'] = tower.getData()
 
-		# Under Windows 2003 the Referent IDs cannot be random
-		# they must have the following specific values
-		# otherwise we get a rpc_x_bad_stub_data exception
-		request.fields['obj'].fields['ReferentID'] = 1
-		request.fields['map_tower'].fields['ReferentID'] = 2
+			# Under Windows 2003 the Referent IDs cannot be random
+			# they must have the following specific values
+			# otherwise we get a rpc_x_bad_stub_data exception
+			request.fields['obj'].fields['ReferentID'] = 1
+			request.fields['map_tower'].fields['ReferentID'] = 2
 
-		resp, _ = await rr(self.dce.request(request))
+			resp, err = await self.dce.request(request)
+			if err is not None:
+				raise err
 
-		tower = EPMTower(b''.join(resp['ITowers'][0]['Data']['tower_octet_string']))
-		# Now let's parse the result and return an stringBinding
-		result = None
-		if self.protocol == 'ncacn_np':
-			# Pipe Name should be the 4th floor
-			pipeName = EPMPipeName(tower['Floors'][3].getData())
-			result = 'ncacn_np:%s[%s]' % (self.smb_connection.target.ip, pipeName['PipeName'].decode('utf-8')[:-1])
-		elif self.protocol == 'ncacn_ip_tcp':
-			# Port Number should be the 4th floor
-			portAddr = EPMPortAddr(tower['Floors'][3].getData())
-			result = 'ncacn_ip_tcp:%s[%s]' % (self.smb_connection.target.ip, portAddr['IpPort'])
-		elif self.protocol == 'ncacn_http':
-			# Port Number should be the 4th floor
-			portAddr = EPMPortAddr(tower['Floors'][3].getData())
-			result = 'ncacn_http:%s[%s]' % (self.smb_connection.target.ip, portAddr['IpPort'])
-		
-		return result, None
+			tower = EPMTower(b''.join(resp['ITowers'][0]['Data']['tower_octet_string']))
+			# Now let's parse the result and return an stringBinding
+			result = None
+			if self.protocol == 'ncacn_np':
+				# Pipe Name should be the 4th floor
+				pipeName = EPMPipeName(tower['Floors'][3].getData())
+				result = 'ncacn_np:%s[%s]' % (self.smb_connection.target.ip, pipeName['PipeName'].decode('utf-8')[:-1])
+			elif self.protocol == 'ncacn_ip_tcp':
+				# Port Number should be the 4th floor
+				portAddr = EPMPortAddr(tower['Floors'][3].getData())
+				result = 'ncacn_ip_tcp:%s[%s]' % (self.smb_connection.target.ip, portAddr['IpPort'])
+			elif self.protocol == 'ncacn_http':
+				# Port Number should be the 4th floor
+				portAddr = EPMPortAddr(tower['Floors'][3].getData())
+				result = 'ncacn_http:%s[%s]' % (self.smb_connection.target.ip, portAddr['IpPort'])
+			
+			return result, None
+		except Exception as e:
+			return None, e
 
 	@red
 	async def lookup(self, inquiry_type = RPC_C_EP_ALL_ELTS, objectUUID = NULL, ifId = NULL, vers_option = RPC_C_VERS_ALL,  entry_handle = ept_lookup_handle_t(), max_ents = 499):

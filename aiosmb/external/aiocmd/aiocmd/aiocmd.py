@@ -50,7 +50,7 @@ class PromptToolkitCmd:
         finally:
             if self._ignore_sigint and sys.platform != "win32":
                 asyncio.get_event_loop().remove_signal_handler(signal.SIGINT)
-            self._on_close()
+            await self._on_close()
 
     async def _run_prompt_forever(self):
         while True:
@@ -154,6 +154,6 @@ class PromptToolkitCmd:
         """Exit the prompt"""
         raise ExitPromptException()
 
-    def _on_close(self):
+    async def _on_close(self):
         """Optional hook to call on closing the cmd"""
         pass

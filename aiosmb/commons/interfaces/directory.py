@@ -40,9 +40,11 @@ class SMBDirectory:
 				create_options = CreateOptions.FILE_DIRECTORY_FILE | CreateOptions.FILE_SYNCHRONOUS_IO_NONALERT
 				file_attrs = 0
 				create_disposition = CreateDisposition.FILE_OPEN
-				file_id = await connection.create(self.tree_id, self.fullpath, desired_access, share_mode, create_options, create_disposition, file_attrs)
+				file_id, err = await connection.create(self.tree_id, self.fullpath, desired_access, share_mode, create_options, create_disposition, file_attrs)
+				if err is not None:
+					raise err
 				
-				self.sid = await connection.query_info(
+				self.sid, err = await connection.query_info(
 					self.tree_id, 
 					file_id,
 					info_type = QueryInfoType.SECURITY, 
@@ -50,6 +52,8 @@ class SMBDirectory:
 					additional_information = SecurityInfo.ATTRIBUTE_SECURITY_INFORMATION | SecurityInfo.DACL_SECURITY_INFORMATION | SecurityInfo.OWNER_SECURITY_INFORMATION | SecurityInfo.GROUP_SECURITY_INFORMATION, 
 					flags = 0, 
 				)
+				if err is not None:
+					raise err
 			except Exception as e:
 				return None, e
 
@@ -78,7 +82,9 @@ class SMBDirectory:
 			should_close = False #dont close the tree_id only if the directory hasnt been connected to yet
 			if not self.tree_id:
 				should_close = True
-				tree_entry = await connection.tree_connect(self.get_share_path())
+				tree_entry, err = await connection.tree_connect(self.get_share_path())
+				if err is not None:
+					raise err
 				self.tree_id = tree_entry.tree_id
 
 			file_id = None
@@ -86,7 +92,7 @@ class SMBDirectory:
 			if self.fullpath != '':
 				newpath = '%s\\%s' % (self.fullpath, dir_name)
 			try:
-				file_id = await connection.create(
+				file_id, err = await connection.create(
 					self.tree_id, 
 					newpath, 
 					FileAccessMask.GENERIC_ALL, 
@@ -95,6 +101,8 @@ class SMBDirectory:
 					CreateDisposition.FILE_CREATE, 
 					0
 				)
+				if err is not None:
+					raise err
 				return True, None
 			finally:
 				if file_id is not None:
@@ -120,13 +128,14 @@ class SMBDirectory:
 		file_attrs = 0
 		create_disposition = CreateDisposition.FILE_OPEN
 		
-		try:
-			file_id = await connection.create(self.tree_id, self.fullpath, desired_access, share_mode, create_options, create_disposition, file_attrs)
-		except Exception as e:
-			return False, e
+		file_id, err = await connection.create(self.tree_id, self.fullpath, desired_access, share_mode, create_options, create_disposition, file_attrs)
+		if err is not None:
+			return False, err
 		try:
 			while True:
-				fileinfos = await connection.query_directory(self.tree_id, file_id)
+				fileinfos, err = await connection.query_directory(self.tree_id, file_id)
+				if err is not None:
+					raise err
 				if not fileinfos:
 					break
 				for info in fileinfos:

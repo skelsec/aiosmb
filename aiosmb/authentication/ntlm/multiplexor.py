@@ -114,6 +114,7 @@ class SMBNTLMMultiplexor:
 					if res is None:
 						self.ntlm_ctx.load_sessionkey(self.get_session_key())
 				
+				await self.sspi.disconnect()
 				return data, res, None
 				
 		else:

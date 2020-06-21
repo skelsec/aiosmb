@@ -182,6 +182,7 @@ class SMBKerberosMultiplexor:
 						self.seq_number = GSSWrapToken.from_bytes(raw_seq_data[16:]).SND_SEQ
 					
 					self.iterations += 1
+					await self.ksspi.disconnect()
 					return data, False, None
 					
 				else:
@@ -193,6 +194,7 @@ class SMBKerberosMultiplexor:
 				#print('MULTIPLEXOR KERBEROS SSPI, APREQ: %s ERROR: %s' % (apreq, res))
 				if res is None:
 					self.session_key, res = await self.ksspi.get_session_key()
+					await self.ksspi.disconnect()
 
 				return apreq, res, None
 		except Exception as e:

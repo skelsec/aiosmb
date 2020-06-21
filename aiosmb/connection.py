@@ -409,7 +409,9 @@ class SMBConnection:
 		Establishes socket connection to the remote endpoint. Also starts the internal reading procedures.
 		"""
 		try:
-			self.network_transport = await NetworkSelector.select(self.target)
+			self.network_transport, err = await NetworkSelector.select(self.target)
+			if err is not None:
+				raise err
 			
 			_, err = await self.network_transport.connect()
 			if err is not None:
@@ -841,78 +843,88 @@ class SMBConnection:
 		"""
 		share_name MUST be in "\\\\server\\share" format! Server can be NetBIOS name OR IP4 OR IP6 OR FQDN
 		"""
-		if self.session_closed == True:
-			return
-		command = TREE_CONNECT_REQ()
-		command.Path = share_name
-		command.Flags = 0
-		
-		header = SMB2Header_SYNC()
-		header.Command  = SMB2Command.TREE_CONNECT
-		
-		msg = SMBMessage(header, command)
-		message_id = await self.sendSMB(msg)
-		
-		rply = await self.recvSMB(message_id)
-		
-		if rply.header.Status == NTStatus.SUCCESS:
-			te = TreeEntry.from_tree_reply(rply, share_name)
-			self.TreeConnectTable_id[rply.header.TreeId] = te
-			self.TreeConnectTable_share[share_name] = te
-			return te
-		
-		elif rply.header.Status == NTStatus.BAD_NETWORK_NAME:
-			raise SMBIncorrectShareName()
+		try:
+			if self.session_closed == True:
+				return
+			command = TREE_CONNECT_REQ()
+			command.Path = share_name
+			command.Flags = 0
 			
-		elif rply.header.Status == NTStatus.USER_SESSION_DELETED:
-			self.session_closed = True
-			raise SMBException('session delted', NTStatus.USER_SESSION_DELETED)
+			header = SMB2Header_SYNC()
+			header.Command  = SMB2Command.TREE_CONNECT
+			
+			msg = SMBMessage(header, command)
+			message_id = await self.sendSMB(msg)
+			
+			rply = await self.recvSMB(message_id)
+			
+			if rply.header.Status == NTStatus.SUCCESS:
+				te = TreeEntry.from_tree_reply(rply, share_name)
+				self.TreeConnectTable_id[rply.header.TreeId] = te
+				self.TreeConnectTable_share[share_name] = te
+				return te, None
+			
+			elif rply.header.Status == NTStatus.BAD_NETWORK_NAME:
+				raise SMBIncorrectShareName()
+				
+			elif rply.header.Status == NTStatus.USER_SESSION_DELETED:
+				self.session_closed = True
+				raise SMBException('session delted', NTStatus.USER_SESSION_DELETED)
+			
+			
+			else:
+				raise SMBException('', rply.header.Status)
 		
-		
-		else:
-			raise SMBException('', rply.header.Status)
+		except Exception as e:
+			return None, e
 		
 	async def create(self, tree_id, file_path, desired_access, share_mode, create_options, create_disposition, file_attrs, impresonation_level = ImpersonationLevel.Impersonation, oplock_level = OplockLevel.SMB2_OPLOCK_LEVEL_NONE, create_contexts = None, return_reply = False):
-		if self.session_closed == True:
-			return
-		
-		if tree_id not in self.TreeConnectTable_id:
-			raise Exception('Unknown Tree ID!')
-		
-		command = CREATE_REQ()
-		command.RequestedOplockLevel  = oplock_level
-		command.ImpersonationLevel  = impresonation_level
-		command.DesiredAccess    = desired_access
-		command.FileAttributes     = file_attrs
-		command.ShareAccess      = share_mode
-		command.CreateDisposition       = create_disposition
-		command.CreateOptions        = create_options
-		command.Name = file_path
-		command.CreateContext = create_contexts
-		
-		header = SMB2Header_SYNC()
-		header.Command  = SMB2Command.CREATE
-		header.TreeId = tree_id
-		
-		msg = SMBMessage(header, command)
-		message_id = await self.sendSMB(msg)
-		
-		rply = await self.recvSMB(message_id)
-		
-		if rply.header.Status == NTStatus.SUCCESS:
-			fh = FileHandle.from_create_reply(rply, tree_id, file_path, oplock_level)
-			self.FileHandleTable[fh.file_id] = fh
+		try:
+			if self.session_closed == True:
+				return
 			
+			if tree_id not in self.TreeConnectTable_id:
+				raise Exception('Unknown Tree ID!')
+			
+			command = CREATE_REQ()
+			command.RequestedOplockLevel  = oplock_level
+			command.ImpersonationLevel  = impresonation_level
+			command.DesiredAccess    = desired_access
+			command.FileAttributes     = file_attrs
+			command.ShareAccess      = share_mode
+			command.CreateDisposition       = create_disposition
+			command.CreateOptions        = create_options
+			command.Name = file_path
+			command.CreateContext = create_contexts
+			
+			header = SMB2Header_SYNC()
+			header.Command  = SMB2Command.CREATE
+			header.TreeId = tree_id
+			
+			msg = SMBMessage(header, command)
+			message_id = await self.sendSMB(msg)
+			
+			rply = await self.recvSMB(message_id)
+			
+			if rply.header.Status == NTStatus.SUCCESS:
+				fh = FileHandle.from_create_reply(rply, tree_id, file_path, oplock_level)
+				self.FileHandleTable[fh.file_id] = fh
+				
+				if return_reply == True:
+					return rply.command.FileId, rply.command, None
+				return rply.command.FileId, None
+			
+			elif rply.header.Status == NTStatus.ACCESS_DENIED:
+				#this could mean incorrect filename/foldername OR actually access denied
+				raise SMBCreateAccessDenied()
+				
+			else:
+				raise SMBException('', rply.header.Status)
+		
+		except Exception as e:
 			if return_reply == True:
-				return rply.command.FileId, rply.command
-			return rply.command.FileId
-		
-		elif rply.header.Status == NTStatus.ACCESS_DENIED:
-			#this could mean incorrect filename/foldername OR actually access denied
-			raise SMBCreateAccessDenied()
-			
-		else:
-			raise SMBException('', rply.header.Status)
+				return None, None, e
+			return None, e
 	
 	async def read(self, tree_id, file_id, offset = 0, length = 0):
 		"""
@@ -924,46 +936,50 @@ class SMBConnection:
 		
 		If and EOF happens the function returns an empty byte array and the remaining data is set to 0
 		"""
-		if self.session_closed == True:
-			return
+		try:
+			if self.session_closed == True:
+				return None, None, None
+				
+			if tree_id not in self.TreeConnectTable_id:
+				raise Exception('Unknown Tree ID!')
+			if file_id not in self.FileHandleTable:
+				raise Exception('Unknown File ID!')
+				
+			header = SMB2Header_SYNC()
+			header.Command  = SMB2Command.READ
+			header.TreeId = tree_id
 			
-		if tree_id not in self.TreeConnectTable_id:
-			raise Exception('Unknown Tree ID!')
-		if file_id not in self.FileHandleTable:
-			raise Exception('Unknown File ID!')
+			if length < self.MaxReadSize:
+				length = self.MaxReadSize
 			
-		header = SMB2Header_SYNC()
-		header.Command  = SMB2Command.READ
-		header.TreeId = tree_id
-		
-		if length < self.MaxReadSize:
-			length = self.MaxReadSize
-		
-		if self.selected_dialect != NegotiateDialects.SMB202 and self.SupportsMultiCredit == True:
-			header.CreditCharge = ( 1 + (length - 1) // 65536)
-		else: 
-			length = min(65536,length)
+			if self.selected_dialect != NegotiateDialects.SMB202 and self.SupportsMultiCredit == True:
+				header.CreditCharge = ( 1 + (length - 1) // 65536)
+			else: 
+				length = min(65536,length)
+				
+			command = READ_REQ()
+			command.Length = length
+			command.Offset = offset
+			command.FileId = file_id
+			command.MinimumCount = 0
+			command.RemainingBytes = 0
 			
-		command = READ_REQ()
-		command.Length = length
-		command.Offset = offset
-		command.FileId = file_id
-		command.MinimumCount = 0
-		command.RemainingBytes = 0
-		
-		msg = SMBMessage(header, command)
-		message_id = await self.sendSMB(msg)
-		
-		rply = await self.recvSMB(message_id)
-		
-		if rply.header.Status == NTStatus.SUCCESS:
-			return rply.command.Buffer, rply.command.DataRemaining
-		
-		elif rply.header.Status == NTStatus.END_OF_FILE:
-			return b'', 0
+			msg = SMBMessage(header, command)
+			message_id = await self.sendSMB(msg)
 			
-		else:
-			raise SMBException('', rply.header.Status)
+			rply = await self.recvSMB(message_id)
+			
+			if rply.header.Status == NTStatus.SUCCESS:
+				return rply.command.Buffer, rply.command.DataRemaining, None
+			
+			elif rply.header.Status == NTStatus.END_OF_FILE:
+				return b'', 0, None
+				
+			else:
+				raise SMBException('', rply.header.Status)
+
+		except Exception as e:
+			return None, None, e
 			
 			
 	async def write(self, tree_id, file_id, data, offset = 0):
@@ -974,42 +990,45 @@ class SMBConnection:
 		Use a high-level function to get a full write.
 		
 		"""
-		if self.session_closed == True:
-			return
+		try:
+			if self.session_closed == True:
+				return None, None
+				
+			if tree_id not in self.TreeConnectTable_id:
+				raise Exception('Unknown Tree ID! %s' % tree_id)
+			if file_id not in self.FileHandleTable:
+				raise Exception('Unknown File ID! %s' % file_id)
+				
+			header = SMB2Header_SYNC()
+			header.Command  = SMB2Command.WRITE
+			header.TreeId = tree_id
+				
+			if len(data) > self.MaxWriteSize:
+				data = data[:self.MaxWriteSize]
+				
+			if self.selected_dialect != NegotiateDialects.SMB202 and self.SupportsMultiCredit == True:
+				header.CreditCharge = ( 1 + (len(data) - 1) // 65536)
+			else: 
+				data = data[:min(65536,len(data))]
 			
-		if tree_id not in self.TreeConnectTable_id:
-			raise Exception('Unknown Tree ID! %s' % tree_id)
-		if file_id not in self.FileHandleTable:
-			raise Exception('Unknown File ID! %s' % file_id)
+			command = WRITE_REQ()
+			command.Length = len(data)
+			command.Offset = offset
+			command.FileId = file_id
+			command.Data = data
 			
-		header = SMB2Header_SYNC()
-		header.Command  = SMB2Command.WRITE
-		header.TreeId = tree_id
+			msg = SMBMessage(header, command)
+			message_id = await self.sendSMB(msg)
 			
-		if len(data) > self.MaxWriteSize:
-			data = data[:self.MaxWriteSize]
+			rply = await self.recvSMB(message_id)
 			
-		if self.selected_dialect != NegotiateDialects.SMB202 and self.SupportsMultiCredit == True:
-			header.CreditCharge = ( 1 + (len(data) - 1) // 65536)
-		else: 
-			data = data[:min(65536,len(data))]
-		
-		command = WRITE_REQ()
-		command.Length = len(data)
-		command.Offset = offset
-		command.FileId = file_id
-		command.Data = data
-		
-		msg = SMBMessage(header, command)
-		message_id = await self.sendSMB(msg)
-		
-		rply = await self.recvSMB(message_id)
-		
-		if rply.header.Status == NTStatus.SUCCESS:
-			return rply.command.Count
-		
-		else:
-			SMBException('', rply.header.Status)
+			if rply.header.Status == NTStatus.SUCCESS:
+				return rply.command.Count, None
+			
+			else:
+				raise SMBException('', rply.header.Status)
+		except Exception as e:
+			return None, e
 		
 	async def query_info(self, tree_id, file_id, info_type = QueryInfoType.FILE, information_class = FileInfoClass.FileStandardInformation, additional_information = 0, flags = 0, data_in = ''):
 		"""
@@ -1019,101 +1038,108 @@ class SMBConnection:
 		
 		IMPORTANT: in case you are requesting big amounts of data, the result will arrive in chunks. You will need to invoke this function until None is returned to get the full data!!!
 		"""
-		if self.session_closed == True:
-			return
-		if tree_id not in self.TreeConnectTable_id:
-			raise Exception('Unknown Tree ID!')
-		if file_id not in self.FileHandleTable:
-			raise Exception('Unknown File ID!')
+		try:
+			if self.session_closed == True:
+				return
+			if tree_id not in self.TreeConnectTable_id:
+				raise Exception('Unknown Tree ID!')
+			if file_id not in self.FileHandleTable:
+				raise Exception('Unknown File ID!')
+				
+			command = QUERY_INFO_REQ()
+			command.InfoType = info_type
+			command.FileInfoClass = information_class
+			command.AdditionalInformation = additional_information
+			command.Flags = flags
+			command.FileId = file_id
+			command.Data = data_in
 			
-		command = QUERY_INFO_REQ()
-		command.InfoType = info_type
-		command.FileInfoClass = information_class
-		command.AdditionalInformation = additional_information
-		command.Flags = flags
-		command.FileId = file_id
-		command.Data = data_in
-		
-		header = SMB2Header_SYNC()
-		header.Command  = SMB2Command.QUERY_INFO
-		header.TreeId = tree_id
-		
-		msg = SMBMessage(header, command)
-		message_id = await self.sendSMB(msg)
+			header = SMB2Header_SYNC()
+			header.Command  = SMB2Command.QUERY_INFO
+			header.TreeId = tree_id
+			
+			msg = SMBMessage(header, command)
+			message_id = await self.sendSMB(msg)
 
-		rply = await self.recvSMB(message_id)
-		
-		if rply.header.Status == NTStatus.SUCCESS:
-			#https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-smb2/3b1b3598-a898-44ca-bfac-2dcae065247f
-			if info_type == QueryInfoType.SECURITY:
-				return SECURITY_DESCRIPTOR.from_bytes(rply.command.Data)
-				
-			elif info_type == QueryInfoType.FILE:
-				if information_class == FileInfoClass.FileFullDirectoryInformation:
-					return FileFullDirectoryInformationList.from_bytes(rply.command.Data)
+			rply = await self.recvSMB(message_id)
+			
+			if rply.header.Status == NTStatus.SUCCESS:
+				#https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-smb2/3b1b3598-a898-44ca-bfac-2dcae065247f
+				if info_type == QueryInfoType.SECURITY:
+					return SECURITY_DESCRIPTOR.from_bytes(rply.command.Data), None
 					
+				elif info_type == QueryInfoType.FILE:
+					if information_class == FileInfoClass.FileFullDirectoryInformation:
+						return FileFullDirectoryInformationList.from_bytes(rply.command.Data), None
+						
+					else:
+						return rply.command.Data, None
+						
+				elif info_type == QueryInfoType.FILESYSTEM:
+					#TODO: implement this
+					return rply.command.Data, None
+					
+				elif info_type == QueryInfoType.QUOTA:
+					#TODO: implement this
+					return rply.command.Data, None
+				
 				else:
-					return rply.command.Data
-					
-			elif info_type == QueryInfoType.FILESYSTEM:
-				#TODO: implement this
-				return rply.command.Data
+					#this should never happen
+					return rply.command.Data, None
 				
-			elif info_type == QueryInfoType.QUOTA:
-				#TODO: implement this
-				return rply.command.Data
-			
 			else:
-				#this should never happen
-				return rply.command.Data
-			
-		else:
-			raise SMBException('', rply.header.Status)
-			
+				raise SMBException('', rply.header.Status)
+		
+		except Exception as e:
+			return None, e
 		
 	async def query_directory(self, tree_id, file_id, search_pattern = '*', resume_index = 0, information_class = FileInfoClass.FileFullDirectoryInformation, maxBufferSize = None, flags = 0):
 		"""
 		
 		IMPORTANT: in case you are requesting big amounts of data, the result will arrive in chunks. You will need to invoke this function until None is returned to get the full data!!!
 		"""
-		if self.session_closed == True:
-			return
+		try:
+			if self.session_closed == True:
+				return None, None
+				
+			if tree_id not in self.TreeConnectTable_id:
+				raise Exception('Unknown Tree ID!')
+			if file_id not in self.FileHandleTable:
+				raise Exception('Unknown File ID!')
+				
 			
-		if tree_id not in self.TreeConnectTable_id:
-			raise Exception('Unknown Tree ID!')
-		if file_id not in self.FileHandleTable:
-			raise Exception('Unknown File ID!')
+			command = QUERY_DIRECTORY_REQ()
+			command.FileInformationClass  = information_class
+			command.Flags = 0
+			if resume_index != 0 :
+				command.Flags |= QueryDirectoryFlag.SMB2_INDEX_SPECIFIED
+			command.FileIndex  = resume_index
+			command.FileId  = file_id
+			command.FileName = search_pattern
 			
-		
-		command = QUERY_DIRECTORY_REQ()
-		command.FileInformationClass  = information_class
-		command.Flags = 0
-		if resume_index != 0 :
-			command.Flags |= QueryDirectoryFlag.SMB2_INDEX_SPECIFIED
-		command.FileIndex  = resume_index
-		command.FileId  = file_id
-		command.FileName = search_pattern
-		
-		header = SMB2Header_SYNC()
-		header.Command  = SMB2Command.QUERY_DIRECTORY
-		header.TreeId = tree_id
-		
-		msg = SMB2Message(header, command)
-		message_id = await self.sendSMB(msg)
+			header = SMB2Header_SYNC()
+			header.Command  = SMB2Command.QUERY_DIRECTORY
+			header.TreeId = tree_id
+			
+			msg = SMB2Message(header, command)
+			message_id = await self.sendSMB(msg)
 
-		rply = await self.recvSMB(message_id)
-		
-		if rply.header.Status == NTStatus.SUCCESS:
-			if information_class == FileInfoClass.FileFullDirectoryInformation:
-				return FileFullDirectoryInformationList.from_bytes(rply.command.Data)
-				
+			rply = await self.recvSMB(message_id)
+			
+			if rply.header.Status == NTStatus.SUCCESS:
+				if information_class == FileInfoClass.FileFullDirectoryInformation:
+					return FileFullDirectoryInformationList.from_bytes(rply.command.Data), None
+					
+				else:
+					return rply.command.Data, None
+					
+			elif rply.header.Status == NTStatus.NO_MORE_FILES:
+				return None, None
 			else:
-				return rply.command.Data
-				
-		elif rply.header.Status == NTStatus.NO_MORE_FILES:
-			return None
-		else:
-			raise Exception('query_directory reply: %s' % rply.header.Status)
+				raise Exception('query_directory reply: %s' % rply.header.Status)
+		
+		except Exception as e:
+			return None, e
 			
 	async def close(self, tree_id, file_id, flags = CloseFlag.NONE):
 		"""

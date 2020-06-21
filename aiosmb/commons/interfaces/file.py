@@ -4,6 +4,7 @@ from aiosmb.protocol.smb2.commands import *
 from aiosmb.wintypes.fscc.structures.fileinfoclass import FileInfoClass
 from aiosmb.protocol.smb2.commands.query_info import SecurityInfo
 import io
+import asyncio
 
 
 class SMBFile:
@@ -58,7 +59,9 @@ class SMBFile:
 	async def delete_unc(connection, remotepath):
 		try:
 			remfile = SMBFile.from_remotepath(connection, remotepath)
-			tree_entry = await connection.tree_connect(remfile.share_path)
+			tree_entry, err = await connection.tree_connect(remfile.share_path)
+			if err is not None:
+				raise err
 			tree_id = tree_entry.tree_id
 
 			desired_access = FileAccessMask.DELETE | FileAccessMask.FILE_READ_ATTRIBUTES
@@ -67,7 +70,9 @@ class SMBFile:
 			create_disposition = CreateDisposition.FILE_OPEN
 			file_attrs = 0
 
-			file_id = await connection.create(tree_id, remfile.fullpath, desired_access, share_mode, create_options, create_disposition, file_attrs, return_reply = False)
+			file_id, err = await connection.create(tree_id, remfile.fullpath, desired_access, share_mode, create_options, create_disposition, file_attrs, return_reply = False)
+			if err is not None:
+				raise err
 			if file_id is not None:
 				await connection.close(tree_id, file_id)
 
@@ -81,7 +86,9 @@ class SMBFile:
 	async def delete(connection, remotepath):
 		try:
 			remfile = SMBFile.from_remotepath(connection, remotepath)
-			tree_entry = await connection.tree_connect(remfile.share_path)
+			tree_entry, err = await connection.tree_connect(remfile.share_path)
+			if err is not None:
+				raise err
 			tree_id = tree_entry.tree_id
 
 			desired_access = FileAccessMask.DELETE | FileAccessMask.FILE_READ_ATTRIBUTES
@@ -90,7 +97,9 @@ class SMBFile:
 			create_disposition = CreateDisposition.FILE_OPEN
 			file_attrs = 0
 
-			file_id = await connection.create(tree_id, remfile.fullpath, desired_access, share_mode, create_options, create_disposition, file_attrs, return_reply = False)
+			file_id, err = await connection.create(tree_id, remfile.fullpath, desired_access, share_mode, create_options, create_disposition, file_attrs, return_reply = False)
+			if err is not None:
+				raise err
 			if file_id is not None:
 				await connection.close(tree_id, file_id)
 
@@ -109,9 +118,11 @@ class SMBFile:
 				create_options = CreateOptions.FILE_NON_DIRECTORY_FILE | CreateOptions.FILE_SYNCHRONOUS_IO_NONALERT 
 				file_attrs = 0
 				create_disposition = CreateDisposition.FILE_OPEN
-				file_id = await connection.create(self.tree_id, self.fullpath, desired_access, share_mode, create_options, create_disposition, file_attrs)
-				
-				self.sid = await connection.query_info(
+				file_id, err = await connection.create(self.tree_id, self.fullpath, desired_access, share_mode, create_options, create_disposition, file_attrs)
+				if err is not None:
+					raise err
+
+				self.sid, err = await connection.query_info(
 					self.tree_id,
 					file_id,
 					info_type = QueryInfoType.SECURITY, 
@@ -119,6 +130,8 @@ class SMBFile:
 					additional_information = SecurityInfo.ATTRIBUTE_SECURITY_INFORMATION | SecurityInfo.DACL_SECURITY_INFORMATION | SecurityInfo.OWNER_SECURITY_INFORMATION | SecurityInfo.GROUP_SECURITY_INFORMATION, 
 					flags = 0, 
 				)
+				if err is not None:
+					raise err
 			except Exception as e:
 				return None, e
 
@@ -136,39 +149,44 @@ class SMBFile:
 		Do not call this directly as it could go in an infinite loop 
 		"""
 		if self.is_pipe == True:
-			data, remaining = await self.__connection.read(self.tree_id, self.file_id, offset = offset, length = size)
-			return data
+			data, remaining, err = await self.__connection.read(self.tree_id, self.file_id, offset = offset, length = size)
+			return data, err
 		
 		buffer = b''
 		if size > self.__connection.MaxReadSize:
 			i, rem = divmod(size, self.__connection.MaxReadSize)
 			for _ in range(i+1):
-				data, remaining = await self.__connection.read(self.tree_id, self.file_id, offset = offset, length = self.__connection.MaxReadSize)
+				data, remaining, err = await self.__connection.read(self.tree_id, self.file_id, offset = offset, length = self.__connection.MaxReadSize)
 				offset += len(data)
 				buffer += data
 			
-			return buffer[:size]
+			return buffer[:size], err
 		else:
-			data, remaining = await self.__connection.read(self.tree_id, self.file_id, offset = offset, length = self.__connection.MaxReadSize)
+			data, remaining, err = await self.__connection.read(self.tree_id, self.file_id, offset = offset, length = self.__connection.MaxReadSize)
 			buffer += data
 			
-			return buffer[:size]
+			return buffer[:size], err
 
 	async def __write(self, data, position_in_file = 0):
 		"""
 		Data must be bytes
 		"""
-		remaining = len(data)
-		total_bytes_written = 0
-		offset = 0
-		
-		while remaining != 0:
-			bytes_written = await self.__connection.write(self.tree_id, self.file_id, data[offset:len(data)], offset = position_in_file + offset)
-			total_bytes_written += bytes_written
-			remaining -= bytes_written
-			offset += bytes_written
-		
-		return total_bytes_written
+		try:
+			remaining = len(data)
+			total_bytes_written = 0
+			offset = 0
+			
+			while remaining != 0:
+				bytes_written, err = await self.__connection.write(self.tree_id, self.file_id, data[offset:len(data)], offset = position_in_file + offset)
+				if err is not None:
+					raise err
+				total_bytes_written += bytes_written
+				remaining -= bytes_written
+				offset += bytes_written
+			
+			return total_bytes_written, None
+		except Exception as e:
+			return None, e
 
 	async def open(self, connection, mode = 'r'):
 		try:
@@ -179,7 +197,9 @@ class SMBFile:
 				self.size = 0
 			
 			if not self.tree_id:
-				tree_entry = await connection.tree_connect(self.share_path)
+				tree_entry, err = await connection.tree_connect(self.share_path)
+				if err is not None:
+					raise err
 				self.tree_id = tree_entry.tree_id
 			
 
@@ -194,7 +214,9 @@ class SMBFile:
 				file_attrs = 0
 				create_disposition = CreateDisposition.FILE_OPEN
 				
-				self.file_id, smb_reply = await connection.create(self.tree_id, self.fullpath, desired_access, share_mode, create_options, create_disposition, file_attrs, return_reply = True)
+				self.file_id, smb_reply, err = await connection.create(self.tree_id, self.fullpath, desired_access, share_mode, create_options, create_disposition, file_attrs, return_reply = True)
+				if err is not None:
+					raise err
 				self.size = smb_reply.EndofFile
 				
 			elif 'w' in mode:
@@ -204,7 +226,9 @@ class SMBFile:
 				file_attrs = 0
 				create_disposition = CreateDisposition.FILE_OPEN_IF #FILE_OPEN ? might cause an issue?
 				
-				self.file_id, smb_reply = await connection.create(self.tree_id, self.fullpath, desired_access, share_mode, create_options, create_disposition, file_attrs, return_reply = True)
+				self.file_id, smb_reply, err = await connection.create(self.tree_id, self.fullpath, desired_access, share_mode, create_options, create_disposition, file_attrs, return_reply = True)
+				if err is not None:
+					raise err
 				self.size = smb_reply.EndofFile
 				
 			else:
@@ -235,30 +259,34 @@ class SMBFile:
 				raise Exception('Seeking outside of file size!')
 		
 	async def read(self, size = -1):
-		if self.is_pipe is True:
-			data = await self.__read(size, 0)
-			return data
-		
-		if size > self.size:
-			raise Exception('Requested read size %s is larger than the file size %s' % (hex(size), hex(self.size)))
+		try:
+			if self.is_pipe is True:
+				data, err = await self.__read(size, 0)
+				return data, err
+			
+			if size > self.size:
+				raise Exception('Requested read size %s is larger than the file size %s' % (hex(size), hex(self.size)))
 
-		if size == 0:
-			raise Exception('Cant read 0 bytes')
-			
-		elif size == -1:
-			data = await self.__read(self.size - self.__position, self.__position)
-			self.__position += len(data)
-			
-			return data
-			
-		elif size > 0:
-			if self.__position == self.size:
-				return None
-			if size + self.__position > self.size:
-				size = self.size - self.__position
-			data = await self.__read(size, self.__position)
-			self.__position += len(data)
-			return data
+			if size == 0:
+				raise Exception('Cant read 0 bytes')
+				
+			elif size == -1:
+				data, err = await self.__read(self.size - self.__position, self.__position)
+				self.__position += len(data)
+				
+				return data, err
+				
+			elif size > 0:
+				if self.__position == self.size:
+					return None
+				if size + self.__position > self.size:
+					size = self.size - self.__position
+				data, err = await self.__read(size, self.__position)
+				self.__position += len(data)
+				return data, err
+
+		except Exception as e:
+			return None, err
 
 	async def read_chunked(self, size = -1, chunksize = -1):
 		"""
@@ -274,7 +302,7 @@ class SMBFile:
 			chunksize = self.__connection.MaxReadSize
 
 		if size == 0:
-			yield None
+			yield None, None
 			
 		elif size == -1:
 			while True:
@@ -283,16 +311,17 @@ class SMBFile:
 					req_size = self.size - self.__position
 					if req_size == 0:
 						#consumed all data
-						yield None
+						yield None, None
 						raise StopIteration
 
-				data = await self.__read(req_size, self.__position)
-				self.__position += len(data)
-				yield data
+				data, err = await self.__read(req_size, self.__position)
+				if err is None:
+					self.__position += len(data)
+				yield data, err
 			
 		elif size > 0:
 			if self.__position == self.size:
-				yield None
+				yield None, None
 				raise StopIteration
 			if size + self.__position > self.size:
 				size = self.size - self.__position
@@ -302,45 +331,61 @@ class SMBFile:
 				if size - self.__position < chunksize:
 					req_size = size - self.__position
 				if req_size == 0:
-					yield None
+					yield None, None
 					raise StopIteration
-				data = await self.__read(req_size, self.__position)
-				self.__position += len(data)
-				yield data
+				data, err = await self.__read(req_size, self.__position)
+				if err is None:
+					self.__position += len(data)
+				yield data, err
 			
 	async def write(self, data):
-		if len(data) < self.__connection.MaxWriteSize:
-			count = await self.__write(data, self.__position)
-			if self.is_pipe == False:
-				self.__position += count
-			return count
+		try:
+			if len(data) < self.__connection.MaxWriteSize:
+				count, err = await self.__write(data, self.__position)
+				if err is not None:
+					raise err
+				if self.is_pipe == False:
+					self.__position += count
+				return count, None
 
-		total_writen = 0
+			total_writen = 0
 
-		while total_writen != len(data) :
-			count = await self.__write(data[total_writen:total_writen+self.__connection.MaxWriteSize], self.__position)
-			total_writen += count
-			if self.is_pipe == False:
-				self.__position += count		
+			while total_writen != len(data) :
+				count, err = await self.__write(data[total_writen:total_writen+self.__connection.MaxWriteSize], self.__position)
+				if err is not None:
+					raise err
+				total_writen += count
+				if self.is_pipe == False:
+					self.__position += count		
 
-		return total_writen
+			return total_writen, None
+		
+		except Exception as e:
+			return None, e
 
 	async def write_buffer(self, buffer):
 		"""
 		Doesnt work with pipes!
 		"""
-		if self.is_pipe == True:
-			raise Exception('Doesnt work with pipes!')
-		
-		total_writen = 0
-		while True:
-			chunk = buffer.read(self.__connection.MaxWriteSize)
-			if len(chunk) == 0:
-				return total_writen
-			bytes_written = await self.__write(chunk, self.__position)
+		try:
+			if self.is_pipe == True:
+				raise Exception('Doesnt work with pipes!')
+			
+			total_writen = 0
+			while True:
+				await asyncio.sleep(0) #to make sure we are not consuming all CPU
+				chunk = buffer.read(self.__connection.MaxWriteSize)
+				if len(chunk) == 0:
+					return total_writen
+				bytes_written, err = await self.__write(chunk, self.__position)
+				if err is not None:
+					raise err
 
-			self.__position += bytes_written
-			total_writen += bytes_written
+				self.__position += bytes_written
+				total_writen += bytes_written
+			return total_writen, None
+		except Exception as e:
+			return None, e
 		
 	async def flush(self):
 		if 'r' in self.mode:

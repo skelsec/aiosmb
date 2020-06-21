@@ -79,16 +79,13 @@ class DCERPCTCPConnection:
 			self.reader, self.writer = await asyncio.wait_for(con, int(self.timeout))
 		except asyncio.TimeoutError:
 			logger.debug('[DCERPCTCPConnection] Connection timeout')
-			raise SMBConnectionTimeoutException() 
+			return None, SMBConnectionTimeoutException() 
 		except ConnectionRefusedError:
 			logger.debug('[DCERPCTCPConnection] Connection refused')
-			raise SMBConnectionRefusedException()
-		except asyncio.CancelledError:
-			#the SMB connection is terminating
-			return
+			return None, SMBConnectionRefusedException()
 		except Exception as e:
 			logger.exception('[DCERPCTCPConnection] connect generic exception')
-			raise e
+			return None, e
 		
 
 		self.__incoming_task = asyncio.create_task(self.handle_incoming())

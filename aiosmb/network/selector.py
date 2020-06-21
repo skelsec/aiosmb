@@ -12,13 +12,14 @@ class NetworkSelector:
     @staticmethod
     async def select(target):
         if target.proxy is None:
-            return TCPSocket(target = target)
+            return TCPSocket(target = target), None
         elif target.proxy.type in [SMBProxyType.SOCKS5, SMBProxyType.SOCKS5_SSL, SMBProxyType.SOCKS4, SMBProxyType.SOCKS4_SSL]:
-            return SocksProxyConnection(target = target)
+            return SocksProxyConnection(target = target), None
 
         elif target.proxy.type in [SMBProxyType.MULTIPLEXOR, SMBProxyType.MULTIPLEXOR_SSL]:
             mpc = MultiplexorProxyConnection(target)
             socks_proxy, err = await mpc.connect()
-            return socks_proxy
+            return socks_proxy, err
 
-        return None
+        else:
+            return None, Exception('Cant select correct connectgion type!')

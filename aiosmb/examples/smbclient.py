@@ -60,11 +60,27 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			if err is not None:
 				raise err
 			self.machine = SMBMachine(self.connection)
+			print('Login success')
+			return True, None
 		except Exception as e:
 			traceback.print_exc()
 			print('Login failed! Reason: %s' % str(err))
-		else:
-			print('Login success')
+			return False, e
+
+	async def do_logout(self):
+		if self.machine is not None:
+			await self.machine.close()
+		self.machine = None
+
+		if self.connection is not None:
+			try:
+				await self.connection.terminate()
+			except Exception as e:
+				logger.exception('connection.close')
+		self.connection = None
+
+	async def _on_close(self):
+		await self.do_logout()
 
 	async def do_shares(self, show = True):
 		"""Lists available shares"""
@@ -91,7 +107,7 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 	async def do_sessions(self):
 		"""Lists sessions of connected users"""
 		try:
-			async for sess, err in ef_gen(self.machine.list_sessions()):
+			async for sess, err in self.machine.list_sessions():
 				if err is not None:
 					raise err
 				print("%s : %s" % (sess.username, sess.ip_addr))
@@ -523,7 +539,6 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 				users.append(username)
 			async for secret, err in self.machine.dcsync(target_users=users):
 				if err is not None:
-					print('err')
 					raise err
 				print(str(secret))
 		
@@ -667,7 +682,14 @@ async def amain(args):
 		for command in args.commands:
 			cmd = shlex.split(command)
 			#print(cmd)
+			if cmd[0] == 'login':
+				_, err = await client.do_login()
+				if err is not None:
+					return
+				continue
+			
 			await client._run_single_command(cmd[0], cmd[1:])
+		await client.do_logout()
 
 def main():
 	import argparse
@@ -690,6 +712,8 @@ def main():
 		print('setting deepdebug')
 		logger.setLevel(1) #enabling deep debug
 		sockslogger.setLevel(1)
+		asyncio.get_event_loop().set_debug(True)
+		logging.basicConfig(level=logging.DEBUG)
 
 	asyncio.run(amain(args))
 
