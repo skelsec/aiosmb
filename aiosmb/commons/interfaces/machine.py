@@ -468,7 +468,6 @@ class SMBMachine:
 	
 	@req_rrp
 	async def save_registry_hive(self, hive_name, remote_path):
-		#SAM C:\aaaa\sam.reg
 		res, err = await self.rrp.save_hive(hive_name, remote_path)
 		return res, err
 
@@ -480,8 +479,8 @@ class SMBMachine:
 		"""
 		if display_name is None:
 			display_name = service_name
-		res, _ = await rr(self.servicemanager.create_service(service_name, display_name, command))
-		return True, None
+		res, err = await self.servicemanager.create_service(service_name, display_name, command)
+		return res, err
 
 
 	@req_servicemanager

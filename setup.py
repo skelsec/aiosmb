@@ -42,7 +42,7 @@ setup(
 		'minikerberos>=0.2.1',
 		'winsspi>=0.0.9',
 		'six',
-		'asysocks>=0.0.4',
+		'asysocks>=0.0.5',
 		'tqdm',
 		'prompt-toolkit>=3.0.2'
 	],

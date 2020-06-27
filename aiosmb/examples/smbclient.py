@@ -340,6 +340,9 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 
 	def _get_completions(self):
 		return SMBPathCompleter(get_current_dirs = self.get_current_files)
+	
+	def _del_completions(self):
+		return SMBPathCompleter(get_current_dirs = self.get_current_files)
 
 	async def do_services(self):
 		"""Lists remote services"""
@@ -384,9 +387,10 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 	async def do_servicecreate(self, service_name, command, display_name = None):
 		"""Creates a remote service"""
 		try:
-			res, err = await self.machine.create_service(service_name, command, display_name)
+			_, err = await self.machine.create_service(service_name, command, display_name)
 			if err is not None:
 				raise err
+			print('Service created!')
 		except SMBException as e:
 			logger.debug(traceback.format_exc())
 			print(e.pprint())
@@ -405,7 +409,10 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 		try:
 			basename = ntpath.basename(remote_path)
 			remote_path = '\\\\%s\\%s\\%s\\%s' % (self.connection.target.get_hostname_or_ip(), self.__current_share.name, self.__current_directory.fullpath , basename)
-			await rr(self.machine.deploy_service(path_to_exec, remote_path = remote_path))
+			_, err = await self.machine.deploy_service(path_to_exec, remote_path = remote_path)
+			if err is not None:
+				raise err
+			print('Service deployed!')
 		except SMBException as e:
 			logger.debug(traceback.format_exc())
 			print(e.pprint())
@@ -423,10 +430,12 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 		try:
 			basename = ntpath.basename(file_name)
 			dst = '\\%s\\%s\\%s' % (self.__current_share.name, self.__current_directory.fullpath , basename)
-			print(basename)
-			print(dst)
-			await self.machine.put_file(file_name, dst)
-			
+			_, err = await self.machine.put_file(file_name, dst)
+			if err is not None:
+				raise err
+			print('File uploaded!')
+			await self.do_ls(False)
+
 		except SMBException as e:
 			logger.debug(traceback.format_exc())
 			print(e.pprint())
@@ -444,9 +453,12 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 		try:
 			basename = ntpath.basename(file_name)
 			dst = '\\%s\\%s\\%s' % (self.__current_share.name, self.__current_directory.fullpath , basename)
-			print(dst)
-			await self.machine.del_file(dst)
-			
+			_, err = await self.machine.del_file(dst)
+			if err is not None:
+				raise err
+			print('File deleted!')
+			await self.do_ls(False)
+
 		except SMBException as e:
 			logger.debug(traceback.format_exc())
 			print(e.pprint())
@@ -462,7 +474,10 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 	async def do_regsave(self, hive_name, file_path):
 		"""Saves a registry hive to a file on remote share"""
 		try:
-			await rr(self.machine.save_registry_hive(hive_name, file_path))
+			_, err = await self.machine.save_registry_hive(hive_name, file_path)
+			if err is not None:
+				raise err
+			print('Hive saved!')
 		except SMBException as e:
 			logger.debug(traceback.format_exc())
 			print(e.pprint())
@@ -517,7 +532,11 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 	async def do_mkdir(self, directory_name):
 		"""Creates a directory on the remote share"""
 		try:
-			await self.machine.create_subdirectory(directory_name, self.__current_directory)
+			_, err = await self.machine.create_subdirectory(directory_name, self.__current_directory)
+			if err is not None:
+				raise err
+			print('Directory created!')
+			await self.do_ls(False)
 
 		except SMBException as e:
 			logger.debug(traceback.format_exc())

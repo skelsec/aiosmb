@@ -153,9 +153,9 @@ class SMBRemoteServieManager:
 		#print(service_name)
 		#print(display_name)
 		#print(command)
-		resp, _ = await rr(scmr.hRCreateServiceW(self.dce, self.handle, service_name + '\x00', display_name + '\x00', lpBinaryPathName=command + '\x00'))
+		resp, err = await scmr.hRCreateServiceW(self.dce, self.handle, service_name + '\x00', display_name + '\x00', lpBinaryPathName=command + '\x00')
 		self.service_handles[service_name] = resp['lpServiceHandle']
-		return True,None
+		return resp, err
 	
 	@red
 	async def delete_service(self, service_name):
