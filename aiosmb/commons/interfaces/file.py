@@ -239,24 +239,29 @@ class SMBFile:
 			return False, e
 		
 	async def seek(self, offset, whence = 0):
-		if whence == 0:
-			if offset < 0:
-				raise Exception('Offset must be > 0 when whence is 0')
-			if offset > self.size:
-				raise Exception('Seeking outside of file size!')
-			self.__position = offset
-		
-		elif whence == 1:
-			if 0 < self.__position + offset < self.size:
-				self.__position += offset
-			else:
-				raise Exception('Seeking outside of file size!')
-		
-		elif whence == 2:
-			if 0 < self.size + offset < self.size:
-				self.__position = self.size + offset
-			else:
-				raise Exception('Seeking outside of file size!')
+		try:
+			if whence == 0:
+				if offset < 0:
+					raise Exception('Offset must be > 0 when whence is 0')
+				if offset > self.size:
+					raise Exception('Seeking outside of file size!')
+				self.__position = offset
+			
+			elif whence == 1:
+				if 0 < self.__position + offset < self.size:
+					self.__position += offset
+				else:
+					raise Exception('Seeking outside of file size!')
+			
+			elif whence == 2:
+				if 0 < self.size + offset < self.size:
+					self.__position = self.size + offset
+				else:
+					raise Exception('Seeking outside of file size!')
+			
+			return True, None
+		except Exception as e:
+			return None, e
 		
 	async def read(self, size = -1):
 		try:

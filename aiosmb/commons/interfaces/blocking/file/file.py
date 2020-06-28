@@ -25,7 +25,9 @@ class SMBBlockingFileMgr:
 				if cmd.cmd_type == SMBFILECMD.OPEN:
 					try:
 						sf = SMBFile.from_remotepath(self.connection, cmd.path)
-						await sf.open(self.connection, cmd.mode)
+						_, err = await sf.open(self.connection, cmd.mode)
+						if err is not None:
+							raise err
 						self.filehandle[self.curhandle] = sf
 						self.curhandle += 1
 						res = SMBFileOpenReply(cmd.cmd_id, self.curhandle -1, sf.size)
@@ -37,8 +39,12 @@ class SMBBlockingFileMgr:
 				elif cmd.cmd_type == SMBFILECMD.READ:
 					try:
 						sf = self.filehandle.get(cmd.handle)
-						await sf.seek(cmd.position, 0)
-						data = await sf.read(cmd.count)
+						_, err = await sf.seek(cmd.position, 0)
+						if err is not None:
+							raise err
+						data, err = await sf.read(cmd.count)
+						if err is not None:
+							raise err
 						res = SMBFileReadReply(cmd.cmd_id, cmd.handle, data)
 						await self.out_q.coro_put(res)
 					except Exception as e:
@@ -59,8 +65,12 @@ class SMBBlockingFileMgr:
 				elif cmd.cmd_type == SMBFILECMD.WRITE:
 					try:
 						sf = self.filehandle.get(cmd.handle)
-						await sf.seek(cmd.position, 0)
-						count = await sf.write(cmd.data)
+						_, err = await sf.seek(cmd.position, 0)
+						if err is not None:
+							raise err
+						count, err = await sf.write(cmd.data)
+						if err is not None:
+							raise err
 						del self.filehandle[cmd.handle]
 						res = SMBFileWriteReply(cmd.cmd_id, cmd.handle, count)
 						await self.out_q.coro_put(res)
