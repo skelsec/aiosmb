@@ -690,6 +690,47 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 		except Exception as e:
 			traceback.print_exc()
 
+	async def do_interfaces(self):
+		""" Executes a shell command using the scheduled tasks service"""
+		try:
+			interfaces, err = await self.machine.list_interfaces()
+			if err is not None:
+				raise err
+			for iface in interfaces:
+				print('%d: %s' % (iface['index'], iface['address']))
+		except SMBException as e:
+			logger.debug(traceback.format_exc())
+			print(e.pprint())
+		except SMBMachineException as e:
+			logger.debug(traceback.format_exc())
+			print(str(e))
+		except DCERPCException as e:
+			logger.debug(traceback.format_exc())
+			print(str(e))
+		except Exception as e:
+			traceback.print_exc()
+
+	async def do_enumall(self, depth = 3):
+		""" Enumerates all shares for all files and folders"""
+		try:
+			depth = int(depth)
+			async for path, otype, err in self.machine.enum_all_recursively(depth = depth):
+				if otype is not None:
+					print('[%s] %s' % (otype[0].upper(), path))
+				if err is not None:
+					print('[E] %s %s' % (err, path))
+		except SMBException as e:
+			logger.debug(traceback.format_exc())
+			print(e.pprint())
+		except SMBMachineException as e:
+			logger.debug(traceback.format_exc())
+			print(str(e))
+		except DCERPCException as e:
+			logger.debug(traceback.format_exc())
+			print(str(e))
+		except Exception as e:
+			traceback.print_exc()
+
 async def amain(args):
 	client = SMBClient(args.smb_url)
 	if len(args.commands) == 0:

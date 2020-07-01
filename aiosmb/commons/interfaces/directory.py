@@ -116,12 +116,34 @@ class SMBDirectory:
 	async def delete_subdir(self, dir_name):
 		raise Exception('delete subdir not implemented!')
 
+	async def list_r(self, connection, depth = 3):
+		"""
+		Beware this will clear out the lists of files/folders to save memory!
+		"""
+		if depth == 0:
+			return
+		depth -= 1
+		_, err = await self.list(connection)
+		if err is not None:
+			yield self.unc_path, 'dir', err
+
+		for file_entry in self.files:
+			yield self.files[file_entry].unc_path, 'file', None
+		
+		for directory in self.subdirs:
+			yield self.subdirs[directory].unc_path, 'dir', None
+			async for e,t,err in self.subdirs[directory].list_r(connection, depth):
+				yield e,t,err
+		
+		self.subdirs = {}
+		self.files = {}
+
 	async def list(self, connection):
 		"""
 		Lists all files and folders in the directory
 		directory: SMBDirectory
 		fills the SMBDirectory's data
-		"""			
+		"""		
 		desired_access = FileAccessMask.FILE_READ_DATA
 		share_mode = ShareAccess.FILE_SHARE_READ
 		create_options = CreateOptions.FILE_DIRECTORY_FILE | CreateOptions.FILE_SYNCHRONOUS_IO_NONALERT

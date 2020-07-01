@@ -24,6 +24,7 @@ from aiosmb.commons.exceptions import SMBMachineException
 from aiosmb.commons.interfaces.blocking.file.file import SMBBlockingFileMgr
 from aiosmb.commons.interfaces.blocking.file.blockingfile import SMBBlockingFile
 from aiosmb.commons.utils.apq import AsyncProcessQueue
+from aiosmb.protocol.smb2.commands.ioctl import CtlCode, IOCTLREQFlags
 
 from aiosmb.dcerpc.v5.rprn import PRINTER_CHANGE_ADD_JOB
 
@@ -265,7 +266,6 @@ class SMBMachine:
 				remark = remark, 
 				fullpath = '\\\\%s\\%s' % (self.connection.target.get_hostname_or_ip(), name)
 			)
-			#self.shares.append(share)
 			yield share, None
 
 	@req_srvs_gen
@@ -331,6 +331,25 @@ class SMBMachine:
 		
 		for entry in directory.get_console_output():
 			yield entry
+
+	async def enum_all_recursively(self, depth = 3):
+		shares = {}
+		async for share, err in self.list_shares():
+			if err is not None:
+				raise err
+			if share.name.upper() == 'IPC$':
+				continue
+			shares[share.name] = share
+			yield share.fullpath, 'share', None
+
+		for share_name in shares:
+			_, err = await shares[share_name].connect(self.connection)
+			if err is not None:
+				continue
+				raise err
+
+			async for entry in shares[share_name].subdirs[''].list_r(self.connection, depth = depth):
+				yield entry
 
 	async def put_file(self, local_path, remote_path):
 		"""
@@ -544,6 +563,33 @@ class SMBMachine:
 
 		))
 		print('got resp! %s' % resp)
+
+	async def list_interfaces(self):
+		try:
+			interfaces = []
+			ipc_file = SMBFile.from_uncpath('\\\\%s\\IPC$' % self.connection.target.get_hostname_or_ip())
+			await ipc_file.open(self.connection, 'r')
+			ifaces_raw, err = await self.connection.ioctl(ipc_file.tree_id, b'\xFF'*16, CtlCode.FSCTL_QUERY_NETWORK_INTERFACE_INFO, data = None, flags = IOCTLREQFlags.IS_FSCTL)
+			if err is not None:
+				raise err
+
+			for iface_raw in ifaces_raw:
+				t = {
+					'index' : iface_raw.IfIndex,
+					'cap' : iface_raw.Capability,
+					'speed' : iface_raw.LinkSpeed,
+					'address' : str(iface_raw.SockAddr_Storage.Addr),
+				}
+				interfaces.append(t)
+			
+			return interfaces, None
+
+
+		except Exception as e:
+			return None, e
+
+		finally:
+			await ipc_file.close()
 		
 
 	async def stop_service(self):

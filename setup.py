@@ -55,6 +55,7 @@ setup(
 	entry_points={
 		'console_scripts': [
 			'aiosmbclient = aiosmb.examples.smbclient:main',
+			'aiosmbshareenum = aiosmb.examples.smbshareenum:main',
 		],
 
 	}

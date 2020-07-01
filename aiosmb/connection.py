@@ -1140,6 +1140,28 @@ class SMBConnection:
 		
 		except Exception as e:
 			return None, e
+
+	async def ioctl(self, tree_id, file_id, ctlcode, data = None, flags = IOCTLREQFlags.IS_IOCTL):
+		try:
+			command = IOCTL_REQ()
+			command.CtlCode  = ctlcode
+			command.FileId  = file_id
+			command.Flags = flags
+			command.Buffer = data
+			
+			header = SMB2Header_SYNC()
+			header.Command  = SMB2Command.IOCTL
+			header.TreeId = tree_id
+			
+			msg = SMB2Message(header, command)
+			message_id = await self.sendSMB(msg)
+
+			rply = await self.recvSMB(message_id)
+
+			return rply.command.Buffer, None
+
+		except Exception as e:
+			return None, e
 			
 	async def close(self, tree_id, file_id, flags = CloseFlag.NONE):
 		"""

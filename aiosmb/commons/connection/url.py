@@ -7,6 +7,7 @@ from aiosmb.commons.connection.authbuilder import AuthenticatorBuilder
 from aiosmb.connection import SMBConnection
 from getpass import getpass
 import base64
+import ipaddress
 
 
 class SMBConnectionURL:
@@ -44,12 +45,18 @@ class SMBConnectionURL:
 		
 		return SMBConnection(spneg, target)
 
-	def create_connection_newtarget(self, ip):
+	def create_connection_newtarget(self, ip_or_hostname):
 		credential = self.get_credential()
-		credential.target = ip
+		credential.target = ip_or_hostname
 
 		target = self.get_target()
-		target.ip = ip
+		try:
+			ipaddress.ip_address(ip_or_hostname)
+			target.ip = ip_or_hostname
+			target.hostname = None
+		except:
+			target.hostname = ip_or_hostname
+			target.ip = ip_or_hostname
 
 		spneg = AuthenticatorBuilder.to_spnego_cred(credential, target)
 		
