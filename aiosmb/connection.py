@@ -576,6 +576,7 @@ class SMBConnection:
 			self.selected_dialect = rply.command.DialectRevision
 			self.ServerSecurityMode = rply.command.SecurityMode
 			self.signing_required = NegotiateSecurityMode.SMB2_NEGOTIATE_SIGNING_ENABLED in rply.command.SecurityMode
+			
 					
 			if NegotiateCapabilities.ENCRYPTION in rply.command.Capabilities:
 				self.encryption_required = True
@@ -603,6 +604,7 @@ class SMBConnection:
 			self.ServerCapabilities = rply.command.Capabilities
 			#self.ClientSecurityMode = 0			
 			self.status = SMBConnectionStatus.SESSIONSETUP
+			
 			return True, None
 		
 		except Exception as e:
@@ -660,6 +662,9 @@ class SMBConnection:
 				maxiter -= 1
 			
 			if rply.header.Status == NTStatus.SUCCESS:
+				if self.gssapi.is_guest() is True:
+					self.signing_required = False
+					
 				self.SessionKey = self.gssapi.get_session_key()[:16]
 				
 				# TODO: key calc

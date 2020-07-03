@@ -40,7 +40,15 @@ class SPNEGO:
 		You may use this ctx to perform future authentication, as it has the user credentials
 		"""
 		return copy.deepcopy(self.original_authentication_contexts[ctx_name])
+	
+	def is_guest(self):
+		if self.selected_authentication_context is None:
+			raise Exception('Call this after selecting auth method!')
 		
+		if hasattr(self.selected_authentication_context, 'is_guest') is True:
+			return self.selected_authentication_context.is_guest()
+		return False
+
 	async def sign(self, data, message_no, direction='init'):
 		return await self.selected_authentication_context.sign(data, message_no, direction=direction)
 		

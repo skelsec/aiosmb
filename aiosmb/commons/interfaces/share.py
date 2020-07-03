@@ -15,6 +15,10 @@ class SMBShare:
 		
 		self.files = {}
 		self.subdirs = {}
+
+	@staticmethod
+	def from_unc(unc_path):
+		return SMBShare(fullpath = unc_path)
 	
 	async def connect(self, connection):
 		"""

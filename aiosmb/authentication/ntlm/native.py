@@ -130,6 +130,9 @@ class NTLMAUTHHandler:
 	def load_sessionkey(self, data):
 		self.RandomSessionKey = data
 		self.setup_crypto()
+
+	def is_guest(self):
+		return self.settings.credential.is_guest
 	
 	def set_sign(self, tf = True):
 		if tf == True:
@@ -148,7 +151,13 @@ class NTLMAUTHHandler:
 			self.flags |= NegotiateFlags.NEGOTIATE_VERSION
 		else:
 			self.flags &= ~NegotiateFlags.NEGOTIATE_VERSION
-			
+	
+	def set_kex(self, tf = True):
+		if tf == True:
+			self.flags |= NegotiateFlags.NEGOTIATE_KEY_EXCH
+		else:
+			self.flags &= ~NegotiateFlags.NEGOTIATE_KEY_EXCH			
+	
 	def is_extended_security(self):
 		return NegotiateFlags.NEGOTIATE_EXTENDED_SESSIONSECURITY in self.ntlmChallenge.NegotiateFlags
 	
@@ -265,7 +274,8 @@ class NTLMAUTHHandler:
 		if self.mode.upper() != 'MANUAL':
 			#this check is here to provide the option to load the messages + the sessionbasekey manually
 			#then you will be able to use the sign and seal functions provided by this class
-			self.SessionBaseKey = self.ntlm_credentials.SessionBaseKey
+			if self.settings.credential.is_guest == False:
+				self.SessionBaseKey = self.ntlm_credentials.SessionBaseKey
 		
 			rc4 = RC4(self.KeyExchangeKey)
 			self.EncryptedRandomSessionKey = rc4.encrypt(self.RandomSessionKey)
@@ -311,6 +321,13 @@ class NTLMAUTHHandler:
 					self.set_seal()
 				
 				self.iteration_cnt += 1
+
+				if self.settings.credential.is_guest == True:
+					self.set_sign(False)
+					self.set_seal(False)
+					self.set_version(False)
+					self.set_kex(False)
+
 				#negotiate message was already calulcated in setup
 				self.ntlmNegotiate = NTLMNegotiate.construct(self.flags, domainname = self.settings.template['domain_name'], workstationname = self.settings.template['workstation_name'], version = self.settings.template.get('version'))			
 				self.ntlmNegotiate_raw = self.ntlmNegotiate.to_bytes()
@@ -337,6 +354,8 @@ class NTLMAUTHHandler:
 					if self.settings.credential.is_guest == True:
 						lmresp = LMResponse()
 						lmresp.Response = b'\x00'
+						self.KeyExchangeKey = b'\x00'*16
+						#self.setup_crypto()
 						self.ntlmAuthenticate = NTLMAuthenticate.construct(self.flags, lm_response= lmresp)
 						return self.ntlmAuthenticate.to_bytes(), False, None
 						
@@ -361,9 +380,15 @@ class NTLMAUTHHandler:
 					#NTLMv2
 					# https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-nlmp/5e550938-91d4-459f-b67d-75d70009e3f3
 					if self.settings.credential.is_guest == True:
+						self.set_sign(False)
+						self.set_seal(False)
+						self.set_version(False)
+						self.set_kex(False)
 						lmresp = LMResponse()
 						lmresp.Response = b'\x00'
-						self.ntlmAuthenticate = NTLMAuthenticate.construct(self.flags, lm_response= lmresp)
+						self.KeyExchangeKey = b'\x00'*16
+						self.setup_crypto()
+						self.ntlmAuthenticate = NTLMAuthenticate.construct(self.flags, lm_response= lmresp, mic = None)
 						return self.ntlmAuthenticate.to_bytes(), False, None
 						
 					else:

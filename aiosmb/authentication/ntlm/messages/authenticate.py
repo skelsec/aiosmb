@@ -66,7 +66,7 @@ class NTLMAuthenticate:
 			payload_pos += len(data)
 			auth.NTChallenge = nt_response
 		else:
-			auth.NtChallengeResponseFields  = Fields(0,0)
+			auth.NtChallengeResponseFields  = Fields(0,payload_pos)
 		
 		
 		if domainname:
@@ -76,7 +76,7 @@ class NTLMAuthenticate:
 			payload_pos += len(data)
 			auth.DomainName = domainname
 		else:
-			auth.DomainNameFields  = Fields(0,0)
+			auth.DomainNameFields  = Fields(0,payload_pos)
 		
 		if username:
 			data =  username.encode('utf-16le')
@@ -85,7 +85,7 @@ class NTLMAuthenticate:
 			payload_pos += len(data)
 			auth.UserName = username
 		else:
-			auth.UserNameFields  = Fields(0,0)
+			auth.UserNameFields  = Fields(0,payload_pos)
 		
 		if workstationname:
 			data =  workstationname.encode('utf-16le')
@@ -94,7 +94,7 @@ class NTLMAuthenticate:
 			payload_pos += len(data)
 			auth.Workstation = workstationname
 		else:
-			auth.WorkstationFields  = Fields(0,0)
+			auth.WorkstationFields  = Fields(0,payload_pos)
 			
 		if encrypted_session:
 			data =  encrypted_session
@@ -103,9 +103,9 @@ class NTLMAuthenticate:
 			payload_pos += len(data)
 			auth.EncryptedRandomSession = encrypted_session
 		else:
-			auth.EncryptedRandomSessionKeyFields  = Fields(0,0)
+			auth.EncryptedRandomSessionKeyFields  = Fields(0,payload_pos)
 				
-		auth.NegotiateFlags = flags		
+		auth.NegotiateFlags = flags
 		return auth
 		
 	def to_bytes(self):

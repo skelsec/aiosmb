@@ -1,4 +1,6 @@
 
+import io
+
 class Fields:
 	def __init__(self, length, offset, maxLength = None):
 		self.length = length

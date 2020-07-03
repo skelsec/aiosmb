@@ -33,7 +33,11 @@ class AuthenticatorBuilder:
 			ntlmcred.is_guest = False
 			
 			if creds.secret is None:
-				raise Exception('NTLM authentication requres password!')
+				if creds.username is None and creds.domain is None:
+					ntlmcred.is_guest = True
+				else:
+					raise Exception('NTLM authentication requres password!')
+				
 			if creds.secret_type == SMBCredentialsSecretType.NT:
 				ntlmcred.nt_hash = creds.secret
 			elif creds.secret_type == SMBCredentialsSecretType.PASSWORD:

@@ -1,58 +1,13 @@
 
+#TODO: not implemented fully....
 import asyncio
-import enum
-import uuid
 
-from aiosmb import logger
+from aiosmb.commons.scanner.common.comms import EnumResult, EnumResultStatus
 from aiosmb.commons.connection.url import SMBConnectionURL
 from aiosmb.commons.interfaces.machine import SMBMachine
 
-class EnumResultStatus(enum.Enum):
-	RESULT = 'RESULT'
-	FINISHED = 'FINISED'
-	ERROR = 'ERROR'
 
-class EnumResult:
-	def __init__(self, target_id, target, result, error = None, status = EnumResultStatus.RESULT):
-		self.target_id = target_id
-		self.target = target
-		self.error = error
-		self.result = result
-		self.status = status
-
-class FileTargetGen:
-	def __init__(self, filename):
-		self.filename = filename
-
-	async def run(self, target_q):
-		try:
-			cnt = 0
-			with open(self.filename, 'r') as f:
-				for line in f:
-					line = line.strip()
-					await target_q.put((str(uuid.uuid4()), line))
-					await asyncio.sleep(0)
-			return cnt, None
-		except Exception as e:
-			return cnt, e
-
-class ListTargetGen:
-	def __init__(self, targets):
-		self.targets = targets
-
-	async def run(self, target_q):
-		try:
-			cnt = 0
-			for target in self.targets:
-				cnt += 1
-				await target_q.put((str(uuid.uuid4()),target))
-				await asyncio.sleep(0)
-			return cnt, None
-		except Exception as e:
-			return cnt, e
-
-
-class SMBFileEnum:
+class SMBScanner:
 	def __init__(self, smb_url, worker_count = 100, depth = 3, enum_url = True):
 		self.target_gens = []
 		self.smb_mgr = SMBConnectionURL(smb_url)
@@ -98,9 +53,7 @@ class SMBFileEnum:
 				tid, target = indata
 				try:
 					await asyncio.wait_for(self.__executor(tid, target), timeout=10)
-				except asyncio.CancelledError:
-					return
-				except Exception as e:
+				except:
 					pass
 		except asyncio.CancelledError:
 			return
@@ -115,7 +68,7 @@ class SMBFileEnum:
 				if er.status == EnumResultStatus.FINISHED:
 					self.__total_finished += 1
 					if self.__total_finished == self.__total_targets and self.__gens_finished is True:
-						asyncio.create_task(self.terminate())
+						await self.terminate()
 						return
 				
 				if er.result is not None:
@@ -124,7 +77,7 @@ class SMBFileEnum:
 						print('[%s] %s' % (otype[0].upper(), path))
 					if err is not None:
 						print('[E] %s %s' % (err, path))
-				
+
 		except asyncio.CancelledError:
 			return
 		except Exception as e:
@@ -134,7 +87,7 @@ class SMBFileEnum:
 		for worker in self.workers:
 			worker.cancel()
 		if self.result_processing_task is not None:
-			self.result_processing_task.cancel()		
+			self.result_processing_task.cancel()
 
 	async def setup(self):
 		try:
@@ -170,6 +123,7 @@ class SMBFileEnum:
 			self.__gens_finished = True
 			
 			await asyncio.gather(*self.workers)
+			print(1)
 			return True, None
 		except Exception as e:
 			print(e)
@@ -186,7 +140,7 @@ async def amain():
 	parser.add_argument('smb_url', help = 'Connection string that describes the authentication and target. Example: smb+ntlm-password://TEST\\Administrator:password@10.10.10.2')
 	args = parser.parse_args()
 
-	logger.setLevel(100)
+
 	enumerator = SMBFileEnum(args.smb_url, worker_count = args.smb_worker_count, depth = args.depth)
 	
 	if args.targets_file is not None:

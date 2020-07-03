@@ -259,14 +259,17 @@ class SMBMachine:
 
 	@req_srvs_gen
 	async def list_shares(self):
-		async for name, share_type, remark, _ in rr_gen(self.srvs.list_shares()):
-			share = SMBShare(
-				name = name, 
-				stype = share_type, 
-				remark = remark, 
-				fullpath = '\\\\%s\\%s' % (self.connection.target.get_hostname_or_ip(), name)
-			)
-			yield share, None
+		try:
+			async for name, share_type, remark, err in self.srvs.list_shares():
+				share = SMBShare(
+					name = name, 
+					stype = share_type, 
+					remark = remark, 
+					fullpath = '\\\\%s\\%s' % (self.connection.target.get_hostname_or_ip(), name)
+				)
+				yield share, None
+		except Exception as e:
+			yield None, e
 
 	@req_srvs_gen
 	async def list_sessions(self, level = 10):
