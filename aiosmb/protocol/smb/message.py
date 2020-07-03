@@ -28,8 +28,8 @@ class SMBMessage:
 		else:
 			classname += '_REQ'
 		class_ = getattr(sys.modules[__name__], classname)
-		msg.command = class_.from_buffer(buff)
 		
+		msg.command = class_.from_buffer(buff)
 		return msg
 
 	def to_bytes(self):

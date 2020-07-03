@@ -54,8 +54,10 @@ setup(
 	),
 	entry_points={
 		'console_scripts': [
-			'aiosmbclient = aiosmb.examples.smbclient:main',
-			'aiosmbshareenum = aiosmb.examples.smbshareenum:main',
+			'asmbclient = aiosmb.examples.smbclient:main',
+			'asmbshareenum = aiosmb.examples.smbshareenum:main',
+			'asmbprotocolenum = aiosmb.examples.smbprotocolenum:main',
+			'asmbosenum = aiosmb.examples.smbosenum:main',
 		],
 
 	}

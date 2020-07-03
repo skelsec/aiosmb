@@ -30,3 +30,12 @@ SMB2_NEGOTIATE_DIALTECTS = {
 	NegotiateDialects.SMB302 : 1,
 	NegotiateDialects.SMB311 : 1
 }
+
+SMB_NEGOTIATE_PROTOCOL_TEST = {
+	NegotiateDialects.WILDCARD : 1,
+	NegotiateDialects.SMB202 : 1,
+	NegotiateDialects.SMB210 : 1,
+	NegotiateDialects.SMB300 : 1,
+	NegotiateDialects.SMB302 : 1,
+	NegotiateDialects.SMB311 : 1
+}

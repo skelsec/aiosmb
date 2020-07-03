@@ -6,6 +6,7 @@ import uuid
 from aiosmb import logger
 from aiosmb.commons.connection.url import SMBConnectionURL
 from aiosmb.commons.interfaces.machine import SMBMachine
+from aiosmb.protocol.common import SMB_NEGOTIATE_PROTOCOL_TEST, NegotiateDialects
 
 class EnumResultStatus(enum.Enum):
 	RESULT = 'RESULT'
@@ -55,34 +56,28 @@ class ListTargetGen:
 			return cnt, e
 
 
-class SMBFileEnum:
-	def __init__(self, smb_url, worker_count = 100, depth = 3, enum_url = True):
+class SMBOSEnum:
+	def __init__(self, worker_count = 100, timeout = 5):
 		self.target_gens = []
-		self.smb_mgr = SMBConnectionURL(smb_url)
+		self.timeout = timeout
 		self.worker_count = worker_count
 		self.task_q = None
 		self.res_q = None
-		self.depth = depth
 		self.workers = []
 		self.result_processing_task = None
-		self.enum_url = enum_url
 		self.__gens_finished = False
 		self.__total_targets = 0
 		self.__total_finished = 0
 
 	async def __executor(self, tid, target):
 		try:
-			connection = self.smb_mgr.create_connection_newtarget(target)
-			async with connection:
-				_, err = await connection.login()
-				if err is not None:
-					raise err
-
-				machine = SMBMachine(connection)
-				async for path, otype, err in machine.enum_all_recursively(depth = self.depth):
-					er = EnumResult(tid, target, (path, otype, err))
-					await self.res_q.put(er)
-
+			smb_mgr = SMBConnectionURL('smb2+ntlm-password://%s/?timeout=%s' % (target, self.timeout))
+			connection = smb_mgr.create_connection_newtarget(target)
+			res, err = await connection.fake_login()
+			if err is not None:
+				raise err
+			er = EnumResult(tid, target, (res,))
+			await self.res_q.put(er)
 		except asyncio.CancelledError:
 			return
 		except Exception as e:
@@ -114,19 +109,21 @@ class SMBFileEnum:
 		try:
 			while True:
 				er = await self.res_q.get()
+
+				if er.result is not None:
+					res, *t = er.result
+					print('[%s] %s' % (er.target, res.to_grep()))
+				
+				if er.status == EnumResultStatus.ERROR:
+					print('[%s][E][%s]' % (er.target, er.error))
+				
 				if er.status == EnumResultStatus.FINISHED:
 					self.__total_finished += 1
 					if self.__total_finished == self.__total_targets and self.__gens_finished is True:
+						
 						asyncio.create_task(self.terminate())
 						return
-				
-				if er.result is not None:
-					path, otype, err = er.result
-					if otype is not None:
-						print('[%s] %s' % (otype[0].upper(), path))
-					if err is not None:
-						print('[E] %s %s' % (err, path))
-				
+
 		except asyncio.CancelledError:
 			return
 		except Exception as e:
@@ -159,10 +156,6 @@ class SMBFileEnum:
 			if err is not None:
 				raise err
 			
-			if self.enum_url is True:
-				self.__total_targets += 1
-				await self.task_q.put((str(uuid.uuid4()), self.smb_mgr.get_target().get_hostname_or_ip()))
-			
 			for target_gen in self.target_gens:
 				total, err = await target_gen.run(self.task_q)
 				self.__total_targets += total
@@ -180,16 +173,15 @@ class SMBFileEnum:
 async def amain():
 	import argparse
 
-	parser = argparse.ArgumentParser(description='SMB Share enumerator')
-	parser.add_argument('-d', '--depth', type=int, default=3, help='Recursion depth, -1 means infinite')
+	parser = argparse.ArgumentParser(description='SMB OS discovery. Tells which dialects suported by the remote end')
 	parser.add_argument('-w', '--smb-worker-count', type=int, default=100, help='Parallell count')
-	parser.add_argument('smb_url', help='Connection URL base, target can be anything. Example: "smb2+ntlm-password://TEST\\victim@test"')
+	parser.add_argument('-t', '--timeout', type=int, default=50, help='Timeout for each connection')
 	parser.add_argument('targets', nargs='+', help = 'Hostname or IP address or file with a list of targets')
 	args = parser.parse_args()
 
 	logger.setLevel(100)
-	enumerator = SMBFileEnum(args.smb_url, worker_count = args.smb_worker_count, depth = args.depth)
-	
+	enumerator = SMBOSEnum(worker_count = args.smb_worker_count, timeout = args.timeout)
+
 	notfile = []
 	for target in args.targets:
 		try:
@@ -205,7 +197,8 @@ async def amain():
 	if len(enumerator.target_gens) == 0:
 		print('[-] No suitable targets were found!')
 	await enumerator.run()
-	
+	print('[+] Done!')
+
 def main():
 	asyncio.run(amain())
 

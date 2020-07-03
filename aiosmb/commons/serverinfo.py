@@ -74,3 +74,21 @@ class NTLMServerInfo:
 			t += '%s: %s\r\n' % (k, self.__dict__[k]) 
 			
 		return t
+
+	def to_grep(self):
+		t  = ''
+		t += '[domainname,%s]' % self.domainname
+		t += '[computername,%s]' %  self.computername
+		t += '[dnscomputername,%s]' %  self.dnscomputername
+		t += '[dnsdomainname,%s]' %  self.dnsdomainname
+		t += '[dnsforestname,%s]' %  self.dnsforestname
+		t += '[os_build,%s]' %  self.os_build
+		t += '[os_guess,%s]' %  self.os_guess
+		if self.local_time is not None:
+			t += '[local_time,%s]' %  self.local_time.isoformat()
+		if self.os_major_version is not None:
+			t += '[os_major,%s]' % self.os_major_version.value
+		if self.os_minor_version is not None:
+			t += '[os_minor,%s]' % self.os_minor_version.value
+		
+		return t

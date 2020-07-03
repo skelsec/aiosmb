@@ -398,11 +398,31 @@ class SMBConnection:
 			if err is not None:
 				raise err
 			
-			await self.disconnect()
-			
 			return self.gssapi.get_extra_info(), None
 		except Exception as e:
 			return None, e
+		finally:
+			await self.disconnect()
+
+	async def protocol_test(self, protocol):
+		"""
+		Checks if the remote end supports a given protocol.
+		On success it returns True and the reply from the server (for checking SMB3 capabilities)
+		"""
+		try:
+			self.supported_dialects = protocol
+			_, err = await self.connect()
+			if err is not None:
+				raise err
+			res, rply, err = await self.negotiate(protocol_test = True)
+			if err is not None:
+				raise err
+
+			return res, rply, None
+		except Exception as e:
+			return False, None, e
+		finally:
+			await self.disconnect()
 	
 	async def connect(self):
 		"""
@@ -485,7 +505,7 @@ class SMBConnection:
 		ctx.update(self.PreauthIntegrityHashValue + msg_data)
 		self.PreauthIntegrityHashValue = ctx.digest()
 		
-	async def negotiate(self):
+	async def negotiate(self, protocol_test = False):
 		"""
 		Initiates protocol negotiation.
 		First we send an SMB_COM_NEGOTIATE_REQ with our supported dialects
@@ -500,15 +520,23 @@ class SMBConnection:
 				header.Flags    = 0
 				header.Flags2   = SMBHeaderFlags2Enum.SMB_FLAGS2_UNICODE
 					
-				command = SMB_COM_NEGOTIATE_REQ()				
-				command.Dialects = ['SMB 2.???','SMB 2.002']
+				command = SMB_COM_NEGOTIATE_REQ()
+				if protocol_test is True:
+					command.Dialects = ['NT LM 0.12']
+				else:			
+					command.Dialects = ['SMB 2.???','SMB 2.002']
 				
 				msg = SMBMessage(header, command)
 				message_id = await self.sendSMB(msg)
 				#recieveing reply, should be version2, because currently we dont support v1 :(
 				rply, rply_data = await self.recvSMB(message_id, ret_data = True) #negotiate MessageId should be 1
 				if isinstance(rply, SMBMessage):
-					raise Exception('Server replied with SMBv1 message, doesnt support SMBv2')
+					if protocol_test is True:
+						if rply.command.DialectIndex == 65535:
+							return False, rply, None
+						return True, rply, None
+					else:
+						raise Exception('Server replied with SMBv1 message, doesnt support SMBv2')
 				if rply.header.Status != NTStatus.SUCCESS:
 					raise Exception('SMB2 negotiate error! Server replied with error status code!')
 				
@@ -605,9 +633,13 @@ class SMBConnection:
 			#self.ClientSecurityMode = 0			
 			self.status = SMBConnectionStatus.SESSIONSETUP
 			
+			if protocol_test is True:
+				return True, rply, None
 			return True, None
 		
 		except Exception as e:
+			if protocol_test is True:
+				return False, None, None
 			return False, e
 
 	async def session_setup(self, fake_auth = False):
@@ -664,7 +696,7 @@ class SMBConnection:
 			if rply.header.Status == NTStatus.SUCCESS:
 				if self.gssapi.is_guest() is True:
 					self.signing_required = False
-					
+
 				self.SessionKey = self.gssapi.get_session_key()[:16]
 				
 				# TODO: key calc
