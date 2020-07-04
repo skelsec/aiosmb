@@ -430,7 +430,7 @@ class SMBConnection:
 
 			return res, sign_en, sign_req, rply, None
 		except Exception as e:
-			return False, None, e
+			return False, None, None, None, e
 		finally:
 			await self.disconnect()
 	
