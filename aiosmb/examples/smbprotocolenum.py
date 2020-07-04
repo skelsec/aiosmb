@@ -57,7 +57,7 @@ class ListTargetGen:
 
 
 class SMBProtocolEnum:
-	def __init__(self, worker_count = 100, timeout = 5):
+	def __init__(self, worker_count = 100, timeout = 5, only_signing = False, protocols = SMB_NEGOTIATE_PROTOCOL_TEST):
 		self.target_gens = []
 		self.timeout = timeout
 		self.worker_count = worker_count
@@ -68,18 +68,21 @@ class SMBProtocolEnum:
 		self.__gens_finished = False
 		self.__total_targets = 0
 		self.__total_finished = 0
-		self.protocols = SMB_NEGOTIATE_PROTOCOL_TEST
+		self.protocols = protocols
+		self.only_signing = only_signing
 
 	async def __executor(self, tid, target):
 		try:
 			for protocol in self.protocols:
 				smb_mgr = SMBConnectionURL('smb2+ntlm-password://%s/?timeout=%s' % (target, self.timeout))
 				connection = smb_mgr.create_connection_newtarget(target)
-				res, rply, err = await connection.protocol_test([protocol])
+				res, sign_en, sign_req, rply, err = await connection.protocol_test([protocol])
 				if err is not None:
 					raise err
-				er = EnumResult(tid, target, (protocol, res, rply, err))
+				er = EnumResult(tid, target, (protocol, res, sign_en, sign_req, rply, err))
 				await self.res_q.put(er)
+				if self.only_signing is True:
+					return
 		except asyncio.CancelledError:
 			return
 		except Exception as e:
@@ -110,25 +113,43 @@ class SMBProtocolEnum:
 	async def result_processing(self):
 		try:
 			while True:
-				er = await self.res_q.get()
+				try:
+					er = await self.res_q.get()
 
-				if er.result is not None:
-					protocol, result, rply, err = er.result
-					if protocol == NegotiateDialects.WILDCARD:
-						protocol = 'SMB1' #replacing this bc of logic in connection
-					else:
-						protocol = protocol.name.upper()
-					print('[%s][%s] %s' % (er.target, protocol, result))
-				
-				if er.status == EnumResultStatus.ERROR:
-					print('[%s][E][%s]' % (er.target, er.error))
-				
-				if er.status == EnumResultStatus.FINISHED:
-					self.__total_finished += 1
-					if self.__total_finished == self.__total_targets and self.__gens_finished is True:
-						
-						asyncio.create_task(self.terminate())
-						return
+					if er.result is not None:
+						protocol, result, sign_en, sign_req, rply, err = er.result
+						if protocol == NegotiateDialects.WILDCARD:
+							protocol = 'SMB1' #replacing this bc of logic in connection
+						else:
+							protocol = protocol.name.upper()
+						if result is True:
+							if sign_en is True:
+								sign_en = 'E'
+							else:
+								sign_en = 'D'
+							if sign_req is True:
+								sign_req = 'REQ'
+							else:
+								sign_req = 'NOTREQ'
+						else:
+							sign_en = '?'
+							sign_req = '?'
+						print('[%s][%s][%s/%s] %s' % (er.target, protocol, sign_en, sign_req, result))
+					
+					if er.status == EnumResultStatus.ERROR:
+						print('[%s][E][%s]' % (er.target, er.error))
+					
+					if er.status == EnumResultStatus.FINISHED:
+						self.__total_finished += 1
+						print('[P][%s/%s][%s]' % (self.__total_targets, self.__total_finished, str(self.__gens_finished)))
+						if self.__total_finished == self.__total_targets and self.__gens_finished is True:
+							
+							asyncio.create_task(self.terminate())
+							return
+				except asyncio.CancelledError:
+					return
+				except Exception as e:
+					print(e)
 
 		except asyncio.CancelledError:
 			return
@@ -182,11 +203,12 @@ async def amain():
 	parser = argparse.ArgumentParser(description='SMB Protocol enumerator. Tells which dialects suported by the remote end')
 	parser.add_argument('-w', '--smb-worker-count', type=int, default=100, help='Parallell count')
 	parser.add_argument('-t', '--timeout', type=int, default=50, help='Timeout for each connection')
+	parser.add_argument('-s', '--signing', action='store_true', help='Only check for the singing properties. (faster)')
 	parser.add_argument('targets', nargs='+', help = 'Hostname or IP address or file with a list of targets')
 	args = parser.parse_args()
 
 	logger.setLevel(100)
-	enumerator = SMBProtocolEnum(worker_count = args.smb_worker_count, timeout = args.timeout)
+	enumerator = SMBProtocolEnum(worker_count = args.smb_worker_count, timeout = args.timeout, only_signing = args.signing)
 
 	notfile = []
 	for target in args.targets:
@@ -202,6 +224,8 @@ async def amain():
 
 	if len(enumerator.target_gens) == 0:
 		print('[-] No suitable targets were found!')
+		return
+		
 	await enumerator.run()
 	print('[+] Done!')
 

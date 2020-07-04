@@ -108,21 +108,28 @@ class SMBOSEnum:
 	async def result_processing(self):
 		try:
 			while True:
-				er = await self.res_q.get()
+				try:
+					er = await self.res_q.get()
 
-				if er.result is not None:
-					res, *t = er.result
-					print('[%s] %s' % (er.target, res.to_grep()))
-				
-				if er.status == EnumResultStatus.ERROR:
-					print('[%s][E][%s]' % (er.target, er.error))
-				
-				if er.status == EnumResultStatus.FINISHED:
-					self.__total_finished += 1
-					if self.__total_finished == self.__total_targets and self.__gens_finished is True:
-						
-						asyncio.create_task(self.terminate())
-						return
+					if er.result is not None:
+						res, *t = er.result
+						print('[%s] %s' % (er.target, res.to_grep()))
+					
+					if er.status == EnumResultStatus.ERROR:
+						print('[%s][E][%s]' % (er.target, er.error))
+					
+					if er.status == EnumResultStatus.FINISHED:
+						self.__total_finished += 1
+						print('[P][%s/%s][%s]' % (self.__total_targets, self.__total_finished, str(self.__gens_finished)))
+						if self.__total_finished == self.__total_targets and self.__gens_finished is True:
+							
+							asyncio.create_task(self.terminate())
+							return
+
+				except asyncio.CancelledError:
+					return
+				except Exception as e:
+					print(e)
 
 		except asyncio.CancelledError:
 			return
@@ -196,6 +203,8 @@ async def amain():
 
 	if len(enumerator.target_gens) == 0:
 		print('[-] No suitable targets were found!')
+		return
+		
 	await enumerator.run()
 	print('[+] Done!')
 

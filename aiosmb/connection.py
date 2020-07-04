@@ -15,6 +15,7 @@ from aiosmb.protocol.smb.command_codes import SMBCommand
 from aiosmb.wintypes.ntstatus import NTStatus
 from aiosmb.protocol.smb.header import SMBHeader, SMBHeaderFlags2Enum
 from aiosmb.protocol.smb.message import SMBMessage
+from aiosmb.protocol.smb.commons import SMBSecurityMode
 from aiosmb.protocol.smb.commands import *
 from aiosmb.protocol.smb2.message import SMB2Message, SMB2Transform, SMB2Compression
 from aiosmb.protocol.smb2.commands.negotiate import SMB2ContextType, SMB2PreauthIntegrityCapabilities, SMB2HashAlgorithm, SMB2Cipher, SMB2CompressionType, SMB2CompressionFlags, SMB2EncryptionCapabilities, SMB2CompressionCapabilities
@@ -414,11 +415,20 @@ class SMBConnection:
 			_, err = await self.connect()
 			if err is not None:
 				raise err
+			sign_en = None
+			sign_req = None
 			res, rply, err = await self.negotiate(protocol_test = True)
+			if isinstance(rply, SMB2Message):
+				sign_en = NegotiateSecurityMode.SMB2_NEGOTIATE_SIGNING_ENABLED in rply.command.SecurityMode   
+				sign_req = NegotiateSecurityMode.SMB2_NEGOTIATE_SIGNING_REQUIRED in rply.command.SecurityMode   
+			elif isinstance(rply, SMBMessage):
+				sign_en = SMBSecurityMode.NEGOTIATE_SECURITY_SIGNATURES_ENABLED in rply.command.SecurityMode   
+				sign_req = SMBSecurityMode.NEGOTIATE_SECURITY_SIGNATURES_REQUIRED in rply.command.SecurityMode   
+
 			if err is not None:
 				raise err
 
-			return res, rply, None
+			return res, sign_en, sign_req, rply, None
 		except Exception as e:
 			return False, None, e
 		finally:

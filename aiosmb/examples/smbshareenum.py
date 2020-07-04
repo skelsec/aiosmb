@@ -113,20 +113,26 @@ class SMBFileEnum:
 	async def result_processing(self):
 		try:
 			while True:
-				er = await self.res_q.get()
-				if er.status == EnumResultStatus.FINISHED:
-					self.__total_finished += 1
-					if self.__total_finished == self.__total_targets and self.__gens_finished is True:
-						asyncio.create_task(self.terminate())
-						return
-				
-				if er.result is not None:
-					path, otype, err = er.result
-					if otype is not None:
-						print('[%s] %s' % (otype[0].upper(), path))
-					if err is not None:
-						print('[E] %s %s' % (err, path))
-				
+				try:
+					er = await self.res_q.get()
+					if er.status == EnumResultStatus.FINISHED:
+						self.__total_finished += 1
+						print('[P][%s/%s][%s]' % (self.__total_targets, self.__total_finished, str(self.__gens_finished)))
+						if self.__total_finished == self.__total_targets and self.__gens_finished is True:
+							asyncio.create_task(self.terminate())
+							return
+					
+					if er.result is not None:
+						path, otype, err = er.result
+						if otype is not None:
+							print('[%s] %s' % (otype[0].upper(), path))
+						if err is not None:
+							print('[E] %s %s' % (err, path))
+				except asyncio.CancelledError:
+					return
+				except Exception as e:
+					print(e)
+					continue
 		except asyncio.CancelledError:
 			return
 		except Exception as e:
@@ -204,8 +210,10 @@ async def amain():
 
 	if len(enumerator.target_gens) == 0:
 		print('[-] No suitable targets were found!')
+		return
+		
 	await enumerator.run()
-	
+
 def main():
 	asyncio.run(amain())
 
