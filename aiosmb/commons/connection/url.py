@@ -32,6 +32,8 @@ class SMBConnectionURL:
 		self.ip = None
 		self.timeout = 5
 		self.server_ip = None
+		self.fragment = None
+		self.path = None
 
 		#proxy
 		self.proxy= None
@@ -84,6 +86,23 @@ class SMBConnectionURL:
 			proxy = self.get_proxy()
 		)
 		t.update_dialect(self.dialect)
+		if self.fragment is not None:
+			fs = 0x100000
+			if self.fragment == 5:
+				fs = 1*1024
+			elif self.fragment == 4:
+				fs = 5*1024
+			elif self.fragment == 3:
+				fs = 10*1024
+			elif self.fragment == 2:
+				fs = 500*1024
+			elif self.fragment == 1:
+				fs = 5000*1024
+			
+			t.MaxTransactSize = fs
+			t.MaxReadSize = fs
+			t.MaxWriteSize = fs
+
 		return t
 
 	def get_credential(self):
@@ -164,6 +183,8 @@ class SMBConnectionURL:
 		if url_e.username is not None:
 			if url_e.username.find('\\') != -1:
 				self.domain , self.username = url_e.username.split('\\')
+				if self.domain == '.':
+					self.domain = None
 			else:
 				self.domain = None
 				self.username = url_e.username
@@ -215,6 +236,10 @@ class SMBConnectionURL:
 		else:
 			raise Exception('Port must be provided!')
 
+		if url_e.path not in ['/', '', None]:
+			self.path = url_e.path
+		
+
 		# recognized parameters :
 		# dc -> domain controller IP
 		# proxytype -> proxy protocol
@@ -234,6 +259,8 @@ class SMBConnectionURL:
 					self.timeout = int(query[k][0])
 				elif k == 'serverip':
 					self.server_ip = query[k][0]
+				elif k == 'fragment':
+					self.fragment = int(query[k][0])
 				elif k == 'dns':
 					self.dns = query[k] #multiple dns can be set, so not trimming here
 				elif k.startswith('auth'):

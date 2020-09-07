@@ -49,6 +49,7 @@ class ListTargetGen:
 			cnt = 0
 			for target in self.targets:
 				cnt += 1
+				target = target.strip()
 				await target_q.put((str(uuid.uuid4()),target))
 				await asyncio.sleep(0)
 			return cnt, None
@@ -179,24 +180,29 @@ class SMBOSEnum:
 
 async def amain():
 	import argparse
+	import sys
 
 	parser = argparse.ArgumentParser(description='SMB OS discovery. Tells which dialects suported by the remote end')
 	parser.add_argument('-w', '--smb-worker-count', type=int, default=100, help='Parallell count')
 	parser.add_argument('-t', '--timeout', type=int, default=50, help='Timeout for each connection')
-	parser.add_argument('targets', nargs='+', help = 'Hostname or IP address or file with a list of targets')
+	parser.add_argument('-s', '--stdin', action='store_true', help='Read targets from stdin')
+	parser.add_argument('targets', nargs='*', help = 'Hostname or IP address or file with a list of targets')
 	args = parser.parse_args()
 
 	logger.setLevel(100)
 	enumerator = SMBOSEnum(worker_count = args.smb_worker_count, timeout = args.timeout)
 
 	notfile = []
-	for target in args.targets:
-		try:
-			f = open(target, 'r')
-			f.close()
-			enumerator.target_gens.append(FileTargetGen(target))
-		except:
-			notfile.append(target)
+	if len(args.targets) == 0 and args.stdin is True:
+		enumerator.target_gens.append(ListTargetGen(sys.stdin))
+	else:
+		for target in args.targets:
+			try:
+				f = open(target, 'r')
+				f.close()
+				enumerator.target_gens.append(FileTargetGen(target))
+			except:
+				notfile.append(target)
 	
 	if len(notfile) > 0:
 		enumerator.target_gens.append(ListTargetGen(notfile))

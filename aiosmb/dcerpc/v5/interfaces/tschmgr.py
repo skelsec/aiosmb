@@ -49,7 +49,7 @@ class SMBTSCH:
 		await rr(self.dce.connect())
 		await rr(self.dce.bind(tsch.MSRPC_UUID_TSCHS))
 
-		return True,None	
+		return True,None
 	
 	async def register_task(self, template, task_name = None, flags = tsch.TASK_CREATE, ssdl = NULL, logon_type = tsch.TASK_LOGON_NONE):
 		if task_name is None:

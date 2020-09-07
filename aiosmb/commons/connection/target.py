@@ -51,7 +51,8 @@ class SMBTarget:
 						dc_ip=None, 
 						domain = None, 
 						proxy = None,
-						protocol = SMBConnectionProtocol.TCP):
+						protocol = SMBConnectionProtocol.TCP,
+						path = None):
 		self.ip = ip
 		self.port = port
 		self.hostname = hostname
@@ -61,6 +62,13 @@ class SMBTarget:
 		self.proxy = proxy
 		self.protocol = protocol
 		self.preferred_dialects = SMB2_NEGOTIATE_DIALTECTS_2
+
+		self.path = path #for holding remote file path
+
+		#this is mostly for advanced users
+		self.MaxTransactSize = 0x100000
+		self.MaxReadSize = 0x100000
+		self.MaxWriteSize = 0x100000
 
 
 	def update_dialect(self, dialect):
@@ -96,7 +104,10 @@ class SMBTarget:
 			protocol = self.protocol
 		)
 
-		self.preferred_dialects
+		t.MaxTransactSize = self.MaxTransactSize
+		t.MaxReadSize = self.MaxReadSize
+		t.MaxWriteSize = self.MaxWriteSize
+
 		return t
 	
 	@staticmethod

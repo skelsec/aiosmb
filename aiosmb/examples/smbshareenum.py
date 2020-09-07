@@ -48,6 +48,7 @@ class ListTargetGen:
 			cnt = 0
 			for target in self.targets:
 				cnt += 1
+				target = target.strip()
 				await target_q.put((str(uuid.uuid4()),target))
 				await asyncio.sleep(0)
 			return cnt, None
@@ -185,25 +186,42 @@ class SMBFileEnum:
 
 async def amain():
 	import argparse
+	import sys
+	from aiosmb.commons.connection.params import SMBConnectionParams
 
 	parser = argparse.ArgumentParser(description='SMB Share enumerator')
-	parser.add_argument('-d', '--depth', type=int, default=3, help='Recursion depth, -1 means infinite')
+	SMBConnectionParams.extend_parser(parser)
+	parser.add_argument('--depth', type=int, default=3, help='Recursion depth, -1 means infinite')
 	parser.add_argument('-w', '--smb-worker-count', type=int, default=100, help='Parallell count')
-	parser.add_argument('smb_url', help='Connection URL base, target can be anything. Example: "smb2+ntlm-password://TEST\\victim@test"')
-	parser.add_argument('targets', nargs='+', help = 'Hostname or IP address or file with a list of targets')
+	parser.add_argument('-s', '--stdin', action='store_true', help='Read targets from stdin')
+	parser.add_argument('--url', help='Connection URL base, target can be set to anything. Owerrides all parameter based connection settings! Example: "smb2+ntlm-password://TEST\\victim@test"')
+	parser.add_argument('targets', nargs='*', help = 'Hostname or IP address or file with a list of targets')
 	args = parser.parse_args()
 
 	logger.setLevel(100)
-	enumerator = SMBFileEnum(args.smb_url, worker_count = args.smb_worker_count, depth = args.depth)
+	smb_url = None
+	if args.url is not None:
+		smb_url = args.smb_url
+	else:
+		try:
+			smb_url = SMBConnectionParams.parse_args(args)
+		except Exception as e:
+			print('Either URL or all connection parameters must be set! Error: %s' % str(e))
+			sys.exit(1)
+	
+	enumerator = SMBFileEnum(smb_url, worker_count = args.smb_worker_count, depth = args.depth)
 	
 	notfile = []
-	for target in args.targets:
-		try:
-			f = open(target, 'r')
-			f.close()
-			enumerator.target_gens.append(FileTargetGen(target))
-		except:
-			notfile.append(target)
+	if len(args.targets) == 0 and args.stdin is True:
+		enumerator.target_gens.append(ListTargetGen(sys.stdin))
+	else:
+		for target in args.targets:
+			try:
+				f = open(target, 'r')
+				f.close()
+				enumerator.target_gens.append(FileTargetGen(target))
+			except:
+				notfile.append(target)
 	
 	if len(notfile) > 0:
 		enumerator.target_gens.append(ListTargetGen(notfile))

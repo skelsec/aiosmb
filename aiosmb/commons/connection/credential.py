@@ -1,6 +1,25 @@
 import enum
 import platform
 
+
+class SMBCredentialTypes(enum.Enum):
+	NTLM_NT = 'ntlm-nt'
+	NTLM_PASSWORD = 'ntlm-password'
+	NTLM_PWPROMPT = 'ntlm-pwprompt'
+	NTLM_PWHEX = 'ntlm-pwhex'
+	NTLM_PWB64 = 'ntlm-pwb64'
+	SSPI_NTLM = 'sspi-ntlm'
+	SSPI_KERBEROS = 'sspi-kerberos'
+	MULTIPLEXOR_NTLM = 'multiplexor-ntlm'
+	MULTIPLEXOR_KERBEROS = 'multiplexor-kerberos'
+	KERBEROS_PASSWORD = 'kerberos-password'
+	KERBEROS_PWPROMPT = 'kerberos-pwprompt'
+	KERBEROS_PWHEX = 'kerberos-pwhex'
+	KERBEROS_PWB64 = 'kerberos-pwb64'
+	KERBEROS_AES = 'kerberos-aes'
+	KERBEROS_RC4 = 'kerberos-rc4'
+	KERBEROS_CCACHE = 'kerberos-ccache'
+
 class SMBCredentialsSecretType(enum.Enum):
 	NT = 'NT'
 	PASSWORD = 'PASSWORD'

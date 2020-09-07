@@ -73,10 +73,11 @@ class DCERPCTCPConnection:
 	
 	@red
 	async def connect(self):
-		con = asyncio.open_connection(self.ip, self.port)
+		
 		
 		try:
-			self.reader, self.writer = await asyncio.wait_for(con, int(self.timeout))
+			con = asyncio.open_connection(self.ip, self.port)
+			self.reader, self.writer = await asyncio.wait_for(con, None)
 		except asyncio.TimeoutError:
 			logger.debug('[DCERPCTCPConnection] Connection timeout')
 			return None, SMBConnectionTimeoutException() 
@@ -230,7 +231,7 @@ class DCERPCTCPTransport:
 		try:
 			if self.is_proxy is False:
 				# the TCP call already buffers one messages per get
-				data, err = await asyncio.wait_for(self.connection.in_queue.get(), timeout = self.target.timeout)
+				data, err = await asyncio.wait_for(self.connection.in_queue.get(), timeout = None)
 				return data, err
 			
 			err = None
@@ -242,7 +243,7 @@ class DCERPCTCPTransport:
 						self.buffer = self.buffer[response_header['frag_len']:]
 						return msg_data, err
 
-				data, err = await asyncio.wait_for(self.connection.in_queue.get(), timeout = 10)
+				data, err = await asyncio.wait_for(self.connection.in_queue.get(), timeout = None)
 				if err is not None:
 					return None, err
 				

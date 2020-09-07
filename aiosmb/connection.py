@@ -177,14 +177,14 @@ class SMBConnection:
 		self.FileHandleTable = {}
 		
 		self.SequenceWindow = 0
-		self.MaxTransactSize = 0
-		self.MaxReadSize = 0
-		self.MaxWriteSize = 0
+		self.MaxTransactSize = self.target.MaxTransactSize if self.target.MaxTransactSize is not None else 0x100000
+		self.MaxReadSize = self.target.MaxReadSize if self.target.MaxReadSize is not None else 0x100000
+		self.MaxWriteSize = self.target.MaxWriteSize if self.target.MaxWriteSize is not None else 0x100000
 		self.ServerGuid = None
 		self.RequireSigning = False
 		self.ServerName = None
 		self.ClientGUID = GUID.random()
-		
+
 		#self.Dialect = 0
 		self.SupportsFileLeasing = False
 		self.SupportsMultiCredit = False
@@ -630,9 +630,9 @@ class SMBConnection:
 
 			logger.log(1, 'Server selected dialect: %s' % self.selected_dialect)
 					
-			self.MaxTransactSize = min(0x100000, rply.command.MaxTransactSize)
-			self.MaxReadSize = min(0x100000, rply.command.MaxReadSize)
-			self.MaxWriteSize = min(0x100000, rply.command.MaxWriteSize)
+			self.MaxTransactSize = min(self.MaxTransactSize, rply.command.MaxTransactSize)
+			self.MaxReadSize = min(self.MaxReadSize, rply.command.MaxReadSize)
+			self.MaxWriteSize = min(self.MaxWriteSize, rply.command.MaxWriteSize)
 			self.ServerGuid = rply.command.ServerGuid
 			self.SupportsMultiChannel = NegotiateCapabilities.MULTI_CHANNEL in rply.command.Capabilities
 			self.SupportsFileLeasing = NegotiateCapabilities.LEASING in rply.command.Capabilities

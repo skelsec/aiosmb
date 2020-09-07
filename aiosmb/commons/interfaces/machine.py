@@ -487,10 +487,13 @@ class SMBMachine:
 			yield None, e
 			return
 
-	
+	@req_rrp
+	async def get_regapi(self):
+		return self.rrp, None
+
 	@req_rrp
 	async def save_registry_hive(self, hive_name, remote_path):
-		res, err = await self.rrp.save_hive(hive_name, remote_path)
+		res, err = await self.rrp.SaveKey(hive_name, remote_path)
 		return res, err
 
 	@req_servicemanager
@@ -593,7 +596,10 @@ class SMBMachine:
 
 		finally:
 			await ipc_file.close()
-		
+	
+	@req_servicemanager
+	async def check_service_status(self, service_name):
+		return await self.servicemanager.check_service_status(service_name)
 
 	async def stop_service(self):
 		pass

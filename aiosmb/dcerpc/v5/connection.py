@@ -389,7 +389,7 @@ class DCERPC5Connection:
 				else:
 					data['flags'] &= (~PFC_LAST_FRAG)
 				data['pduData'] = toSend
-				self._transport_send(data, forceWriteAndx = 1, forceRecv =data['flags'] & PFC_LAST_FRAG)
+				await rr(self._transport_send(data, forceWriteAndx = 1, forceRecv =data['flags'] & PFC_LAST_FRAG))
 		else:
 			await rr(self._transport_send(data))
 		self.callid += 1
