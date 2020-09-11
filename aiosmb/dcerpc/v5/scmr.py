@@ -1338,7 +1338,9 @@ async def hRQueryServiceConfigW(dce, hService):
 		if e.get_error_code() == system_errors.ERROR_INSUFFICIENT_BUFFER:
 			resp = e.get_packet()
 			queryService['cbBufSize'] = resp['pcbBytesNeeded']
-			resp = await dce.request(queryService)
+			resp, e = await dce.request(queryService)
+			if e is not None:
+				return None, e
 		else:
 			return None, e
 

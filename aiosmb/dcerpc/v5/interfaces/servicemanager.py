@@ -117,17 +117,24 @@ class SMBRemoteServieManager:
 	@red
 	async def check_service_status(self, service_name):
 		if not self.handle:
-			await rr(self.open())
+			_, err = await self.open()
+			if err is not None:
+				raise err
+
 		if service_name not in self.service_handles:
-			await rr(self.open_service(service_name))
+			_, err = await self.open_service(service_name)
+			if err is not None:
+				raise err
 		
-		# Let's check its status
-		ans, _ = await rr(scmr.hRQueryServiceStatus(self.dce, self.service_handles[service_name]))
+		ans, err = await scmr.hRQueryServiceStatus(self.dce, self.service_handles[service_name])
+		if err is not None:
+			raise err
+		
 		if ans['lpServiceStatus']['dwCurrentState'] == scmr.SERVICE_STOPPED:
 			logger.info('Service %s is in stopped state'% service_name)
 			
 			# Let's check its configuration if service is stopped, maybe it's disabled :s
-			ans, _ = await rr(scmr.hRQueryServiceConfigW(self.dce,self.handle))
+			ans, err = await scmr.hRQueryServiceConfigW(self.dce, self.service_handles[service_name])
 			if ans['lpServiceConfig']['dwStartType'] == 0x4:
 				logger.info('Service %s is disabled'% service_name)
 				return SMBServiceStatus.DISABLED, None

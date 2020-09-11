@@ -111,6 +111,14 @@ class PRPC_INFO(NDRPOINTER):
 		('Data', RPC_INFO)
 	)
 
+class LPWSTR_ARRAY(NDRUniConformantArray):
+	item = LPWSTR
+
+class PLPWSTR_ARRAY(NDRPOINTER):
+	referent = (
+		('Data',LPWSTR_ARRAY),
+	)
+
 class WSTR_ARRAY(NDRUniVaryingArray):
 	item = WSTR
 
@@ -265,7 +273,7 @@ class EvtRpcGetChannelList(NDRCALL):
 class EvtRpcGetChannelListResponse(NDRCALL):
 	structure = (
 		('NumChannelPaths', DWORD),
-		('ChannelPaths', WSTR_ARRAY),
+		('ChannelPaths', PLPWSTR_ARRAY),
 		('ErrorCode', ULONG),
 	)
 
@@ -302,18 +310,20 @@ async def hEvtRpcQueryNext(dce, handle, numRequestedRecords, timeOutEnd=1000):
 	request['NumRequestedRecords'] = numRequestedRecords
 	request['TimeOutEnd'] = timeOutEnd
 	request['Flags'] = 0
-	status = system_errors.ERROR_MORE_DATA
-	resp = dce.request(request)
-	while status == system_errors.ERROR_MORE_DATA:
-		try:
-			resp = await dce.request(request)
-		except DCERPCException as e:
-			if str(e).find('ERROR_NO_MORE_ITEMS') < 0:
-				raise
-			elif str(e).find('ERROR_TIMEOUT') < 0:
-				raise
-			resp = e.get_packet()
-		return resp
+	return  await dce.request(request)
+
+	#status = system_errors.ERROR_MORE_DATA
+	#resp, err = await dce.request(request)
+	#if err is not None:
+	#	try:
+	#		resp = await dce.request(request)
+	#	except DCERPCException as e:
+	#		if str(e).find('ERROR_NO_MORE_ITEMS') < 0:
+	#			raise
+	#		elif str(e).find('ERROR_TIMEOUT') < 0:
+	#			raise
+	#		resp = e.get_packet()
+	#	return resp
 
 async def hEvtRpcClose(dce, handle):
 	request = EvtRpcClose()
@@ -330,7 +340,6 @@ async def hEvtRpcOpenLogHandle(dce, channel, flags):
 
 async def hEvtRpcGetChannelList(dce):
 	request = EvtRpcGetChannelList()
-
 	request['Flags'] = 0
-	resp = dce.request(request)
-	return await resp
+	return await dce.request(request)
+

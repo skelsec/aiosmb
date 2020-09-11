@@ -55,7 +55,7 @@ async def amain():
 	#	print(srv)
 	registry_srv_status, err = await machine.check_service_status("RemoteRegistry")
 	if err is not None:
-		print(err)
+		print('Check service status error! %s' % err)
 		return
 
 	if registry_srv_status != SMBServiceStatus.RUNNING:
