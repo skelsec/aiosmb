@@ -128,16 +128,9 @@ class SMBEven6:
 			for p,s in zip(pos, size):
 				buff.seek(p,io.SEEK_SET)
 				#edata.append(buff.read(size))
-				x = RESULT_SET.from_bytes(buff.read(s))
-				print(x.eventData[:50])
-
-			#print(res['EventDataIndices'])
-			#
-			#for _ in res['']
-			#x = RESULT_SET.from_bytes()
-			#print(x.eventData)
+				edata.append(RESULT_SET.from_bytes(buff.read(s)))
 			
-			return None, None
+			return edata, None
 		
 		except Exception as e:
 			return None, e
@@ -159,6 +152,8 @@ class SMBEven6:
 		
 
 async def amain():
+	#from evtx import PyEvtxParser
+	from aiosmb.dcerpc.v5.interfaces.binxml import BinXMLFragment
 	import traceback
 	from aiosmb.commons.connection.url import SMBConnectionURL
 	from aiosmb.connection import SMBConnection
@@ -200,7 +195,19 @@ async def amain():
 	if err is not None:
 		print(err)
 	
-	#else:
+	else:
+		for data in res:
+			print(data.eventData[:0x50])
+			bx = BinXMLFragment.from_bytes(data.eventData)
+
+			print(bx)
+			#x = io.BytesIO(data.eventData)
+			#parser = PyEvtxParser(x)
+			#for record in parser.records_json():
+			#	print(f'Event Record ID: {record["event_record_id"]}')
+			#	print(f'Event Timestamp: {record["timestamp"]}')
+			#	print(record['data'])
+			#	print(f'------------------------------------------')
 		#print(b''.join(res['ResultBuffer']))
 		#x = RESULT_SET.from_bytes(b''.join(res['ResultBuffer']))
 		#print(x.eventData)
