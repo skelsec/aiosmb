@@ -2,15 +2,24 @@
 import io
 import enum
 import struct
+from xml.dom.minidom import parseString
 
 from aiosmb.wintypes.dtyp.constrcuted_security.guid import GUID
 from aiosmb.wintypes.dtyp.constrcuted_security.sid import SID
+from aiosmb.wintypes.dtyp.structures.filetime import FILETIME
 
+# https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-even6/c73573ae-1c90-43a2-a65f-ad7501155956
 
 class Fragment:
 	def __init__(self):
 		self.FragmentHeaders = []
 		self.values = []
+
+	def to_xml(self):
+		t = ''
+		for v in self.values:
+			t += v.to_xml()
+		return t
 
 	@staticmethod
 	def from_bytes(data):
@@ -53,21 +62,68 @@ class TemplateInstance:
 		self.TemplateDef = None
 		self.TemplateInstanceData = None
 
+	def to_xml(self):
+		xml_elements = []
+		open_tags = []
+		
+
+		i = 0
+		while i < len(self.TemplateDef.Elements):
+			el = self.TemplateDef.Elements[i]
+			if isinstance(el, StartElement):
+				open_tags.append(el.Name.value)
+				if isinstance(self.TemplateDef.Elements[i + 1], CloseStartElement):
+					xml_elements.append(el.to_xml(self.TemplateInstanceData))
+					i += 2
+					continue
+
+				if isinstance(self.TemplateDef.Elements[i + 1], CloseEmptyElement):
+					open_tags.pop(-1)
+					xml_elements.append('<%s />' % el.Name.value)
+					i += 2
+					continue
+				
+
+			elif isinstance(el, Substitution):
+				if el.token == b'\x0E' and self.TemplateInstanceData.ValueSpec.ValueSpecEntries[el.SubstitutionId].ValueType == ValueType.NullType:
+					open_tags.pop(-1)
+					xml_elements.pop(-1)
+					n = 1
+					while True:
+						if isinstance(self.TemplateDef.Elements[i + n], EndElement):
+							n += 1 # increasing by 2 so we skip the endelement which would cause an error of popping an empty list
+							continue
+						break
+					i += n
+					continue
+				
+				xml_elements.append(el.to_xml(self.TemplateInstanceData))
+
+			elif isinstance(el, ValueText):
+				xml_elements.append(el.to_xml())
+
+			elif isinstance(el, EndElement):
+				xml_elements.append('</%s>' % open_tags.pop(-1))
+			
+			elif isinstance(el, EOF):
+				while len(open_tags) != 0:
+					xml_elements.append('</%s>' % open_tags.pop(-1))
+			
+			else:
+				raise Exception('Element not processed! %s' % el.to_xml())
+
+			i+= 1
+
+		return '\r\n'.join(xml_elements)
+
 	@staticmethod
 	def from_buffer(buff):
 		ti = TemplateInstance()
-		
 		ti.TemplateInstanceToken = buff.read(1)
-		print(b'aaaa' + peek_buffer(buff, 100))
 		ti.TemplateDef = TemplateDef.from_buffer(buff)
 		ti.TemplateInstanceData = TemplateInstanceData.from_buffer(buff)
-		print(ti.TemplateInstanceData.Values)
-		for i in ti.TemplateDef.Elements:
-			print(i)
-			if isinstance(i, StartElement):
-				if i.AttributeList is not None:
+		ti.to_xml()
 
-					print('    %s : %s' % (i.Name.value, i.AttributeList.Attributes ))
 		return ti
 
 class TemplateDef:
@@ -88,59 +144,11 @@ class TemplateDef:
 		td.FragmentHeader = parse_next(buff, (FragmentHeader,))
 		while True:
 			v = parse_next(buff, (Element, StartElement, CloseStartElement, CloseEmptyElement, Substitution, EndElement, ValueText, EOF))
+			td.Elements.append(v)
 			if isinstance(v, EOF):
 				break
-			#td.FragmentHeaders.append(v)
-			#v = parse_next(buff, (Element, StartElement, Substitution, EndElement, ValueText, EOF))
-			td.Elements.append(v)
-			#if isinstance(v, EOF):
-			#	break
 
 		return td
-	
-#	@staticmethod
-#	def from_buffer(buff):
-#		td = TemplateDef()
-#		
-#		td.dunno = buff.read(1) #docu sais it's \xb0 but itts not
-#		print('td.dunno %s' % td.dunno)
-#		td.TemplateId = GUID.from_buffer(buff)
-#		print(td.TemplateId)
-#		td.TemplateDefByteLength = int.from_bytes(buff.read(4), byteorder = 'little', signed=False)
-#		print('td.TemplateDefByteLength %s' % td.TemplateDefByteLength)
-#		
-#		pd = peek_buffer(buff)
-#		if pd == b'\x00':
-#			return td
-#		elif pd == b'\x0F':
-#			td.FragmentHeader = FragmentHeader.from_buffer(buff)
-#		while True:
-#			print('b4 elem end %s' % peek_buffer(buff, 100))
-#			td.Elements.append(Element.from_buffer(buff))
-#			end = peek_buffer(buff)
-#			if end == b'\x00':
-#				buff.read(1)
-#				break
-#			elif end == b'\x04':
-#				print('!!!!!!!!!!!!!!!!!!!!!!!!!!')
-#				buff.read(1)
-#				sub = Substitution.from_buffer(buff)
-#				if peek_buffer(buff) == b'\x04':
-#					buff.read(1)
-#					if peek_buffer(buff) == b'\x00':
-#						buff.read(1)
-#						break
-#					print('b4 elem end %s' % peek_buffer(buff, 100))
-#					break
-#				
-#				
-#				continue
-#				#td.Elements.append(Element.from_buffer(buff))
-#
-#			
-#		print('end: %s' % end)
-#		print('TemplateDef end %s' % peek_buffer(buff, 100))
-#		return td
 
 class TemplateInstanceData:
 	def __init__(self):
@@ -156,7 +164,7 @@ class TemplateInstanceData:
 			val = decode_val(buff.read(vp.ValueByteLength), vp.ValueType)
 			tid.Values.append(val)
 
-		return tid 
+		return tid
 
 class ValueSpec:
 	def __init__(self):
@@ -167,8 +175,6 @@ class ValueSpec:
 	def from_buffer(buff):
 		vs = ValueSpec()
 		vs.NumValues = int.from_bytes(buff.read(4), byteorder = 'little', signed=False)
-		#raise Exception('gell')
-		print('vs.NumValues %s' % vs.NumValues)
 		for _ in range(vs.NumValues):
 			vs.ValueSpecEntries.append(ValueSpecEntry.from_buffer(buff))
 		return vs
@@ -190,13 +196,14 @@ class Element:
 	def __init__(self):
 		self.StartElement = None
 		self.Contents = []
-	
+
 	@staticmethod
 	def from_buffer(buff):
 		el = Element()
-		el.StartElement = parse_next(buff, (StartElement,)) #StartElement.from_buffer(buff)
+		el.StartElement = parse_next(buff, (StartElement,))
 
 		t = parse_next(buff, (CloseStartElement, CloseEmptyElement))
+		el.Contents.append(t)
 		if isinstance(t, CloseEmptyElement): 
 			return el
 		
@@ -206,16 +213,9 @@ class Element:
 			if isinstance(t, EndElement):
 				return el
 
-		#t = buff.read(1)
-		#if t == b'\x02':
-		#	while True:
-		#		print(1)
-		#		Content = parse_next(buff)
-		#		if isinstance(Content, EndElement):
-		#			break
 		return el
 
-
+## this class is bundled in with the Element class, no need for it separately
 #class Content:
 #	def __init__(self):
 #		pass
@@ -241,18 +241,23 @@ class StartElement:
 		self.Name = None
 		self.AttributeList = None
 
+	def to_xml(self, subtable = None):
+		if self.AttributeList is None:
+			return '<%s>' % (self.Name.value)
+		else:
+			t = '<%s ' % (self.Name.value)
+			t += self.AttributeList.to_xml(subtable)
+			t += '>'
+		return t
+
 	@staticmethod
 	def from_buffer(buff):
 		se = StartElement()
 		se.OpenStartElementToken = buff.read(1)
-		print('OpenStartElementToken %s' % se.OpenStartElementToken)
 		se.DependencyId = int.from_bytes(buff.read(2), byteorder = 'little', signed=False)
 		se.ElementByteLength = int.from_bytes(buff.read(4), byteorder = 'little', signed=False)
-		print('se.ElementByteLength: %s' % se.ElementByteLength)
 		se.Name = Name.from_buffer(buff)
-		print('se.Name %s' % se.Name.value)
 		if se.OpenStartElementToken == b'\x41':
-			print('gere')
 			se.AttributeList = AttributeList.from_buffer(buff)
 		return se
 
@@ -268,14 +273,15 @@ class Attribute:
 		vt.AttributeToken = buff.read(1)
 		vt.Name = Name.from_buffer(buff)
 		vt.AttributeCharData = AttributeCharData.from_buffer(buff)
-		
-		print('%s : %s' % (vt.Name.value, vt.AttributeCharData.value.value))
 		return vt
 
 class AttributeCharData:
 	def __init__(self):
 		self.AttributeToken = None
 		self.value = None
+
+	def to_xml(self, subtable = None):
+		return self.value.to_xml(subtable)
 
 	@staticmethod
 	def from_buffer(buff):
@@ -288,13 +294,18 @@ class AttributeList:
 		self.AttributeListByteLength = None
 		self.Attributes = []
 
+	def to_xml(self, subtable = None):
+		t = []
+		for attr in self.Attributes:
+			t.append('%s="%s"' % (attr.Name.value, attr.AttributeCharData.to_xml(subtable)))
+		return ' '.join(t)
+
 	@staticmethod
 	def from_buffer(buff):
 		vt = AttributeList()
 		vt.AttributeListByteLength = int.from_bytes(buff.read(4), byteorder = 'little', signed=False)
 		pos = buff.tell() + vt.AttributeListByteLength
 		while buff.tell() != pos :
-			print(1)
 			vt.Attributes.append(Attribute.from_buffer(buff))
 		
 		return vt
@@ -304,6 +315,9 @@ class ValueText:
 		self.ValueTextToken = None
 		self.StringType = None
 		self.value = None
+
+	def to_xml(self, subtable = None):
+		return self.value
 
 	@staticmethod
 	def from_buffer(buff):
@@ -320,6 +334,22 @@ class Substitution:
 		self.ValueType = None
 
 		self.value = 'substitution'
+
+	def to_xml(self, subtable = None):
+		if self.ValueType == ValueType.BinXmlType:
+			return subtable.Values[self.SubstitutionId].to_xml() #recursion much?!
+		elif isinstance(subtable.Values[self.SubstitutionId], list):
+			t = ''
+			for x in subtable.Values[self.SubstitutionId]:
+				if x == '':
+					t += '<Data />'
+				t += '<Data>%s</Data>' % x
+			
+			return t
+		
+		return str(subtable.Values[self.SubstitutionId])
+
+		
 
 	@staticmethod
 	def from_buffer(buff):
@@ -414,8 +444,7 @@ class Name:
 		n.NameHash = int.from_bytes(buff.read(2), byteorder = 'little', signed=False)
 		n.NameNumChars = int.from_bytes(buff.read(2), byteorder = 'little', signed=False)
 		Name_val = buff.read((n.NameNumChars * 2) + 2)
-		#print(Name_val)
-		n.value = Name_val.decode('utf-16-le')
+		n.value = Name_val.decode('utf-16-le')[:-1]
 		return n
 
 class CloseStartElement:
@@ -480,9 +509,9 @@ def parse_next(buff, expected = ()):
 	raise Exception('parse_next error! %s expected but %s found' % (expected, type(t)))
 
 def decode_val(data, data_type):
-	print('decode_val %s : %s' % (data_type, data))
+	#print('decode_val %s : %s' % (data_type, data))
 	if data_type == ValueType.NullType:
-		return None
+		return ''
 	elif data_type == ValueType.StringType:
 		return data.decode('utf-16-le')
 	elif data_type == ValueType.AnsiStringType:
@@ -514,22 +543,35 @@ def decode_val(data, data_type):
 	elif data_type == ValueType.GuidType:
 		return GUID.from_bytes(data)
 	elif data_type == ValueType.SizeTType:
-		return None
+		return '0x' + data[::-1].hex()
 	elif data_type == ValueType.FileTimeType:
-		return None
+		return FILETIME.from_bytes(data).datetime.isoformat()
 	elif data_type == ValueType.SysTimeType:
-		return None
+		return FILETIME.from_bytes(data).datetime.isoformat()
 	elif data_type == ValueType.SidType:
 		return SID.from_bytes(data)
 	elif data_type == ValueType.HexInt32Type:
-		return None
+		return '0x' + data[::-1].hex()
 	elif data_type == ValueType.HexInt64Type:
-		return None
+		return '0x' + data[::-1].hex()
 	elif data_type == ValueType.BinXmlType:
 		return Fragment.from_bytes(data)
+
+	elif data_type == ValueType.StringArrayType:
+		sa = []
+		i = 0
+		t = b''
+		while i < len(data):
+			t += data[i:i+1]
+			if t[-3:] == b'\x00\x00\x00' or t == b'\x00\x00':
+				sa.append(t.decode('utf-16-le')[:-1])
+				t = b''
+			i += 1
+		return sa
+	else:
+		raise Exception('Unknown format! %s' % data_type)
 	
 	
-	return None
 
 token_node_lookup = {
 	b'\x00' : EOF,
@@ -580,6 +622,7 @@ class ValueType(enum.Enum):
 	HexInt32Type = b'\x14'
 	HexInt64Type = b'\x15'
 	BinXmlType = b'\x21'
+
 	StringArrayType = b'\x81'
 	AnsiStringArrayType = b'\x82'
 	Int8ArrayType = b'\x83'
