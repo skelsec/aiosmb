@@ -8,6 +8,7 @@ from aiosmb.dcerpc.v5 import even6
 from aiosmb.dcerpc.v5.interfaces.endpointmgr import EPM
 from aiosmb.dcerpc.v5.rpcrt import RPC_C_AUTHN_LEVEL_NONE, RPC_C_AUTHN_LEVEL_PKT_INTEGRITY, RPC_C_AUTHN_LEVEL_PKT_PRIVACY, DCERPCException, RPC_C_AUTHN_GSS_NEGOTIATE, RPC_C_AUTHN_LEVEL_CONNECT
 
+
 ### This does not work over SMB, only TCP/IP! Also, the RPC_C_AUTHN_LEVEL_PKT_PRIVACY must be set!!!
 ### 
 ###
@@ -149,11 +150,64 @@ class SMBEven6:
 
 		except Exception as e:
 			return None, err
-		
+
+
+from Evtx.BinaryParser import Block
+from Evtx.Nodes import StreamStartNode
+from Evtx.Nodes import TemplateNode
+
+class ChunkTest(Block):
+	
+	def __init__(self, buf, offset):
+		super(ChunkTest, self).__init__(buf, offset)
+		self._strings = None
+		self._templates = None
+
+	def _load_templates(self):
+		"""
+		@return None
+		"""
+		if self._templates is None:
+			self._templates = {}
+		for i in range(32):
+			ofs = self.unpack_dword(i * 4)
+			print('ofs %s' % ofs)
+			while ofs > 0:
+				# unclear why these are found before the offset
+				# this is a direct port from A.S.'s code
+				token = self.unpack_byte(ofs - 10)
+				pointer = self.unpack_dword(ofs - 4)
+				if token != 0x0c or pointer != ofs:
+					#logger.warning("Unexpected token encountered")
+					ofs = 0
+					continue
+				template = self.add_template(ofs)
+				ofs = template.next_offset()
+
+	def add_template(self, offset, parent=None):
+		"""
+		@param offset An integer which contains the chunk-relative offset
+		   to a template to load into this Chunk.
+		@param parent (Optional) The parent of the newly created
+		   TemplateNode instance. (Default: this chunk).
+		@return Newly added TemplateNode instance.
+		"""
+		print('offs: %s' % offset)
+		print('pl %s' % (self._offset + offset))
+		if self._templates is None:
+			self._load_templates()
+
+		node = TemplateNode(self._buf, self._offset + offset,
+							self, parent or self)
+		self._templates[offset] = node
+		return node
 
 async def amain():
 	#from evtx import PyEvtxParser
-	from aiosmb.dcerpc.v5.interfaces.binxml import BinXMLFragment
+	from Evtx.Nodes import StreamStartNode
+	#from Evtx.Evtx import BXmlNode
+	
+	from aiosmb.dcerpc.v5.interfaces.binxml import Fragment
 	import traceback
 	from aiosmb.commons.connection.url import SMBConnectionURL
 	from aiosmb.connection import SMBConnection
@@ -191,14 +245,26 @@ async def amain():
 		print(sec_handle)
 
 
-	res, err = await ei.query_next(sec_handle, 100)
+	res, err = await ei.query_next(sec_handle, 1)
 	if err is not None:
 		print(err)
 	
 	else:
 		for data in res:
-			print(data.eventData[:0x50])
-			bx = BinXMLFragment.from_bytes(data.eventData)
+			print(data.eventData)
+			print(len(data.eventData))
+			print(hex(len(data.eventData)))
+			
+			#tc = ChunkTest(data.eventData, 0)
+			#t = data.eventData + b'\x00' * 100
+			#buf = io.BytesIO(t)
+			#chunk = StreamStartNode(data.eventData, 0, tc, None)
+			
+			#x = ChunkHeader(data.eventData, 0)
+			#print(tc._templates)
+			#print(str(chunk._children()))
+
+			bx = Fragment.from_bytes(data.eventData)
 
 			print(bx)
 			#x = io.BytesIO(data.eventData)
