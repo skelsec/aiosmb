@@ -193,6 +193,7 @@ async def amain():
 	else:
 		print(res)
 
+	await ei.close()
 	await conn.disconnect()
 
 
