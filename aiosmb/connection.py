@@ -967,7 +967,7 @@ class SMBConnection:
 				raise SMBCreateAccessDenied()
 				
 			else:
-				raise SMBException('', rply.header.Status)
+				raise SMBException('%s' % rply.header.Status.name, rply.header.Status)
 		
 		except Exception as e:
 			if return_reply == True:

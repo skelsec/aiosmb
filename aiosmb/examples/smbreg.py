@@ -18,16 +18,26 @@ class SMBREG_COMMAND(enum.Enum):
 async def amain():
 	import argparse
 	import sys
+	import logging
 	
 
 	parser = argparse.ArgumentParser(description='Registry manipulation via SMB')
 	SMBConnectionParams.extend_parser(parser)
+	parser.add_argument('-v', '--verbose', action='count', default=0)
 	parser.add_argument('url', help='Connection URL base, target can be set to anything. Owerrides all parameter based connection settings! Example: "smb2+ntlm-password://TEST\\victim@test"')
-	parser.add_argument('commands', nargs='*', help = 'Commands in the following format: r:HKLM\....')
+	parser.add_argument('commands', nargs='*', help = 'Commands in the following format: "r:HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\SecurityProviders\WDigest:Negotiate"')
 
 	args = parser.parse_args()
 
-	logger.setLevel(100)
+	if args.verbose >=1:
+		logger.setLevel(logging.DEBUG)
+
+	if args.verbose > 2:
+		print('setting deepdebug')
+		logger.setLevel(1) #enabling deep debug
+		asyncio.get_event_loop().set_debug(True)
+		logging.basicConfig(level=logging.DEBUG)
+	
 	commands = []
 	smb_url = None
 	if args.url is not None:
@@ -47,6 +57,9 @@ async def amain():
 
 	connection = SMBConnectionURL(smb_url).get_connection()
 	_, err = await connection.login()
+	if err is not None:
+		print('Login failed! Reason: %s' % str(err))
+		return
 	machine = SMBMachine(connection)
 	#async for srv, err in machine.list_services():
 	#	if err is not None:
@@ -64,7 +77,7 @@ async def amain():
 		if err is not None:
 			print(err)
 			return
-		await asyncio.sleep(1) #waiting for service to start up
+		await asyncio.sleep(5) #waiting for service to start up
 	
 	reg_api, err = await machine.get_regapi()
 	if err is not None:
@@ -74,12 +87,12 @@ async def amain():
 	## do stuff
 	for cmd, target in commands:
 		if cmd == SMBREG_COMMAND.READ:
-			hkey, err = await reg_api.OpenRegPath(target)
+			regpath, name = target.split(':',1)
+			hkey, err = await reg_api.OpenRegPath(regpath)
 			if err is not None:
 				print(err)
 				continue
 			
-			name = target.split('\\',1)[-1]
 			val_type, value, err = await reg_api.QueryValue(hkey, name)
 			if err is not None:
 				print(err)

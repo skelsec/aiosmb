@@ -2,6 +2,7 @@
 import asyncio
 import enum
 import uuid
+import logging
 
 from aiosmb import logger
 from aiosmb.commons.connection.url import SMBConnectionURL
@@ -203,6 +204,7 @@ async def amain():
 	import sys
 
 	parser = argparse.ArgumentParser(description='SMB Protocol enumerator. Tells which dialects suported by the remote end')
+	parser.add_argument('-v', '--verbose', action='count', default=0)
 	parser.add_argument('-w', '--smb-worker-count', type=int, default=100, help='Parallell count')
 	parser.add_argument('-t', '--timeout', type=int, default=50, help='Timeout for each connection')
 	parser.add_argument('--signing', action='store_true', help='Only check for the singing properties. (faster)')
@@ -210,7 +212,15 @@ async def amain():
 	parser.add_argument('targets', nargs='*', help = 'Hostname or IP address or file with a list of targets')
 	args = parser.parse_args()
 
-	logger.setLevel(100)
+	if args.verbose >=1:
+		logger.setLevel(logging.DEBUG)
+
+	if args.verbose > 2:
+		print('setting deepdebug')
+		logger.setLevel(1) #enabling deep debug
+		asyncio.get_event_loop().set_debug(True)
+		logging.basicConfig(level=logging.DEBUG)
+
 	enumerator = SMBProtocolEnum(worker_count = args.smb_worker_count, timeout = args.timeout, only_signing = args.signing)
 
 	notfile = []

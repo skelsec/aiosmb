@@ -120,6 +120,7 @@ async def amain():
 
 	parser = argparse.ArgumentParser(description='SMB Share enumerator')
 	SMBConnectionParams.extend_parser(parser)
+	parser.add_argument('-v', '--verbose', action='count', default=0)
 	parser.add_argument('-s', '--stdin', action='store_true', help='Read targets from stdin')
 	parser.add_argument('-r', '--recursive', action='store_true', help='Recirsively donwload all files from the remote folder')
 	parser.add_argument('--progress', action='store_true', help='Show progress')
@@ -127,7 +128,15 @@ async def amain():
 	parser.add_argument('targets', nargs='*', help = 'UNC paths of file eg. \\\\HOST\\SHARE\\file_or_folder')
 	args = parser.parse_args()
 
-	logger.setLevel(1)
+	if args.verbose >=1:
+		logger.setLevel(logging.DEBUG)
+
+	if args.verbose > 2:
+		print('setting deepdebug')
+		logger.setLevel(1) #enabling deep debug
+		asyncio.get_event_loop().set_debug(True)
+		logging.basicConfig(level=logging.DEBUG)
+
 	smb_url = None
 	if args.url is not None:
 		smb_url = args.smb_url
