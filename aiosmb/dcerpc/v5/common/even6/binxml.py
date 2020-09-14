@@ -79,23 +79,27 @@ class TemplateInstance:
 
 				if isinstance(self.TemplateDef.Elements[i + 1], CloseEmptyElement):
 					open_tags.pop(-1)
-					xml_elements.append('<%s />' % el.Name.value)
+					xml_elements.append(el.to_xml(self.TemplateInstanceData, is_empty = True))
 					i += 2
 					continue
 				
 
 			elif isinstance(el, Substitution):
-				if el.token == b'\x0E' and self.TemplateInstanceData.ValueSpec.ValueSpecEntries[el.SubstitutionId].ValueType == ValueType.NullType:
-					open_tags.pop(-1)
-					xml_elements.pop(-1)
-					n = 1
-					while True:
-						if isinstance(self.TemplateDef.Elements[i + n], EndElement):
-							n += 1 # increasing by 2 so we skip the endelement which would cause an error of popping an empty list
-							continue
-						break
-					i += n
-					continue
+				if el.token == b'\x0E':
+					list_replacement = isinstance(self.TemplateInstanceData.Values[el.SubstitutionId], list)
+					if self.TemplateInstanceData.ValueSpec.ValueSpecEntries[el.SubstitutionId].ValueType == ValueType.NullType or list_replacement:
+						open_tags.pop(-1)
+						xml_elements.pop(-1)
+						n = 1
+						while True:
+							if isinstance(self.TemplateDef.Elements[i + n], EndElement):
+								n += 1 # increasing by 2 so we skip the endelement which would cause an error of popping an empty list
+								continue
+							break
+						i += n
+						if list_replacement:
+							xml_elements.append(el.to_xml(self.TemplateInstanceData))
+						continue
 				
 				xml_elements.append(el.to_xml(self.TemplateInstanceData))
 
@@ -241,13 +245,13 @@ class StartElement:
 		self.Name = None
 		self.AttributeList = None
 
-	def to_xml(self, subtable = None):
+	def to_xml(self, subtable = None, is_empty = False):
 		if self.AttributeList is None:
 			return '<%s>' % (self.Name.value)
 		else:
 			t = '<%s ' % (self.Name.value)
 			t += self.AttributeList.to_xml(subtable)
-			t += '>'
+			t += '>' if is_empty is False else ' />'
 		return t
 
 	@staticmethod

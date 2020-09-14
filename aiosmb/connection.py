@@ -34,7 +34,8 @@ from aiosmb.wintypes.dtyp.constrcuted_security.security_descriptor import SECURI
 from aiosmb.commons.smbcontainer import *
 from aiosmb.commons.connection.target import *
 
-from aiosmb.crypto.pure.AES.AESCCM import aesCCMEncrypt, aesCCMDecrypt
+from aiosmb.crypto.symmetric import aesCCMEncrypt, aesCCMDecrypt
+#from aiosmb.crypto.pure.AES.AESCCM import aesCCMEncrypt, aesCCMDecrypt
 #from aiosmb.crypto.AESCCM_dome import aesCCMEncrypt, aesCCMDecrypt
 from aiosmb.crypto.BASE import cipherMODE
 from aiosmb.crypto.from_impacket import KDF_CounterMode, AES_CMAC

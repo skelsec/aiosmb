@@ -46,20 +46,22 @@ class TCPSocket:
 		"""
 		Reads data bytes from the socket and dispatches it to the incoming queue
 		"""
-		while not self.disconnected.is_set():			
-			data = await asyncio.gather(*[self.reader.read(4096)], return_exceptions = True)
-			if isinstance(data[0], bytes):
-				#print('%s : %s' % (self.writer.get_extra_info('peername')[0], data[0]))
-				await self.in_queue.put( (data[0], None) )
+		lasterror = None
+		while not self.disconnected.is_set():	
+			try:
+				data = await self.reader.read(10240)
+				await self.in_queue.put( (data, None) )
 			
-			elif isinstance(data[0], asyncio.CancelledError):
-				return
-				
-			elif isinstance(data[0], Exception):
-				logger.exception('[TCPSocket] handle_incoming %s' % str(data[0]))
-				await self.in_queue.put( (None, data[0]) )
-				await self.disconnect()
-				return
+			except asyncio.CancelledError as e:
+				lasterror = e
+				break
+			except Exception as e:
+				logger.exception('[TCPSocket] handle_incoming %s' % str(e))
+				lasterror = e
+				break
+		
+		await self.in_queue.put( (None, lasterror) )
+		await self.disconnect()
 		
 	async def handle_outgoing(self):
 		"""

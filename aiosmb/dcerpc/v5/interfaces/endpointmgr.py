@@ -29,6 +29,8 @@ class EPM:
 		auth = DCERPCAuth.from_smb_gssapi(self.smb_connection.gssapi)
 		return DCERPC5Connection(auth, target)
 
+	async def disconnect(self):
+		await self.dce.disconnect()
 
 	async def connect(self):
 		try:

@@ -19,6 +19,11 @@ try:
 except:
 	pass
 
+try:
+	from Cryptodome.Cipher import ARC4 as _pyCryptodomeRC4
+except:
+	pass
+
 class pureRC4(symmetricBASE):
 	def __init__(self, key):
 		if not isinstance(key, bytes):
@@ -28,6 +33,21 @@ class pureRC4(symmetricBASE):
 		
 	def setup_cipher(self):		
 		self._cipher = _pureRC4(self.key)
+
+	def encrypt(self, data):
+		return self._cipher.encrypt(data)
+	def decrypt(self, data):
+		return self._cipher.decrypt(data)
+
+class pyCryptodomeRC4(symmetricBASE):
+	def __init__(self, key):
+		if not isinstance(key, bytes):
+			raise Exception('Key needs to be bytes!')
+		self.key = key
+		symmetricBASE.__init__(self)
+		
+	def setup_cipher(self):		
+		self._cipher = _pyCryptodomeRC4.new(self.key)
 
 	def encrypt(self, data):
 		return self._cipher.encrypt(data)

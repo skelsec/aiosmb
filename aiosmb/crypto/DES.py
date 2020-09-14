@@ -7,6 +7,7 @@ currently it's not the perfect wrapper, needs to be extended
 
 from aiosmb.crypto.BASE import symmetricBASE, cipherMODE
 import aiosmb.crypto.pure.DES.DES as _pyDES
+
 try:
 	from Crypto.Cipher import DES as _pyCryptoDES
 except:
@@ -15,6 +16,11 @@ except:
 try:
 	from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 	from cryptography.hazmat.backends import default_backend
+except:
+	pass
+
+try:
+	from Cryptodome.Cipher import DES as _pyCryptodomeDES
 except:
 	pass
 
@@ -60,13 +66,35 @@ class pureDES(symmetricBASE):
 	def decrypt(self, data):
 		return self._cipher.decrypt(data)
 
+class pyCryptodomeDES(symmetricBASE):
+	def __init__(self, key, mode = cipherMODE.ECB, IV = None):
+		self.key = key
+		if len(key) == 7:
+			self.key = expand_DES_key(key)
+
+		self.mode = mode
+		self.IV = IV
+		symmetricBASE.__init__(self)
+
+	def setup_cipher(self):
+		if self.mode == cipherMODE.ECB:
+			self._cipher = _pyCryptodomeDES.new(self.key, _pyCryptodomeDES.MODE_ECB)
+		elif self.mode == cipherMODE.CBC:
+			self._cipher = _pyCryptodomeDES.new(self.key, _pyCryptodomeDES.MODE_CBC, self.IV)
+		else:
+			raise Exception('Unknown cipher mode!')
+		
+	def encrypt(self, data):
+		return self._cipher.encrypt(data)
+	def decrypt(self, data):
+		return self._cipher.decrypt(data)
 
 
 class pyCryptoDES(symmetricBASE):
 	def __init__(self, key, mode = cipherMODE.ECB, IV = None):
 		self.key = key
 		if len(key) == 7:
-			self.key = __expand_DES_key(key)
+			self.key = expand_DES_key(key)
 
 		self.mode = mode
 		self.IV = IV
@@ -79,8 +107,6 @@ class pyCryptoDES(symmetricBASE):
 			self._cipher = _pyCryptoDES.new(self.key, _pyCryptoDES.MODE_CBC, self.IV)
 		else:
 			raise Exception('Unknown cipher mode!')
-		
-		
 
 	def encrypt(self, data):
 		return self._cipher.encrypt(data)

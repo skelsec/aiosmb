@@ -93,6 +93,9 @@ class SMBDRSUAPI:
 			return True, None
 		except Exception as e:
 			return False, e
+		finally:
+			if epm is not None:
+				await epm.disconnect()
 		
 	async def open(self):
 		try:

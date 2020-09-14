@@ -40,12 +40,15 @@ class DCERPCTCPConnection:
 					data = await self.reader.readexactly(response_header['frag_len'] - 24)
 					msg_data += data
 					await self.in_queue.put((msg_data, None))
+				
+				except asyncio.CancelledError:
+					return
 				except Exception as e:
 					await self.in_queue.put((None, e))
 					return
 		
 		except asyncio.CancelledError:
-			#the SMB connection is terminating
+			#the connection is terminating
 			return
 			
 		except Exception as e:	
