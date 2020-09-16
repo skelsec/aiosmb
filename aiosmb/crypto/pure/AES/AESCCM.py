@@ -171,3 +171,6 @@ def aesCCMDecrypt(ciphertext, aad, key, nonce, macValue):
 		raise ValueError("Incorrect MAC")
 	else:
 		return plaintext
+
+
+

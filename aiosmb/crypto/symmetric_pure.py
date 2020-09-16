@@ -7,7 +7,7 @@ from aiosmb.crypto.AES import pureAES
 from aiosmb.crypto.DES import pureDES
 from aiosmb.crypto.RC4 import pureRC4
 from aiosmb.crypto.pure.AES.AESCCM import aesCCMEncrypt as ae
-from aiosmb.crypto.pure.AES.AESCCM import aesCCMEncrypt as ad
+from aiosmb.crypto.pure.AES.AESCCM import aesCCMDecrypt as ad
 
 DES = pureDES
 AES = pureAES
