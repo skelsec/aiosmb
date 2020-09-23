@@ -28,6 +28,8 @@ class TCPSocket:
 		Disconnects from the socket.
 		Stops the reader and writer streams.
 		"""
+		if self.disconnected.is_set():
+			return
 		if self.outgoing_task is not None:
 			self.outgoing_task.cancel()
 		if self.incoming_task is not None:
@@ -46,22 +48,32 @@ class TCPSocket:
 		"""
 		Reads data bytes from the socket and dispatches it to the incoming queue
 		"""
-		lasterror = None
-		while not self.disconnected.is_set():	
-			try:
-				data = await self.reader.read(10240)
-				await self.in_queue.put( (data, None) )
+		try:
+			lasterror = None
+			while not self.disconnected.is_set():	
+				try:
+					data = await self.reader.read(10240)
+					await self.in_queue.put( (data, None) )
+				
+				except asyncio.CancelledError as e:
+					lasterror = e
+					break
+				except Exception as e:
+					logger.exception('[TCPSocket] handle_incoming %s' % str(e))
+					lasterror = e
+					break
 			
-			except asyncio.CancelledError as e:
-				lasterror = e
-				break
-			except Exception as e:
-				logger.exception('[TCPSocket] handle_incoming %s' % str(e))
-				lasterror = e
-				break
+			
+		except asyncio.CancelledError:
+			return
 		
-		await self.in_queue.put( (None, lasterror) )
-		await self.disconnect()
+		except Exception as e:
+			lasterror = e
+
+		finally:
+			if self.in_queue is not None:
+				await self.in_queue.put( (None, lasterror) )
+			await self.disconnect()
 		
 	async def handle_outgoing(self):
 		"""

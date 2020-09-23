@@ -31,7 +31,7 @@ setup(
 	# Details
 	url="https://github.com/skelsec/aiosmb",
 
-	zip_safe = True,
+	zip_safe = False,
 	#
 	# license="LICENSE.txt",
 	description="Asynchronous SMB protocol implementation",

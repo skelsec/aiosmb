@@ -92,6 +92,9 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 	async def do_shares(self, show = True):
 		"""Lists available shares"""
 		try:
+			if self.machine is None:
+				print('Not logged in! Use "login" first!')
+				return False, Exception('Not logged in!')
 			async for share, err in self.machine.list_shares():
 				if err is not None:
 					raise err
@@ -537,7 +540,8 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			dst = '\\%s\\%s\\%s' % (self.__current_share.name, self.__current_directory.fullpath , basename)
 			_, err = await self.machine.put_file(file_name, dst)
 			if err is not None:
-				raise err
+				print('Failed to put file! Reason: %s' % err)
+				return False, err
 			print('File uploaded!')
 			await self.do_ls(False)
 			return True, None

@@ -363,7 +363,7 @@ class SMBMachine:
 			smbfile = SMBFile.from_remotepath(self.connection, remote_path)
 			_, err = await smbfile.open(self.connection, 'w')
 			if err is not None:
-				return False, None
+				return False, err
 
 			with open(local_path, 'rb') as f:
 				total_writen, err = await smbfile.write_buffer(f)
