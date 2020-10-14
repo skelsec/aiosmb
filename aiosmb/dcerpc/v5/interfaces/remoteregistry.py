@@ -101,15 +101,18 @@ class RRP:
 		return True, None
 	
 	async def connect(self):
-		rpctransport = SMBDCEFactory(self.connection,  filename=r'\winreg')
-		self.dce = rpctransport.get_dce_rpc()
-		_, err = await self.dce.connect()
-		if err is not None:
-			raise err
-		_, err = await self.dce.bind(rrp.MSRPC_UUID_RRP)
-		if err is not None:
-			raise err
-		return True, None
+		try:
+			rpctransport = SMBDCEFactory(self.connection,  filename=r'\winreg')
+			self.dce = rpctransport.get_dce_rpc()
+			_, err = await self.dce.connect()
+			if err is not None:
+				raise err
+			_, err = await self.dce.bind(rrp.MSRPC_UUID_RRP)
+			if err is not None:
+				raise err
+			return True, None
+		except Exception as e:
+			return None, e
 
 	async def close(self):
 		try:

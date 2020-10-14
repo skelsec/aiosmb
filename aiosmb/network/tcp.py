@@ -119,7 +119,7 @@ class TCPSocket:
 				raise asyncio.CancelledError
 				
 			except Exception as e:
-				logger.exception('[TCPSocket] connect generic exception')
+				logger.debug('[TCPSocket] connect generic exception')
 				raise e
 			
 			self.incoming_task = asyncio.create_task(self.handle_incoming())
