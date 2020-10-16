@@ -1,5 +1,6 @@
 import enum
 import platform
+import uuid
 
 
 class SMBCredentialTypes(enum.Enum):
@@ -40,7 +41,10 @@ class SMBAuthProtocol(enum.Enum):
 	MULTIPLEXOR_KERBEROS = 'MULTIPLEXOR_KERBEROS'
 	MULTIPLEXOR_SSL_NTLM = 'MULTIPLEXOR_SSL_NTLM'
 	MULTIPLEXOR_SSL_KERBEROS = 'MULTIPLEXOR_SSL_KERBEROS'
-
+	MPN_SSL_NTLM = 'MPN_SSL_NTLM'
+	MPN_NTLM = 'MPN_NTLM'
+	MPN_SSL_KERBEROS = 'MPN_SSL_KERBEROS'
+	MPN_KERBEROS = 'MPN_KERBEROS'
 
 class SMBCredential:
 	def __init__(self, username = None, domain = None, secret = None, secret_type = None, authentication_type = None, settings = None, target = None):
@@ -192,7 +196,45 @@ class SMBMultiplexorCredential:
 			self.mp_password = settings.get('password')[0]
 		self.agent_id = settings['agentid'][0]
 
-		
+class SMBMPNCredential:
+	def __init__(self):
+		self.mode = 'CLIENT'
+		self.type = 'NTLM'
+		self.username = '<CURRENT>'
+		self.domain = '<CURRENT>'
+		self.password = '<CURRENT>'
+		self.target = None
+		self.is_guest = False
+		self.is_ssl = False
+		self.mp_host = None
+		self.mp_port = 9999
+		self.mp_username = None
+		self.mp_domain = None
+		self.mp_password = None
+		self.agent_id = None
+		self.operator = None
+		self.timeout = 5
+
+
+	def get_url(self):
+		url_temp = 'ws://%s:%s'
+		if self.is_ssl is True:
+			url_temp = 'wss://%s:%s'
+		url = url_temp % (self.mp_host, self.mp_port)
+		return url
+
+	def parse_settings(self, settings):
+		self.mp_host = settings['host'][0]
+		if 'port' in settings:
+			self.mp_port = settings.get['port'][0]
+		if 'user' in settings:
+			self.mp_username = settings.get('user')[0]
+		if 'domain' in settings:
+			self.mp_domain = settings.get('domain')[0]
+		if 'password' in settings:
+			self.mp_password = settings.get('password')[0]
+		self.agent_id = uuid.UUID(settings['agentid'][0])
+
 def test():
 	s = 'TEST/victim/ntlm/nt:AAAAAAAA@10.10.10.2:445'
 	creds = SMBCredential.from_connection_string(s)

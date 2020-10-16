@@ -10,8 +10,10 @@
 # without the need of future remote calls 
 #
 
+import asyncio
 from aiosmb import logger
 from aiosmb.authentication.ntlm.native import NTLMAUTHHandler, NTLMHandlerSettings
+from mpnop.operator import MPNOPerator
 import enum
 
 class ISC_REQ(enum.IntFlag):
@@ -42,8 +44,8 @@ class ISC_REQ(enum.IntFlag):
 class SMBNTLMMPN:
 	def __init__(self, settings):
 		self.settings = settings
-		self.operator = settings['operator']
-		self.agent_id = settings['agentid']
+		self.operator = settings.operator
+		self.agent_id = settings.agent_id
 		self.mode = None #'CLIENT'
 		self.sspi = None
 		self.operator = None
@@ -82,43 +84,46 @@ class SMBNTLMMPN:
 		
 	def is_extended_security(self):
 		return self.ntlm_ctx.is_extended_security()
-		
-	#async def encrypt(self, data, message_no):
-	#	return self.sspi.encrypt(data, message_no)
-	#	
-	#async def decrypt(self, data, message_no):
-	#	return self.sspi.decrypt(data, message_no)
 	
 	async def authenticate(self, authData = None, flags = None, seq_number = 0, is_rpc = False):
-		if self.sspi is None:
-			self.sspi, err = await self.operator.create_sspi(self.agent_id)
-			if err is not None:
-				return None, None, err
+		try:
+			if self.operator is None:
+				self.operator = MPNOPerator(self.settings.get_url())
+				asyncio.create_task(self.operator.run())
+				await asyncio.wait_for(self.operator.connected_evt.wait(), timeout=self.settings.timeout)
+			if self.sspi is None:
+				self.sspi, err = await self.operator.create_sspi(self.agent_id)
+				if err is not None:
+					return None, None, err
 
-		if is_rpc is True and flags is None:
-			flags = ISC_REQ.REPLAY_DETECT | ISC_REQ.CONFIDENTIALITY| ISC_REQ.USE_SESSION_KEY| ISC_REQ.INTEGRITY| ISC_REQ.SEQUENCE_DETECT| ISC_REQ.CONNECTION
-			flags = int(flags)
-		
-		if self.settings.mode == 'CLIENT':
-			if authData is None:
-				ctx_attr, data, err = await self.sspi.ntlm_authenticate(context_attributes = flags)
-				if err is None:
+			if is_rpc is True and flags is None:
+				flags = ISC_REQ.REPLAY_DETECT | ISC_REQ.CONFIDENTIALITY| ISC_REQ.USE_SESSION_KEY| ISC_REQ.INTEGRITY| ISC_REQ.SEQUENCE_DETECT| ISC_REQ.CONNECTION
+				flags = int(flags)
+			
+			if self.settings.mode == 'CLIENT':
+				if authData is None:
+					ctx_attr, data, err = await self.sspi.ntlm_authenticate(context_attributes = flags)
+					if err is not None:
+						raise err
+					
 					self.ntlm_ctx.load_negotiate(data)
-				return data, err, err
-			else:
-				self.ntlm_ctx.load_challenge(authData)
-				ctx_attr, data, err = await self.sspi.ntlm_challenge(authData, context_attributes = flags)
-				if err is None:
-					self.ntlm_ctx.load_authenticate( data)
-					self.session_key, err = await self.sspi.get_sessionkey()
+					return data, err, err
+				else:
+					self.ntlm_ctx.load_challenge(authData)
+					ctx_attr, data, err = await self.sspi.ntlm_challenge(authData, context_attributes = flags)
 					if err is None:
-						self.ntlm_ctx.load_sessionkey(self.get_session_key())
-				
-				await self.sspi.disconnect()
-				return data, err, err
-				
-		else:
-			return None, None, Exception('Server mode not implemented!')
+						self.ntlm_ctx.load_authenticate( data)
+						self.session_key, err = await self.sspi.get_sessionkey()
+						if err is None:
+							self.ntlm_ctx.load_sessionkey(self.get_session_key())
+					
+					await self.sspi.disconnect()
+					return data, err, err
+					
+			else:
+				return None, None, Exception('Server mode not implemented!')
+		except Exception as e:
+			return None, None, e
 
 			
 	

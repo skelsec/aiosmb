@@ -12,8 +12,6 @@ from minikerberos.common.proxy import KerberosProxy
 from minikerberos.common.creds import KerberosCredential
 from minikerberos.common.spn import KerberosSPN
 
-from minikerberos.network.selector import KerberosClientSocketSelector
-
 
 if platform.system().upper() == 'WINDOWS':
 	from aiosmb.authentication.kerberos.sspi import SMBKerberosSSPI
@@ -135,6 +133,44 @@ class AuthenticatorBuilder:
 			spneg = SPNEGO()
 			spneg.add_auth_context('NTLMSSP - Microsoft NTLM Security Support Provider', handler)
 			return spneg
+
+		elif creds.authentication_type.value.startswith('MPN'):
+			if creds.authentication_type in [SMBAuthProtocol.MPN_SSL_NTLM, SMBAuthProtocol.MPN_NTLM]:
+				from aiosmb.authentication.ntlm.mpn import SMBNTLMMPN
+				ntlmcred = SMBMPNCredential()
+				ntlmcred.type = 'NTLM'
+				ntlmcred.is_ssl = True if creds.authentication_type == SMBAuthProtocol.MPN_SSL_NTLM else False
+				ntlmcred.parse_settings(creds.settings)
+				
+				handler = SMBNTLMMPN(ntlmcred)
+				#setting up SPNEGO
+				spneg = SPNEGO()
+				spneg.add_auth_context('NTLMSSP - Microsoft NTLM Security Support Provider', handler)
+				return spneg
+
+			elif creds.authentication_type in [SMBAuthProtocol.MPN_SSL_KERBEROS, SMBAuthProtocol.MPN_KERBEROS]:
+				from aiosmb.authentication.kerberos.mpn import SMBKerberosMPN
+
+				ntlmcred = SMBMPNCredential()
+				ntlmcred.type = 'KERBEROS'
+				ntlmcred.target = creds.target
+				if creds.username is not None:
+					ntlmcred.username = '<CURRENT>'
+				if creds.domain is not None:
+					ntlmcred.domain = '<CURRENT>'
+				if creds.secret is not None:
+					ntlmcred.password = '<CURRENT>'
+				ntlmcred.is_guest = False
+				ntlmcred.is_ssl = True if creds.authentication_type == SMBAuthProtocol.MPN_SSL_KERBEROS else False
+				ntlmcred.parse_settings(creds.settings)
+
+				handler = SMBKerberosMPN(ntlmcred)
+				#setting up SPNEGO
+				spneg = SPNEGO()
+				spneg.add_auth_context('MS KRB5 - Microsoft Kerberos 5', handler)
+				return spneg
+
+				
 
 		elif creds.authentication_type.value.startswith('MULTIPLEXOR'):
 			if creds.authentication_type in [SMBAuthProtocol.MULTIPLEXOR_SSL_NTLM, SMBAuthProtocol.MULTIPLEXOR_NTLM]:
