@@ -20,26 +20,23 @@ async def amain(url, src = "Security", query = '*', max_entries = 100):
 
 	_, err = await conn.login()
 	if err is not None:
-		print(err)
-		return
+		print('Failed to connect to server! %s' % err)
+		return False, err
 	else:
-		print('SMB Connected!')
+		logger.debug('SMB Connected!')
 	ei = SMBEven6(conn)
 	_, err = await ei.connect()
 	if err is not None:
-		print(err)
-		return
-	print('DCE Connected!')
+		print('Error during DCE connection! %s' % err)
+		return False, err
+	logger.debug('DCE Connected!')
 	
 	
-	sec_handle, err = await ei.register_query(src)
+	sec_handle, err = await ei.register_query(src, query=query)
 	if err is not None:
 		print(err)
-	
-	else:
-		print(sec_handle)
+		return False, err
 
-	errcnt = 0
 	async for res, err in ei.query_next(sec_handle, max_entries, as_xml=True):
 		if err is not None:
 			print(err)
@@ -51,9 +48,10 @@ async def amain(url, src = "Security", query = '*', max_entries = 100):
 			print(e)
 			pass
 
-	print(errcnt)
 	await ei.close()
 	await conn.disconnect()
+
+	return True, None
 
 
 def main():

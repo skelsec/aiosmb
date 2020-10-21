@@ -48,7 +48,7 @@ class SMBEven6:
 			epm = EPM(self.connection, protocol = 'ncacn_ip_tcp')
 			_, err = await epm.connect()
 			if err is not None:
-				raise err
+				return False, err
 			
 			stringBinding, _ = await rr(epm.map(even6.MSRPC_UUID_EVEN6))
 			self.dce = epm.get_connection_from_stringbinding(stringBinding)
@@ -56,13 +56,13 @@ class SMBEven6:
 
 			_, err = await self.dce.connect()
 			if err is not None:
-				raise err
+				return False, err
 
 			_, err = await self.dce.bind(even6.MSRPC_UUID_EVEN6)
 			if err is not None:
 				return False, err
 
-			return True,None
+			return True, None
 		
 		except Exception as e:
 			return False, e
@@ -124,6 +124,7 @@ class SMBEven6:
 			
 		except Exception as e:
 			yield None, e
+			return
 
 	async def list_channels(self):
 		try:
@@ -135,5 +136,5 @@ class SMBEven6:
 			return [x['Data'].replace('\x00','') for x in res['ChannelPaths']], None
 
 		except Exception as e:
-			return None, err
+			return None, e
 
