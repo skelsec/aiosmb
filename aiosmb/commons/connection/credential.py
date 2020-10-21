@@ -30,6 +30,7 @@ class SMBCredentialsSecretType(enum.Enum):
 	AES = 'AES'
 	RC4 = 'RC4'
 	CCACHE = 'CCACHE'
+	KEYTAB = 'KEYTAB'
 	NONE = 'NONE'
 
 class SMBAuthProtocol(enum.Enum):

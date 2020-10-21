@@ -39,10 +39,10 @@ setup(
 	# long_description=open("README.txt").read(),
 	python_requires='>=3.7',
 	install_requires=[
-		'minikerberos>=0.2.4',
+		'minikerberos>=0.2.5',
 		'winsspi>=0.0.9',
 		'six',
-		'asysocks>=0.0.7',
+		'asysocks>=0.0.10',
 		'tqdm',
 		'prompt-toolkit>=3.0.2'
 	],

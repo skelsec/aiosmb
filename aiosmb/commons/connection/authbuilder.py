@@ -1,5 +1,6 @@
 import enum
 import platform
+import os
 
 import copy
 from aiosmb.commons.connection.credential import *
@@ -60,26 +61,41 @@ class AuthenticatorBuilder:
 			if target.dc_ip is None:
 				raise Exception('target must have a dc_ip for kerberos!')
 			
-			kc = KerberosCredential()
-			kc.username = creds.username
-			kc.domain = creds.domain
-			if creds.secret_type == SMBCredentialsSecretType.PASSWORD:
-				kc.password = creds.secret
-			elif creds.secret_type == SMBCredentialsSecretType.NT:
-				kc.nt_hash = creds.secret
-				
-			elif creds.secret_type == SMBCredentialsSecretType.AES:
-				if len(creds.secret) == 32:
-					kc.kerberos_key_aes_128 = creds.secret
-				elif len(creds.secret) == 64:
-					kc.kerberos_key_aes_256 = creds.secret
-					
-			elif creds.secret_type == SMBCredentialsSecretType.RC4:
-				kc.kerberos_key_rc4 = creds.secret
+			if creds.secret_type == SMBCredentialsSecretType.KEYTAB:
+				filename = creds.secret
+				if creds.secret.upper() == 'ENV':
+					filename = os.environ['KRB5KEYTAB']
+
+				kc = KerberosCredential.from_keytab(filename, creds.username, creds.domain)
+
+			elif creds.secret_type == SMBCredentialsSecretType.CCACHE:
+				filename = creds.secret
+				if creds.secret.upper() == 'ENV':
+					try:
+						filename = os.environ['KRB5CCACHE']
+					except:
+						raise Exception('Kerberos auth missing environment variable KRB5CCACHE')
+				kc = KerberosCredential.from_ccache(filename, creds.username, creds.domain)
 			
-			elif creds.secret_type == SMBCredentialsSecretType.RC4:
-				kc.ccache = creds.secret
 			else:
+				kc = KerberosCredential()
+				kc.username = creds.username
+				kc.domain = creds.domain
+				if creds.secret_type == SMBCredentialsSecretType.PASSWORD:
+					kc.password = creds.secret
+				elif creds.secret_type == SMBCredentialsSecretType.NT:
+					kc.nt_hash = creds.secret
+					
+				elif creds.secret_type == SMBCredentialsSecretType.AES:
+					if len(creds.secret) == 32:
+						kc.kerberos_key_aes_128 = creds.secret
+					elif len(creds.secret) == 64:
+						kc.kerberos_key_aes_256 = creds.secret
+						
+				elif creds.secret_type == SMBCredentialsSecretType.RC4:
+					kc.kerberos_key_rc4 = creds.secret
+
+			if kc is None:
 				raise Exception('No suitable secret type found to set up kerberos!')
 			
 				
