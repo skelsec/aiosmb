@@ -7,7 +7,7 @@ from aiosmb.dcerpc.v5.interfaces.servicemanager import *
 from aiosmb import logger
 from aiosmb.dcerpc.v5 import system_errors
 from aiosmb.wintypes.dtyp.structures.filetime import FILETIME
-from aiosmb.wintypes.dtyp.constrcuted_security.security_descriptor import SECURITY_DESCRIPTOR
+from winacl.dtyp.security_descriptor import SECURITY_DESCRIPTOR
 from aiosmb.wintypes.dtyp.constrcuted_security.security_information import SECURITY_INFORMATION
 
 class HKEY(enum.Enum):

@@ -26,7 +26,7 @@ from aiosmb.fscc.structures.fileinfoclass import *
 from aiosmb.fscc.structures.FileFullDirectoryInformation import *
 from aiosmb.fscc.FileAttributes import FileAttributes
 
-from aiosmb.dtyp.constrcuted_security.security_descriptor import SECURITY_DESCRIPTOR
+from winacl.dtyp.security_descriptor import SECURITY_DESCRIPTOR
 
 from aiosmb.commons.smbcontainer import *
 from aiosmb.commons.smbtarget import *

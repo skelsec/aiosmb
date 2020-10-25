@@ -75,7 +75,9 @@ class AuthenticatorBuilder:
 						filename = os.environ['KRB5CCACHE']
 					except:
 						raise Exception('Kerberos auth missing environment variable KRB5CCACHE')
-				kc = KerberosCredential.from_ccache(filename, creds.username, creds.domain)
+				kc = KerberosCredential.from_ccache_file(filename)
+				kc.username = creds.username
+				kc.domain = creds.domain
 			
 			else:
 				kc = KerberosCredential()

@@ -259,7 +259,9 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 				raise err
 			self.__current_directory = self.__current_share.subdirs[''] #this is the entry directory
 			self.prompt = '[%s]$ ' % self.__current_directory.unc_path
-			await self.do_ls(False)
+			_, err = await self.do_refreshcurdir()
+			if err is not None:
+				raise err
 			return True, None
 
 		except SMBException as e:
@@ -278,8 +280,10 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			traceback.print_exc()
 			return None, e
 			
-	
-	async def do_ls(self, show = True):
+	async def do_dir(self):
+		return await self.do_ls()
+
+	async def do_ls(self):
 		try:
 			if self.__current_share is None:
 				print('No share selected!')
@@ -288,11 +292,9 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 				print('No directory selected!')
 				return
 			
-			#print(self.__current_directory)
-			async for entry in self.machine.list_directory(self.__current_directory):
-				if show == True:
-					print(entry)
-
+			for entry in self.__current_directory.get_console_output():
+				print(entry)
+			
 			return True, None
 		except SMBException as e:
 			logger.debug(traceback.format_exc())
@@ -306,6 +308,16 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			logger.debug(traceback.format_exc())
 			print(str(e))
 			return None, e
+		except Exception as e:
+			traceback.print_exc()
+			return None, e
+
+	async def do_refreshcurdir(self):
+		try:
+			async for entry in self.machine.list_directory(self.__current_directory):
+				a = 1
+			
+			return True, None
 		except Exception as e:
 			traceback.print_exc()
 			return None, e
@@ -331,8 +343,10 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			else:
 				self.__current_directory = self.__current_directory.subdirs[directory_name]
 				self.prompt = '[%s] $' % (self.__current_directory.unc_path)
-				await self.do_ls(False)
-			
+				_, err = await self.do_refreshcurdir()
+				if err is not None:
+					raise err
+
 				return True, None
 			
 		except SMBException as e:
@@ -361,16 +375,16 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			return []
 		return list(self.__current_directory.files.keys())
 
-	async def do_sid(self, file_name):
+	async def do_getfilesd(self, file_name):
 		try:
 			if file_name not in self.__current_directory.files:
 				print('file not in current directory!')
 				return False, None
 			file_obj = self.__current_directory.files[file_name]
-			sid, err = await file_obj.get_security_descriptor(self.connection)
+			sd, err = await file_obj.get_security_descriptor(self.connection)
 			if err is not None:
 				raise err
-			print(str(sid))
+			print(str(sd))
 			return True, None
 
 		except SMBException as e:
@@ -389,12 +403,12 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			traceback.print_exc()
 			return None, e
 
-	async def do_dirsid(self):
+	async def do_getdirsd(self):
 		try:
-			sid, err = await self.__current_directory.get_security_descriptor(self.connection)
+			sd, err = await self.__current_directory.get_security_descriptor(self.connection)
 			if err is not None:
 				raise err
-			print(str(sid))
+			print(str(sd))
 			return True, None
 		except SMBException as e:
 			logger.debug(traceback.format_exc())
@@ -543,7 +557,10 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 				print('Failed to put file! Reason: %s' % err)
 				return False, err
 			print('File uploaded!')
-			await self.do_ls(False)
+			_, err = await self.do_refreshcurdir()
+			if err is not None:
+				raise err
+			
 			return True, None
 
 		except SMBException as e:
@@ -571,7 +588,9 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			if err is not None:
 				raise err
 			print('File deleted!')
-			await self.do_ls(False)
+			_, err = await self.do_refreshcurdir()
+			if err is not None:
+				raise err
 			return True, None
 
 		except SMBException as e:
@@ -667,7 +686,9 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			if err is not None:
 				raise err
 			print('Directory created!')
-			await self.do_ls(False)
+			_, err = await self.do_refreshcurdir()
+			if err is not None:
+				raise err
 			return True, None
 
 		except SMBException as e:

@@ -29,14 +29,13 @@ from aiosmb.wintypes.fscc.structures.fileinfoclass import *
 from aiosmb.wintypes.fscc.structures.FileFullDirectoryInformation import *
 from aiosmb.wintypes.fscc.FileAttributes import FileAttributes
 
-from aiosmb.wintypes.dtyp.constrcuted_security.security_descriptor import SECURITY_DESCRIPTOR
+from winacl.dtyp.security_descriptor import SECURITY_DESCRIPTOR
+from winacl.functions.constants import SE_OBJECT_TYPE
 
 from aiosmb.commons.smbcontainer import *
 from aiosmb.commons.connection.target import *
 
 from aiosmb.crypto.symmetric import aesCCMEncrypt, aesCCMDecrypt
-#from aiosmb.crypto.pure.AES.AESCCM import aesCCMEncrypt, aesCCMDecrypt
-#from aiosmb.crypto.AESCCM_dome import aesCCMEncrypt, aesCCMDecrypt
 from aiosmb.crypto.BASE import cipherMODE
 from aiosmb.crypto.from_impacket import KDF_CounterMode, AES_CMAC
 from aiosmb.crypto.compression.lznt1 import compress as lznt1_compress
@@ -1114,7 +1113,7 @@ class SMBConnection:
 			if rply.header.Status == NTStatus.SUCCESS:
 				#https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-smb2/3b1b3598-a898-44ca-bfac-2dcae065247f
 				if info_type == QueryInfoType.SECURITY:
-					return SECURITY_DESCRIPTOR.from_bytes(rply.command.Data), None
+					return SECURITY_DESCRIPTOR.from_bytes(rply.command.Data, object_type=SE_OBJECT_TYPE.SE_FILE_OBJECT), None
 					
 				elif info_type == QueryInfoType.FILE:
 					if information_class == FileInfoClass.FileFullDirectoryInformation:

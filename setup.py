@@ -44,7 +44,8 @@ setup(
 		'six',
 		'asysocks>=0.0.10',
 		'tqdm',
-		'prompt-toolkit>=3.0.2'
+		'prompt-toolkit>=3.0.2',
+		'winacl>=0.0.7',
 	],
 	
 	classifiers=(

@@ -381,7 +381,7 @@ class SMBFile:
 				await asyncio.sleep(0) #to make sure we are not consuming all CPU
 				chunk = buffer.read(self.__connection.MaxWriteSize)
 				if len(chunk) == 0:
-					return total_writen
+					return total_writen, None
 				bytes_written, err = await self.__write(chunk, self.__position)
 				if err is not None:
 					raise err
