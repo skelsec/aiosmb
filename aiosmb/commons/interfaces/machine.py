@@ -539,11 +539,11 @@ class SMBMachine:
 		return self.tsch.list_tasks()
 
 	@req_tsch
-	async def tasks_register(self, template, task_name = None, flags = tsch.TASK_CREATE, ssdl = None, logon_type = tsch.TASK_LOGON_NONE):
+	async def tasks_register(self, template, task_name = None, flags = tsch.TASK_CREATE, sddl = None, logon_type = tsch.TASK_LOGON_NONE):
 		"""
 		Registers a new task
 		"""
-		return await self.tsch.register_task(template, task_name = task_name, flags = flags, ssdl = ssdl, logon_type = logon_type)
+		return await self.tsch.register_task(template, task_name = task_name, flags = flags, sddl = sddl, logon_type = logon_type)
 
 	@req_tsch
 	async def tasks_execute_commands(self, commands):

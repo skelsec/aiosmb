@@ -51,16 +51,16 @@ class SMBTSCH:
 
 		return True,None
 	
-	async def register_task(self, template, task_name = None, flags = tsch.TASK_CREATE, ssdl = NULL, logon_type = tsch.TASK_LOGON_NONE):
+	async def register_task(self, template, task_name = None, flags = tsch.TASK_CREATE, sddl = NULL, logon_type = tsch.TASK_LOGON_NONE):
 		if task_name is None:
 			task_name = os.urandom(5).hex()
 		if task_name[0] != '\\':
 			task_name = '\\' + task_name
 
-		if ssdl is None:
-			ssdl = NULL
+		if sddl is None:
+			sddl = NULL
 
-		res, err = await tsch.hSchRpcRegisterTask(self.dce, task_name, template, flags, ssdl, logon_type)
+		res, err = await tsch.hSchRpcRegisterTask(self.dce, task_name, template, flags, sddl, logon_type)
 		if err is not None:
 			return None, err
 		

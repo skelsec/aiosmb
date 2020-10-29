@@ -19,7 +19,7 @@ setup(
 
 	# Application author details:
 	author="Tamas Jos",
-	author_email="info@skelsec.com",
+	author_email="info@skelsecprojects.com",
 
 	# Packages
 	packages=find_packages(),
@@ -39,12 +39,13 @@ setup(
 	# long_description=open("README.txt").read(),
 	python_requires='>=3.7',
 	install_requires=[
-		'minikerberos>=0.2.4',
+		'minikerberos>=0.2.5',
 		'winsspi>=0.0.9',
 		'six',
-		'asysocks>=0.0.7',
+		'asysocks>=0.0.10',
 		'tqdm',
-		'prompt-toolkit>=3.0.2'
+		'prompt-toolkit>=3.0.2',
+		'winacl>=0.1.0',
 	],
 	
 	classifiers=(

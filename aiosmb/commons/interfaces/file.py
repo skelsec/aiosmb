@@ -113,17 +113,24 @@ class SMBFile:
 		if self.sid is None:
 			file_id = None
 			try:
+				tree_id = self.tree_id
+				if self.tree_id is None:
+					tree_entry, err = await connection.tree_connect(self.share_path)
+					if err is not None:
+						raise err
+					tree_id = tree_entry.tree_id
+
 				desired_access = FileAccessMask.READ_CONTROL
 				share_mode = ShareAccess.FILE_SHARE_READ
 				create_options = CreateOptions.FILE_NON_DIRECTORY_FILE | CreateOptions.FILE_SYNCHRONOUS_IO_NONALERT 
 				file_attrs = 0
 				create_disposition = CreateDisposition.FILE_OPEN
-				file_id, err = await connection.create(self.tree_id, self.fullpath, desired_access, share_mode, create_options, create_disposition, file_attrs)
+				file_id, err = await connection.create(tree_id, self.fullpath, desired_access, share_mode, create_options, create_disposition, file_attrs)
 				if err is not None:
 					raise err
 
 				self.sid, err = await connection.query_info(
-					self.tree_id,
+					tree_id,
 					file_id,
 					info_type = QueryInfoType.SECURITY, 
 					information_class = FileInfoClass.NONE, 
@@ -137,7 +144,7 @@ class SMBFile:
 
 			finally:
 				if file_id is not None:
-					await connection.close(self.tree_id, file_id)
+					await connection.close(tree_id, file_id)
 
 		return self.sid, None
 
@@ -381,7 +388,7 @@ class SMBFile:
 				await asyncio.sleep(0) #to make sure we are not consuming all CPU
 				chunk = buffer.read(self.__connection.MaxWriteSize)
 				if len(chunk) == 0:
-					return total_writen
+					return total_writen, None
 				bytes_written, err = await self.__write(chunk, self.__position)
 				if err is not None:
 					raise err

@@ -16,7 +16,7 @@ import copy
 
 from minikerberos.common import *
 
-from minikerberos.protocol.asn1_structs import AP_REP, EncAPRepPart, EncryptedData
+from minikerberos.protocol.asn1_structs import AP_REP, EncAPRepPart, EncryptedData, Ticket
 #from minikerberos.gssapi.gssapi import get_gssapi
 from aiosmb.authentication.kerberos.gssapi import get_gssapi
 from aiosmb.commons.connection.proxy import  SMBProxyType
@@ -43,6 +43,7 @@ class SMBKerberos:
 		self.iterations = 0
 		self.etype = None
 		self.seq_number = None
+		self.from_ccache = False
 	
 		self.setup()
 		
@@ -102,6 +103,7 @@ class SMBKerberos:
 	
 	async def authenticate(self, authData, flags = None, seq_number = 0, is_rpc = False):
 		try:
+			
 			if self.kc is None:
 				_, err = await self.setup_kc()
 				if err is not None:
@@ -109,17 +111,29 @@ class SMBKerberos:
 
 
 			if self.iterations == 0:
-				#tgt = await self.kc.get_TGT(override_etype=[18])
-				tgt = await self.kc.get_TGT(override_etype=[18])
-				tgs, encpart, self.session_key = await self.kc.get_TGS(self.spn)
+				try:
+					#check TGs first, maybe ccache already has what we need
+					tgs, encpart, self.session_key = await self.kc.get_TGS(self.spn)
+					
+					self.from_ccache = True
+				except Exception as e:
+					# this is normal when no credentials stored in ccache
+					#tgt = await self.kc.get_TGT(override_etype=[18])
+					tgt = await self.kc.get_TGT()
+					tgs, encpart, self.session_key = await self.kc.get_TGS(self.spn)
+				
 			ap_opts = []
 			if is_rpc == True:
 				if self.iterations == 0:
 					ap_opts.append('mutual-required')
 					flags = ChecksumFlags.GSS_C_CONF_FLAG | ChecksumFlags.GSS_C_INTEG_FLAG | ChecksumFlags.GSS_C_SEQUENCE_FLAG|\
 							ChecksumFlags.GSS_C_REPLAY_FLAG | ChecksumFlags.GSS_C_MUTUAL_FLAG | ChecksumFlags.GSS_C_DCE_STYLE
-							
-					apreq = self.kc.construct_apreq(tgs, encpart, self.session_key, flags = flags, seq_number = seq_number, ap_opts=ap_opts)					
+					
+					if self.from_ccache is False:
+						apreq = self.kc.construct_apreq(tgs, encpart, self.session_key, flags = flags, seq_number = seq_number, ap_opts=ap_opts)					
+					else:
+						apreq = self.kc.construct_apreq_from_ticket(Ticket(tgs['ticket']).dump(), self.session_key, tgs['crealm'], tgs['cname']['name-string'][0], flags = flags, seq_number = seq_number, ap_opts = ap_opts, cb_data = None)
+			
 					self.iterations += 1
 					return apreq, False, None
 					
@@ -158,7 +172,10 @@ class SMBKerberos:
 					
 					return token, False, None
 			else:
-				apreq = self.kc.construct_apreq(tgs, encpart, self.session_key, flags = flags, seq_number = seq_number, ap_opts=ap_opts)
+				if self.from_ccache is False:
+					apreq = self.kc.construct_apreq(tgs, encpart, self.session_key, flags = flags, seq_number = seq_number, ap_opts=ap_opts)
+				else:
+					apreq = self.kc.construct_apreq_from_ticket(Ticket(tgs['ticket']).dump(), self.session_key, tgs['crealm'], tgs['cname']['name-string'][0], flags = flags, seq_number = seq_number, ap_opts = ap_opts, cb_data = None)
 				return apreq, False, None
 		
 		except Exception as e:

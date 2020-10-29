@@ -143,7 +143,10 @@ class SMBDirectory:
 		Lists all files and folders in the directory
 		directory: SMBDirectory
 		fills the SMBDirectory's data
-		"""		
+		"""
+		self.files = {}
+		self.subdirs = {}
+		
 		desired_access = FileAccessMask.FILE_READ_DATA
 		share_mode = ShareAccess.FILE_SHARE_READ
 		create_options = CreateOptions.FILE_DIRECTORY_FILE | CreateOptions.FILE_SYNCHRONOUS_IO_NONALERT

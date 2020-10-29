@@ -48,7 +48,7 @@ class SMBEven6:
 			epm = EPM(self.connection, protocol = 'ncacn_ip_tcp')
 			_, err = await epm.connect()
 			if err is not None:
-				raise err
+				return False, err
 			
 			stringBinding, _ = await rr(epm.map(even6.MSRPC_UUID_EVEN6))
 			self.dce = epm.get_connection_from_stringbinding(stringBinding)
@@ -56,13 +56,13 @@ class SMBEven6:
 
 			_, err = await self.dce.connect()
 			if err is not None:
-				raise err
+				return False, err
 
 			_, err = await self.dce.bind(even6.MSRPC_UUID_EVEN6)
 			if err is not None:
 				return False, err
 
-			return True,None
+			return True, None
 		
 		except Exception as e:
 			return False, e
@@ -124,6 +124,7 @@ class SMBEven6:
 			
 		except Exception as e:
 			yield None, e
+			return
 
 	async def list_channels(self):
 		try:
@@ -135,66 +136,5 @@ class SMBEven6:
 			return [x['Data'].replace('\x00','') for x in res['ChannelPaths']], None
 
 		except Exception as e:
-			return None, err
+			return None, e
 
-
-async def amain():
-	import traceback
-	from aiosmb.commons.connection.url import SMBConnectionURL
-	from aiosmb.connection import SMBConnection
-
-	import xmltodict
-	import json
-
-	url = 'smb2+ntlm-password://TEST\\victim:Passw0rd!1@10.10.10.2'
-	su = SMBConnectionURL(url)
-	conn = su.get_connection()
-
-	_, err = await conn.login()
-	if err is not None:
-		print(err)
-		return
-	else:
-		print('SMB Connected!')
-	ei = SMBEven6(conn)
-	_, err = await ei.connect()
-	if err is not None:
-		print(err)
-		return
-	print('DCE Connected!')
-	
-	
-	sec_handle, err = await ei.register_query("Security")
-	if err is not None:
-		print(err)
-	
-	else:
-		print(sec_handle)
-
-	errcnt = 0
-	async for res, err in ei.query_next(sec_handle, 100, as_xml=True):
-		if err is not None:
-			print(err)
-			break
-		
-		try:
-			a = 1
-			print(res)
-			#my_dict=xmltodict.parse(res)
-			#json_data=json.dumps(my_dict)
-			#print(json_data)
-			#errcnt += 1
-		except Exception as e:
-			print(e)
-			pass
-			#errcnt += 1
-
-	print(errcnt)
-	await ei.close()
-	await conn.disconnect()
-
-
-	
-
-if __name__ == '__main__':
-	asyncio.run(amain())
