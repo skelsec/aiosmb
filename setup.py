@@ -19,7 +19,7 @@ setup(
 
 	# Application author details:
 	author="Tamas Jos",
-	author_email="info@skelsec.com",
+	author_email="info@skelsecprojects.com",
 
 	# Packages
 	packages=find_packages(),
@@ -45,7 +45,7 @@ setup(
 		'asysocks>=0.0.10',
 		'tqdm',
 		'prompt-toolkit>=3.0.2',
-		'winacl>=0.0.7',
+		'winacl>=0.1.0',
 	],
 	
 	classifiers=(
