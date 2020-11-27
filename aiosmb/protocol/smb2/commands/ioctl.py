@@ -273,7 +273,7 @@ class SOCKADDR_STORAGE:
 		if msg.Family == SOCKADDR_STORAGE_FAMILY.InterNetwork:
 			msg.Addr = ipaddress.ip_address(buff.read(4))
 		if msg.Family == SOCKADDR_STORAGE_FAMILY.InterNetworkV6:
-			msg.Addr = ipaddress.ip_address(buff.read(6))
+			msg.Addr = ipaddress.ip_address(buff.read(16))
 		return msg
 
 # https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-smb2/24bb31a3-72f4-4aa6-9296-1cfd3813d21a

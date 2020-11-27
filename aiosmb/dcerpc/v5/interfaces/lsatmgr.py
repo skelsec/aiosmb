@@ -87,5 +87,61 @@ class LSAD:
 		else:
 			yield resp, None
 		
+	@red
+	async def retrieve_private_data(self, policy_handle, key_name):
+		resp, err = await lsad.hLsarRetrievePrivateData(self.dce, self.policy_handles[policy_handle], key_name)
+		if err is not None:
+			return None, err
+		return resp, None
 
+
+async def amain(url):
+	import traceback
+	import hashlib
+	from aiosmb.commons.connection.url import SMBConnectionURL
+	from aiosmb.commons.interfaces.machine import SMBMachine
+	from aiosmb.wintypes.dtyp.constrcuted_security.guid import GUID
+
+	url = SMBConnectionURL(url)
+	connection = url.get_connection()
+	_, err = await connection.login()
+	if err is not None:
+		print(err)
+		raise err
 	
+	async with LSAD(connection) as b:
+		_, err = await b.connect()
+		if err is not None:
+			print(err)
+			print(traceback.format_tb(err.__traceback__))
+			return
+		ph, err = await b.open_policy2()
+		if err is not None:
+			print(err)
+			print(traceback.format_tb(err.__traceback__))
+			return
+		print(ph)
+
+		data, err = await b.retrieve_private_data(ph, 'G$BCKUPKEY_PREFERRED')
+		if err is not None:
+			print(err)
+			print(traceback.format_tb(err.__traceback__))
+			return
+		print(data)
+
+		guid = GUID.from_bytes(data)
+		g = 'G$BCKUPKEY_%s' % str(guid)
+		print(g)
+
+		data, err = await b.retrieve_private_data(ph, g)
+		if err is not None:
+			print(err)
+			print(traceback.format_tb(err.__traceback__))
+			return
+		print(data)
+
+
+if __name__ == '__main__':
+	import asyncio
+	url = 'smb2+ntlm-password://TEST\\Administrator:QLFbT8zkiFGlJuf0B3Qq@10.10.10.2'
+	asyncio.run(amain(url))
