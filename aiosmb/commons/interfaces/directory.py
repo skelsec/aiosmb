@@ -26,26 +26,124 @@ class SMBDirectory:
 		
 		self.files = {}
 		self.subdirs = {}
-	
+
+	@staticmethod
+	def from_uncpath(unc_path):
+		"""
+		Creates SMBFile object from the UNC path supplied.
+		Example uncpath: \\\\127.0.0.1\\C$\\temp\\test.exe
+		"""
+		unc = PureWindowsPath(unc_path)
+		f = SMBDirectory()
+		f.share_path = unc.drive
+		f.fullpath = '\\'.join(unc.parts[1:])
+		
+		return f
+
+	@staticmethod
+	def from_remotepath(connection, remotepath):
+		"""
+		Creates SMBFile object from the connection and the remote path supplied.
+		Example remotepath: \\C$\\temp\\test.exe
+		"""
+		temp = '\\\\%s\\%s'
+		if remotepath[0] == '\\':
+			temp = '\\\\%s%s'
+		unc = temp % (connection.target.get_hostname_or_ip(), remotepath)
+		return SMBDirectory.from_uncpath(unc)
+
+	@staticmethod
+	async def delete_unc(connection, remotepath):
+		"""
+		Deletes a directory at a given path.
+		"""
+		try:
+			remfile = SMBDirectory.from_remotepath(connection, remotepath)
+			tree_entry, err = await connection.tree_connect(remfile.share_path)
+			if err is not None:
+				raise err
+			tree_id = tree_entry.tree_id
+
+			desired_access = FileAccessMask.DELETE | FileAccessMask.FILE_READ_ATTRIBUTES
+			share_mode = ShareAccess.FILE_SHARE_DELETE
+			create_options = CreateOptions.FILE_DIRECTORY_FILE | CreateOptions.FILE_DELETE_ON_CLOSE 
+			create_disposition = CreateDisposition.FILE_OPEN
+			file_attrs = 0
+
+			file_id, err = await connection.create(tree_id, remfile.fullpath, desired_access, share_mode, create_options, create_disposition, file_attrs, return_reply = False)
+			if err is not None:
+				raise err
+			if file_id is not None:
+				await connection.close(tree_id, file_id)
+
+			await connection.tree_disconnect(tree_id)
+			return True, None
+		
+		except Exception as e:
+			return False, e
+
+	@staticmethod
+	async def create_unc(connection, remotepath):
+		try:
+			remfile = SMBDirectory.from_remotepath(connection, remotepath)
+			tree_entry, err = await connection.tree_connect(remfile.share_path)
+			if err is not None:
+				raise err
+			tree_id = tree_entry.tree_id
+
+			desired_access = FileAccessMask.GENERIC_ALL
+			share_mode = ShareAccess.FILE_SHARE_READ | ShareAccess.FILE_SHARE_WRITE | ShareAccess.FILE_SHARE_DELETE
+			create_options = CreateOptions.FILE_DIRECTORY_FILE | CreateOptions.FILE_SYNCHRONOUS_IO_NONALERT
+			create_disposition = CreateDisposition.FILE_CREATE
+			file_attrs = 0
+
+			file_id, err = await connection.create(tree_id, remfile.fullpath, desired_access, share_mode, create_options, create_disposition, file_attrs, return_reply = False)
+			if err is not None:
+				raise err
+			if file_id is not None:
+				await connection.close(tree_id, file_id)
+
+			await connection.tree_disconnect(tree_id)
+			return True, None
+
+		except Exception as e:
+			return False, e
+
 	def get_share_path(self):
 		unc = PureWindowsPath(self.unc_path)
 		return unc.drive
+
+	async def delete(self, connection):
+		try:
+			if self.file_id is not None:
+				# if the directory is open, first we need to close it
+				await connection.close(self.tree_id, self.file_id)
+			return SMBDirectory.delete_unc(connection, self.unc_path)
+		except Exception as e:
+			return False, e
 
 	async def get_security_descriptor(self, connection):
 		if self.sid is None:
 			file_id = None
 			try:
+				tree_id = self.tree_id
+				if self.tree_id is None:
+					tree_entry, err = await connection.tree_connect(self.share_path)
+					if err is not None:
+						raise err
+					tree_id = tree_entry.tree_id
+
 				desired_access = FileAccessMask.READ_CONTROL
 				share_mode = ShareAccess.FILE_SHARE_READ
 				create_options = CreateOptions.FILE_DIRECTORY_FILE | CreateOptions.FILE_SYNCHRONOUS_IO_NONALERT
 				file_attrs = 0
 				create_disposition = CreateDisposition.FILE_OPEN
-				file_id, err = await connection.create(self.tree_id, self.fullpath, desired_access, share_mode, create_options, create_disposition, file_attrs)
+				file_id, err = await connection.create(tree_id, self.fullpath, desired_access, share_mode, create_options, create_disposition, file_attrs)
 				if err is not None:
 					raise err
 				
 				self.sid, err = await connection.query_info(
-					self.tree_id, 
+					tree_id, 
 					file_id,
 					info_type = QueryInfoType.SECURITY, 
 					information_class = FileInfoClass.NONE, 
@@ -59,7 +157,9 @@ class SMBDirectory:
 
 			finally:
 				if file_id is not None:
-					await connection.close(self.tree_id, file_id)
+					await connection.close(tree_id, file_id)
+				if tree_id is not None and self.tree_id is None:
+					await connection.tree_disconnect(tree_id)
 
 
 		return self.sid, None

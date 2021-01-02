@@ -7,6 +7,7 @@ from aiosmb import logger
 from aiosmb.commons.interfaces.share import SMBShare
 from aiosmb.commons.interfaces.session import SMBUserSession
 from aiosmb.commons.interfaces.file import SMBFile
+from aiosmb.commons.interfaces.directory import SMBDirectory
 from aiosmb.dcerpc.v5.interfaces.srvsmgr import SMBSRVS
 from aiosmb.dcerpc.v5.interfaces.samrmgr import SMBSAMR
 from aiosmb.dcerpc.v5.interfaces.lsatmgr import LSAD
@@ -395,6 +396,9 @@ class SMBMachine:
 
 	async def del_file(self, file_path):
 		return await SMBFile.delete(self.connection, file_path)
+	
+	async def del_directory_path(self, dir_path):
+		return await SMBDirectory.delete_unc(self.connection, dir_path)
 
 	async def create_subdirectory(self, directory_name, parent_directory_obj):
 		await parent_directory_obj.create_subdir(directory_name, self.connection)

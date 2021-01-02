@@ -145,6 +145,8 @@ class SMBFile:
 			finally:
 				if file_id is not None:
 					await connection.close(tree_id, file_id)
+				if tree_id is not None and self.tree_id is None:
+					await connection.tree_disconnect(tree_id)
 
 		return self.sid, None
 
