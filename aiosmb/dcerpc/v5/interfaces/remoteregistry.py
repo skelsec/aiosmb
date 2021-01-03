@@ -256,6 +256,8 @@ class RRP:
 		try:
 			key = await self.__get_rawhandle(key)
 			_, err = await rrp.hBaseRegLoadKey(self.dce, key, sub_key, file_name)
+			if err is not None:
+				raise err
 
 			return True, None
 		except Exception as e:
@@ -324,6 +326,8 @@ class RRP:
 		try:
 			key = await self.__get_rawhandle(key)
 			res , err = await rrp.hBaseRegSaveKey(self.dce, key, file_name)
+			if err is not None:
+				raise err
 
 			return res, None
 		except Exception as e:
@@ -379,7 +383,7 @@ class RRP:
 		except Exception as e:
 			if isinstance(e, rrp.DCERPCSessionError):
 				return None, None, OSError(e.get_error_code(), system_errors.ERROR_MESSAGES[e.get_error_code()][1])
-			return None, None, e
+			return None, e
 
 
 

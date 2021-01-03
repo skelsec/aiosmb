@@ -172,6 +172,8 @@ class SMBFile:
 			return buffer[:size], err
 		else:
 			data, remaining, err = await self.__connection.read(self.tree_id, self.file_id, offset = offset, length = self.__connection.MaxReadSize)
+			if err is not None:
+				return None, err
 			buffer += data
 			
 			return buffer[:size], err
@@ -286,6 +288,8 @@ class SMBFile:
 				
 			elif size == -1:
 				data, err = await self.__read(self.size - self.__position, self.__position)
+				if err is not None:
+					raise err
 				self.__position += len(data)
 				
 				return data, err
@@ -296,11 +300,13 @@ class SMBFile:
 				if size + self.__position > self.size:
 					size = self.size - self.__position
 				data, err = await self.__read(size, self.__position)
+				if err is not None:
+					raise err
 				self.__position += len(data)
 				return data, err
 
 		except Exception as e:
-			return None, err
+			return None, e
 
 	async def read_chunked(self, size = -1, chunksize = -1):
 		"""

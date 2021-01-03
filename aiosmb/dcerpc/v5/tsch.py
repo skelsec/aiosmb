@@ -23,7 +23,7 @@ from aiosmb.dcerpc.v5.dtypes import DWORD, LPWSTR, ULONG, WSTR, NULL, GUID, PSYS
 from aiosmb.dcerpc.v5.ndr import NDRCALL, NDRSTRUCT, NDRPOINTER, NDRUniConformantArray
 from aiosmb.dcerpc.v5.rpcrt import DCERPCException
 from aiosmb.dcerpc.v5.uuid import uuidtup_to_bin
-from aiosmb.dcerpc.v5 import system_errors
+from aiosmb.dcerpc.v5 import system_errors, hresult_errors
 from aiosmb.commons.exceptions import SMBException
 from aiosmb.dcerpc.v5.structure import Structure
 
@@ -42,7 +42,17 @@ class DCERPCSessionError(DCERPCException):
 		DCERPCException.__init__(self, error_string, error_code, packet)
 
 	def __str__( self ):
-		return 'TSCH SessionError: unknown error code: 0x%x' % self.error_code
+		key = self.error_code
+		if key in hresult_errors.ERROR_MESSAGES:
+			error_msg_short = hresult_errors.ERROR_MESSAGES[key][0]
+			error_msg_verbose = hresult_errors.ERROR_MESSAGES[key][1]
+			return 'TSCH SessionError: code: 0x%x - %s - %s' % (self.error_code, error_msg_short, error_msg_verbose)
+		elif key & 0xffff in system_errors.ERROR_MESSAGES:
+			error_msg_short = system_errors.ERROR_MESSAGES[key & 0xffff][0]
+			error_msg_verbose = system_errors.ERROR_MESSAGES[key & 0xffff][1]
+			return 'TSCH SessionError: code: 0x%x - %s - %s' % (self.error_code, error_msg_short, error_msg_verbose)
+		else:
+			return 'TSCH SessionError: unknown error code: 0x%x' % self.error_code
 
 ################################################################################
 # CONSTANTS

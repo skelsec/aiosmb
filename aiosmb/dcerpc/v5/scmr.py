@@ -36,7 +36,13 @@ class DCERPCSessionError(DCERPCException):
 		DCERPCException.__init__(self, error_string, error_code, packet)
 
 	def __str__( self ):
-		return 'SCMR SessionError: unknown error code: 0x%x' % self.error_code
+		key = self.error_code
+		if key in system_errors.ERROR_MESSAGES:
+			error_msg_short = system_errors.ERROR_MESSAGES[key][0]
+			error_msg_verbose = system_errors.ERROR_MESSAGES[key][1] 
+			return 'SCMR SessionError: code: 0x%x - %s - %s' % (self.error_code, error_msg_short, error_msg_verbose)
+		else:
+			return 'SCMR SessionError: unknown error code: 0x%x' % self.error_code
 
 ################################################################################
 # CONSTANTS

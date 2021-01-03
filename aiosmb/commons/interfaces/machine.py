@@ -262,6 +262,9 @@ class SMBMachine:
 	async def list_shares(self):
 		try:
 			async for name, share_type, remark, err in self.srvs.list_shares():
+				if err is not None:
+					yield None, err
+					return
 				share = SMBShare(
 					name = name, 
 					stype = share_type, 
@@ -497,7 +500,10 @@ class SMBMachine:
 
 	@req_rrp
 	async def save_registry_hive(self, hive_name, remote_path):
-		res, err = await self.rrp.SaveKey(hive_name, remote_path)
+		key_handle, err = await self.rrp.OpenRegPath(hive_name)
+		if err is not None:
+			return None, err
+		res, err = await self.rrp.SaveKey(key_handle, remote_path)
 		return res, err
 
 	@req_servicemanager
@@ -510,6 +516,22 @@ class SMBMachine:
 			display_name = service_name
 		res, err = await self.servicemanager.create_service(service_name, display_name, command)
 		return res, err
+
+	@req_servicemanager
+	async def start_service(self, service_name):
+		"""
+		Creates a service and starts it.
+		Does not create files! there is a separate command for that!
+		"""
+		return await self.servicemanager.start_service(service_name)
+	
+	@req_servicemanager
+	async def stop_service(self, service_name):
+		"""
+		Creates a service and starts it.
+		Does not create files! there is a separate command for that!
+		"""
+		return await self.servicemanager.stop_service(service_name)
 
 
 	@req_servicemanager
@@ -605,9 +627,7 @@ class SMBMachine:
 	async def check_service_status(self, service_name):
 		return await self.servicemanager.check_service_status(service_name)
 
-	async def stop_service(self):
-		pass
-	
+
 	async def list_mountpoints(self):
 		pass
 	
