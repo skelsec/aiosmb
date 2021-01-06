@@ -37,6 +37,7 @@ class SMBDirectory:
 		f = SMBDirectory()
 		f.share_path = unc.drive
 		f.fullpath = '\\'.join(unc.parts[1:])
+		f.unc_path = unc_path
 		
 		return f
 
@@ -252,6 +253,13 @@ class SMBDirectory:
 		create_options = CreateOptions.FILE_DIRECTORY_FILE | CreateOptions.FILE_SYNCHRONOUS_IO_NONALERT
 		file_attrs = 0
 		create_disposition = CreateDisposition.FILE_OPEN
+
+		
+		if not self.tree_id:
+			tree_entry, err = await connection.tree_connect(self.get_share_path())
+			if err is not None:
+				raise err
+			self.tree_id = tree_entry.tree_id
 		
 		file_id, err = await connection.create(self.tree_id, self.fullpath, desired_access, share_mode, create_options, create_disposition, file_attrs)
 		if err is not None:

@@ -152,6 +152,11 @@ class DCERPCTCPTransport:
 			socks_proxy, err = await mpc.connect()
 			return socks_proxy, err
 
+		elif self.target.proxy.type in [SMBProxyType.WSNET]:
+			from aiosmb.network.wsnet import WSNetProxyConnection
+			return WSNetProxyConnection(self.target), None
+
+
 		else:
 			raise Exception('Unknown proxy type %s' % self.target.proxy.type)
 

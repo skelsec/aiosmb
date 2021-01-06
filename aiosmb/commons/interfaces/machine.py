@@ -440,6 +440,8 @@ class SMBMachine:
 
 	async def dcsync(self, target_domain = None, target_users = []):
 		try:
+			if isinstance(target_users, str):
+				target_users = [target_users]
 			if self.samr is None:
 				await self.connect_rpc('SAMR')
 
@@ -595,6 +597,7 @@ class SMBMachine:
 
 		))
 		print('got resp! %s' % resp)
+		return True, None
 
 	async def list_interfaces(self):
 		try:

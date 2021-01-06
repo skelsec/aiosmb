@@ -19,6 +19,7 @@ class SMBProxyType(enum.Enum):
 	SOCKS5_SSL = 'SOCKS5_SSL'
 	MULTIPLEXOR = 'MULTIPLEXOR'
 	MULTIPLEXOR_SSL = 'MULTIPLEXOR_SSL'
+	WSNET = 'WSNET'
 
 multiplexorproxyurl_param2var = {
 	'type' : ('version', [stru, SMBProxyType]),
@@ -57,6 +58,8 @@ class SMBProxy:
 			cu = SocksClientURL.from_params(url_str)
 			cu.endpoint_port = 445
 			proxy.target = cu.get_target()
+		elif proxy.type == SMBProxyType.WSNET:
+			proxy.target = None
 		else:
 			proxy.target = SMBMultiplexorProxy.from_params(url_str)
 		
