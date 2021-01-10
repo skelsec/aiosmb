@@ -39,10 +39,10 @@ setup(
 	# long_description=open("README.txt").read(),
 	python_requires='>=3.7',
 	install_requires=[
-		'minikerberos>=0.2.5',
+		'minikerberos>=0.2.8',
 		'winsspi>=0.0.9',
 		'six',
-		'asysocks>=0.0.10',
+		'asysocks>=0.0.11',
 		'tqdm',
 		'prompt-toolkit>=3.0.2',
 		'winacl>=0.1.0',
@@ -59,6 +59,7 @@ setup(
 			'asmbshareenum = aiosmb.examples.smbshareenum:main',
 			'asmbprotocolenum = aiosmb.examples.smbprotocolenum:main',
 			'asmbosenum = aiosmb.examples.smbosenum:main',
+			'asmbget = aiosmb.examples.smbget:main',
 		],
 
 	}

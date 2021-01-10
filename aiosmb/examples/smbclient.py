@@ -952,6 +952,10 @@ async def amain(args):
 		await client.run()
 	else:
 		for command in args.commands:
+			if command == 'i':
+				await client.run()
+				return
+			
 			cmd = shlex.split(command)
 			#print(cmd)
 			if cmd[0] == 'login':

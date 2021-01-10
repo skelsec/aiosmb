@@ -59,7 +59,7 @@ class SMBDirectory:
 		Deletes a directory at a given path.
 		"""
 		try:
-			remfile = SMBDirectory.from_remotepath(connection, remotepath)
+			remfile = SMBDirectory.from_uncpath(remotepath)
 			tree_entry, err = await connection.tree_connect(remfile.share_path)
 			if err is not None:
 				raise err
@@ -84,7 +84,7 @@ class SMBDirectory:
 			return False, e
 
 	@staticmethod
-	async def create_unc(connection, remotepath):
+	async def create_remote(connection, remotepath):
 		try:
 			remfile = SMBDirectory.from_remotepath(connection, remotepath)
 			tree_entry, err = await connection.tree_connect(remfile.share_path)

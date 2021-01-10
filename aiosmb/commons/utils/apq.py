@@ -1,8 +1,12 @@
+import platform
 try:
 	from multiprocessing import Manager, cpu_count
 	from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 except:
-	print('[AIOSMB] multiprocessing cant be imported. non-async file access will not work. FAILING SILENTLY!!!!!')
+	if platform.system() == 'Emscripten':
+		#pyodide doesnt support this
+		pass
+
 
 import asyncio
 

@@ -58,7 +58,7 @@ class SMBFile:
 	@staticmethod
 	async def delete_unc(connection, remotepath):
 		try:
-			remfile = SMBFile.from_remotepath(connection, remotepath)
+			remfile = SMBFile.from_uncpath(remotepath)
 			tree_entry, err = await connection.tree_connect(remfile.share_path)
 			if err is not None:
 				raise err

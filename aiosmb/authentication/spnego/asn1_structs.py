@@ -120,7 +120,6 @@ class GSSAPI(Sequence):
 
 # https://tools.ietf.org/html/rfc2743#page-81
 # You may think this is ASN1. But it truth, it's not.
-# Below is a fucking disgrace of a protocol design.
 class KRB5Token:
 	def __init__(self, data = None, tok_id = b'\x01\x00'):
 		self.tok_id = tok_id

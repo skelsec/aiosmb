@@ -2,7 +2,7 @@ import os
 import io
 
 # https://docs.microsoft.com/en-us/previous-versions/aa373931(v%3Dvs.80)
-# Dear Microsoft ppl, pls fuck youselves...
+
 class GUID:
 	def __init__(self):
 		self.Data1 = None
