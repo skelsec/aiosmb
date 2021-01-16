@@ -29,7 +29,6 @@ from aiosmb.dcerpc.v5.structure import Structure
 from aiosmb.dcerpc.v5.ndr import NDRCALL, NDR, NDRSTRUCT, NDRUNION, NDRPOINTER, NDRUniConformantArray, NDRUniConformantVaryingArray, NDRENUM
 from aiosmb.dcerpc.v5.dtypes import NULL, RPC_UNICODE_STRING, ULONG, USHORT, UCHAR, LARGE_INTEGER, RPC_SID, LONG, STR, LPBYTE, SECURITY_INFORMATION, PRPC_SID, PRPC_UNICODE_STRING, LPWSTR
 from aiosmb.dcerpc.v5.rpcrt import DCERPCException
-from aiosmb.dcerpc.v5.uuid import uuidtup_to_bin
 from aiosmb.wintypes.ntstatus import NTStatus
 
 from aiosmb.commons.utils.decorators import red, rr

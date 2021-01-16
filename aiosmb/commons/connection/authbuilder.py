@@ -117,6 +117,15 @@ class AuthenticatorBuilder:
 				elif target.proxy.type in [SMBProxyType.MULTIPLEXOR, SMBProxyType.MULTIPLEXOR_SSL]:
 					kcred.target = KerberosTarget(target.dc_ip)
 					kcred.target.proxy = copy.deepcopy(target.proxy)
+				
+				elif target.proxy.type == SMBProxyType.WSNET:
+					kcred.target = KerberosTarget(target.dc_ip)
+					kcred.target.proxy = KerberosProxy()
+					kcred.target.proxy.type = 'WSNET'
+					kcred.target.ip = target.dc_ip
+					kcred.target.port = 88
+
+
 			else:
 				kcred.target = KerberosTarget(target.dc_ip)
 			handler = SMBKerberos(kcred)

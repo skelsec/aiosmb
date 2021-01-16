@@ -38,15 +38,6 @@ from asn1crypto.core import ObjectIdentifier
 from aiosmb.crypto.symmetric import RC4, DES
 from aiosmb.crypto.BASE import cipherMODE
 
-##### THIS CODE NEEDS TO BE CLEANED UP!!!!
-#from pyasn1.type import univ
-#from impacket.crypto import transformKey
-
-#try:
-#	from Cryptodome.Cipher import ARC4, DES
-#except Exception:
-#	LOG.critical("Warning: You don't have any crypto installed. You need pycryptodomex")
-#	LOG.critical("See https://pypi.org/project/pycryptodomex/")
 
 MSRPC_UUID_DRSUAPI = uuidtup_to_bin(('E3514235-4B06-11D1-AB04-00C04FC2DCD2','4.0'))
 

@@ -6,6 +6,7 @@ class cipherMODE(enum.Enum):
 	CBC = enum.auto()
 	CTR = enum.auto()
 	CCM = enum.auto()
+	CFB = enum.auto()
 
 class symmetricBASE():
 	def __init__(self):

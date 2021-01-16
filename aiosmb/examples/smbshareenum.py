@@ -58,7 +58,7 @@ class ListTargetGen:
 
 
 class SMBFileEnum:
-	def __init__(self, smb_url, worker_count = 100, depth = 3, enum_url = True):
+	def __init__(self, smb_url, worker_count = 10, depth = 3, enum_url = True, out_file = None):
 		self.target_gens = []
 		self.smb_mgr = SMBConnectionURL(smb_url)
 		self.worker_count = worker_count
@@ -68,6 +68,7 @@ class SMBFileEnum:
 		self.workers = []
 		self.result_processing_task = None
 		self.enum_url = enum_url
+		self.out_file = out_file
 		self.__gens_finished = False
 		self.__total_targets = 0
 		self.__total_finished = 0
@@ -101,11 +102,12 @@ class SMBFileEnum:
 				
 				tid, target = indata
 				try:
-					await asyncio.wait_for(self.__executor(tid, target), timeout=10)
+					await asyncio.wait_for(self.__executor(tid, target), timeout=60)
 				except asyncio.CancelledError:
 					return
 				except Exception as e:
-					pass
+					logger.exception('worker')
+					continue
 		except asyncio.CancelledError:
 			return
 				
@@ -114,31 +116,45 @@ class SMBFileEnum:
 
 	async def result_processing(self):
 		try:
+
+			out_buffer = []
+			final_iter = False
 			while True:
 				try:
+					if len(out_buffer) >= 10000 or final_iter:
+						out_data = '\r\n'.join(out_buffer)
+						out_buffer = []
+						if self.out_file is not None:
+							with open(self.out_file, 'a+', newline = '') as f:
+								f.write(out_data)
+						else:
+							print(out_data)
+					if final_iter:
+						asyncio.create_task(self.terminate())
+						return
 					er = await self.res_q.get()
 					if er.status == EnumResultStatus.FINISHED:
 						self.__total_finished += 1
-						print('[P][%s/%s][%s]' % (self.__total_targets, self.__total_finished, str(self.__gens_finished)))
+						out_buffer.append('[P][%s/%s][%s]' % (self.__total_targets, self.__total_finished, str(self.__gens_finished)))
 						if self.__total_finished == self.__total_targets and self.__gens_finished is True:
-							asyncio.create_task(self.terminate())
-							return
-					
+							final_iter = True
+							continue
+							
 					if er.result is not None:
 						path, otype, err = er.result
 						if otype is not None:
-							print('[%s] %s' % (otype[0].upper(), path))
+							out_buffer.append('[%s] %s' % (otype[0].upper(), path))
 						if err is not None:
-							print('[E] %s %s' % (err, path))
+							out_buffer.append('[E] %s %s' % (err, path))
 				except asyncio.CancelledError:
 					return
 				except Exception as e:
-					print(e)
+					logger.exception('result_processing inner')
 					continue
 		except asyncio.CancelledError:
 			return
 		except Exception as e:
-			print(e)
+			logger.exception('result_processing')
 
 	async def terminate(self):
 		for worker in self.workers:
@@ -195,6 +211,7 @@ async def amain():
 	parser.add_argument('-v', '--verbose', action='count', default=0)
 	parser.add_argument('--depth', type=int, default=3, help='Recursion depth, -1 means infinite')
 	parser.add_argument('-w', '--smb-worker-count', type=int, default=100, help='Parallell count')
+	parser.add_argument('-o', '--out-file', help='Output file path.')
 	parser.add_argument('-s', '--stdin', action='store_true', help='Read targets from stdin')
 	parser.add_argument('--url', help='Connection URL base, target can be set to anything. Owerrides all parameter based connection settings! Example: "smb2+ntlm-password://TEST\\victim@test"')
 	parser.add_argument('targets', nargs='*', help = 'Hostname or IP address or file with a list of targets')
@@ -219,7 +236,7 @@ async def amain():
 			print('Either URL or all connection parameters must be set! Error: %s' % str(e))
 			sys.exit(1)
 	
-	enumerator = SMBFileEnum(smb_url, worker_count = args.smb_worker_count, depth = args.depth)
+	enumerator = SMBFileEnum(smb_url, worker_count = args.smb_worker_count, depth = args.depth, out_file = args.out_file)
 	
 	notfile = []
 	if len(args.targets) == 0 and args.stdin is True:

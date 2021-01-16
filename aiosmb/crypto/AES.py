@@ -6,7 +6,7 @@ currently it's not the perfect wrapper, needs to be extended
 """
 
 from aiosmb.crypto.BASE import symmetricBASE, cipherMODE
-from aiosmb.crypto.pure.AES import AESModeOfOperationECB, AESModeOfOperationCBC, AESModeOfOperationCTR
+from aiosmb.crypto.pure.AES import AESModeOfOperationECB, AESModeOfOperationCBC, AESModeOfOperationCTR, AESModeOfOperationCFB
 try:
 	from Crypto.Cipher import AES as _pyCryptoAES
 except:
@@ -20,13 +20,14 @@ except:
 	pass
 
 class pureAES(symmetricBASE):
-	def __init__(self, key, mode = cipherMODE.ECB, IV = None, nonce = None, pad = None, padMode = None):
+	def __init__(self, key, mode = cipherMODE.ECB, IV = None, nonce = None, pad = None, padMode = None, segment_size = 8):
 		self.key = key
 		self.mode = mode
 		self.IV = IV
 		self.pad = pad
 		self.padMode = padMode
 		self.nonce = nonce
+		self.segment_size = segment_size
 
 		symmetricBASE.__init__(self)
 
@@ -37,6 +38,8 @@ class pureAES(symmetricBASE):
 			self._cipher = AESModeOfOperationCBC(self.key, iv = self.IV)
 		elif self.mode == cipherMODE.CTR:
 			self._cipher = AESModeOfOperationCTR(self.key, counter = self.IV)
+		elif self.mode == cipherMODE.CFB:
+			self._cipher = AESModeOfOperationCFB(self.key, iv = self.IV, segment_size = self.segment_size)
 		else:
 			raise Exception('Unknown cipher mode!')
 

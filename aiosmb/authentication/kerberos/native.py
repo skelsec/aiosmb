@@ -69,33 +69,24 @@ class SMBKerberos:
 
 	async def setup_kc(self):
 		try:
-			if self.target.proxy is None:
+			if self.target.proxy is None or self.target.proxy.type == 'WSNET':
 				self.kc = AIOKerberosClient(self.ccred, self.target)
 			elif self.target.proxy.type in [SMBProxyType.SOCKS5, SMBProxyType.SOCKS5_SSL, SMBProxyType.SOCKS4, SMBProxyType.SOCKS4_SSL]:
 				target = AIOKerberosClientSocksSocket(self.target)
 				self.kc = AIOKerberosClient(self.ccred, target)
 
 			elif self.target.proxy.type in [SMBProxyType.MULTIPLEXOR, SMBProxyType.MULTIPLEXOR_SSL]:
-				#	kcred.target.proxy = KerberosProxy()
-				#	kcred.target.proxy.target = copy.deepcopy(target.proxy.target)
-				#	kcred.target.proxy.target.endpoint_ip = target.dc_ip
-				#	kcred.target.proxy.target.endpoint_port = 88
-				#	kcred.target.proxy.creds = copy.deepcopy(target.proxy.auth)
-
 				from aiosmb.network.multiplexornetwork import MultiplexorProxyConnection
 				mpc = MultiplexorProxyConnection(self.target)
 				socks_proxy, err = await mpc.connect(is_kerberos = True)
+				if err is not None:
+					raise err
 
 				self.kc = AIOKerberosClient(self.ccred, socks_proxy)
 
 			else:
 				raise Exception('Unknown proxy type %s' % self.target.proxy.type)
 
-			#elif target.proxy.type in [SMBProxyType.SOCKS5, SMBProxyType.SOCKS5_SSL, SMBProxyType.SOCKS4, SMBProxyType.SOCKS4_SSL]:
-			#	self.kc = AIOKerberosClient(self.ccred, self.target)
-			#elif target.proxy.type in [SMBProxyType.MULTIPLEXOR, SMBProxyType.MULTIPLEXOR_SSL]:
-			#	mpc = MultiplexorProxyConnection(target)
-			#	socks_proxy = await mpc.connect()
 			return None, None
 		except Exception as e:
 			return None, e

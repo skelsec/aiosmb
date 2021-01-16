@@ -716,8 +716,7 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			users = []
 			if username is not None:
 				users.append(username)
-			#async for secret, err in self.machine.dcsync(target_users=users):
-			async for secret, err in self.machine.dcsync(target_users=['victim']):
+			async for secret, err in self.machine.dcsync(target_users=users):
 				if err is not None:
 					raise err
 				print(str(secret))
