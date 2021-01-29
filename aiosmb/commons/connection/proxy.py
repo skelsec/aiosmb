@@ -54,12 +54,10 @@ class SMBProxy:
 
 		proxy.type = SMBProxyType(query['proxytype'][0].upper())
 
-		if proxy.type in [SMBProxyType.SOCKS4, SMBProxyType.SOCKS4_SSL, SMBProxyType.SOCKS5, SMBProxyType.SOCKS5_SSL]:
+		if proxy.type in [SMBProxyType.WSNET, SMBProxyType.SOCKS4, SMBProxyType.SOCKS4_SSL, SMBProxyType.SOCKS5, SMBProxyType.SOCKS5_SSL]:
 			cu = SocksClientURL.from_params(url_str)
-			cu.endpoint_port = 445
-			proxy.target = cu.get_target()
-		elif proxy.type == SMBProxyType.WSNET:
-			proxy.target = None
+			cu[-1].endpoint_port = 445
+			proxy.target = cu
 		else:
 			proxy.target = SMBMultiplexorProxy.from_params(url_str)
 		

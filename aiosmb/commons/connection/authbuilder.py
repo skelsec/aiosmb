@@ -106,24 +106,17 @@ class AuthenticatorBuilder:
 			kcred.spn = KerberosSPN.from_target_string(target.to_target_string())
 			
 			if target.proxy is not None:
-				if target.proxy.type in [SMBProxyType.SOCKS5, SMBProxyType.SOCKS5_SSL, SMBProxyType.SOCKS4, SMBProxyType.SOCKS4_SSL]:
+				if target.proxy.type in [SMBProxyType.WSNET, SMBProxyType.SOCKS5, SMBProxyType.SOCKS5_SSL, SMBProxyType.SOCKS4, SMBProxyType.SOCKS4_SSL]:
 					kcred.target = KerberosTarget(target.dc_ip)
 					kcred.target.proxy = KerberosProxy()
 					kcred.target.proxy.target = copy.deepcopy(target.proxy.target)
-					kcred.target.proxy.target.endpoint_ip = target.dc_ip
-					kcred.target.proxy.target.endpoint_port = 88
-					kcred.target.proxy.creds = copy.deepcopy(target.proxy.auth)
+					kcred.target.proxy.target[-1].endpoint_ip = target.dc_ip
+					kcred.target.proxy.target[-1].endpoint_port = 88
+					#kcred.target.proxy.creds = copy.deepcopy(target.proxy.auth)
 				
 				elif target.proxy.type in [SMBProxyType.MULTIPLEXOR, SMBProxyType.MULTIPLEXOR_SSL]:
 					kcred.target = KerberosTarget(target.dc_ip)
 					kcred.target.proxy = copy.deepcopy(target.proxy)
-				
-				elif target.proxy.type == SMBProxyType.WSNET:
-					kcred.target = KerberosTarget(target.dc_ip)
-					kcred.target.proxy = KerberosProxy()
-					kcred.target.proxy.type = 'WSNET'
-					kcred.target.ip = target.dc_ip
-					kcred.target.port = 88
 
 
 			else:

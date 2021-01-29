@@ -69,9 +69,7 @@ class SMBKerberos:
 
 	async def setup_kc(self):
 		try:
-			if self.target.proxy is None or self.target.proxy.type == 'WSNET':
-				self.kc = AIOKerberosClient(self.ccred, self.target)
-			elif self.target.proxy.type in [SMBProxyType.SOCKS5, SMBProxyType.SOCKS5_SSL, SMBProxyType.SOCKS4, SMBProxyType.SOCKS4_SSL]:
+			if self.target.proxy.type in [SMBProxyType.WSNET, SMBProxyType.SOCKS5, SMBProxyType.SOCKS5_SSL, SMBProxyType.SOCKS4, SMBProxyType.SOCKS4_SSL]:
 				target = AIOKerberosClientSocksSocket(self.target)
 				self.kc = AIOKerberosClient(self.ccred, target)
 

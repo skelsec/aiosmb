@@ -142,7 +142,7 @@ class DCERPCTCPTransport:
 		if self.target.proxy is None:
 			return DCERPCTCPConnection(self.target.ip, self.target.port), None
 			
-		elif self.target.proxy.type in [SMBProxyType.SOCKS5, SMBProxyType.SOCKS5_SSL, SMBProxyType.SOCKS4, SMBProxyType.SOCKS4_SSL]:
+		elif self.target.proxy.type in [SMBProxyType.WSNET, SMBProxyType.SOCKS5, SMBProxyType.SOCKS5_SSL, SMBProxyType.SOCKS4, SMBProxyType.SOCKS4_SSL]:
 			self.is_proxy = True
 			return SocksProxyConnection(target = self.target), None
 
@@ -151,11 +151,6 @@ class DCERPCTCPTransport:
 			mpc = MultiplexorProxyConnection(self.target)
 			socks_proxy, err = await mpc.connect()
 			return socks_proxy, err
-
-		elif self.target.proxy.type in [SMBProxyType.WSNET]:
-			from aiosmb.network.wsnet import WSNetProxyConnection
-			return WSNetProxyConnection(self.target), None
-
 
 		else:
 			raise Exception('Unknown proxy type %s' % self.target.proxy.type)
