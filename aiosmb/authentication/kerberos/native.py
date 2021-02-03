@@ -69,13 +69,13 @@ class SMBKerberos:
 
 	async def setup_kc(self):
 		try:
-			if self.target.proxy.type in [SMBProxyType.WSNET, SMBProxyType.SOCKS5, SMBProxyType.SOCKS5_SSL, SMBProxyType.SOCKS4, SMBProxyType.SOCKS4_SSL]:
-				target = AIOKerberosClientSocksSocket(self.target)
-				self.kc = AIOKerberosClient(self.ccred, target)
+			if isinstance(self.target.proxy, KerberosProxy):
+				self.kc = AIOKerberosClient(self.ccred, self.target)
+
 
 			elif self.target.proxy.type in [SMBProxyType.MULTIPLEXOR, SMBProxyType.MULTIPLEXOR_SSL]:
 				from aiosmb.network.multiplexornetwork import MultiplexorProxyConnection
-				mpc = MultiplexorProxyConnection(self.target)
+				mpc = MultiplexorProxyConnection(self.target) 
 				socks_proxy, err = await mpc.connect(is_kerberos = True)
 				if err is not None:
 					raise err

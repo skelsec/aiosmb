@@ -46,6 +46,8 @@ class SMBAuthProtocol(enum.Enum):
 	MPN_NTLM = 'MPN_NTLM'
 	MPN_SSL_KERBEROS = 'MPN_SSL_KERBEROS'
 	MPN_KERBEROS = 'MPN_KERBEROS'
+	WSNET_NTLM = 'WSNET_NTLM'
+	WSNET_KERBEROS = 'WSNET_KERBEROS'
 
 class SMBCredential:
 	def __init__(self, username = None, domain = None, secret = None, secret_type = None, authentication_type = None, settings = None, target = None):
@@ -159,6 +161,16 @@ class SMBNTLMCredential:
 		self.is_guest = False
 		self.nt_hash = None
 		self.lm_hash = None
+
+class SMBWSNETCredential:
+	def __init__(self):
+		self.mode = 'CLIENT'
+		self.type = 'NTLM'
+		self.username = '<CURRENT>'
+		self.domain = '<CURRENT>'
+		self.password = '<CURRENT>'
+		self.target = None
+		self.is_guest = False
 
 class SMBMultiplexorCredential:
 	def __init__(self):

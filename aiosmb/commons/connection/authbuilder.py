@@ -112,7 +112,6 @@ class AuthenticatorBuilder:
 					kcred.target.proxy.target = copy.deepcopy(target.proxy.target)
 					kcred.target.proxy.target[-1].endpoint_ip = target.dc_ip
 					kcred.target.proxy.target[-1].endpoint_port = 88
-					#kcred.target.proxy.creds = copy.deepcopy(target.proxy.auth)
 				
 				elif target.proxy.type in [SMBProxyType.MULTIPLEXOR, SMBProxyType.MULTIPLEXOR_SSL]:
 					kcred.target = KerberosTarget(target.dc_ip)
@@ -122,7 +121,6 @@ class AuthenticatorBuilder:
 			else:
 				kcred.target = KerberosTarget(target.dc_ip)
 			handler = SMBKerberos(kcred)
-			
 			#setting up SPNEGO
 			spneg = SPNEGO()
 			spneg.add_auth_context('MS KRB5 - Microsoft Kerberos 5', handler)
@@ -236,7 +234,43 @@ class AuthenticatorBuilder:
 				spneg.add_auth_context('MS KRB5 - Microsoft Kerberos 5', handler)
 				return spneg
 
+		elif creds.authentication_type.value.startswith('WSNET'):
+			if creds.authentication_type in [SMBAuthProtocol.WSNET_NTLM]:
+				from aiosmb.authentication.ntlm.wsnet import SMBWSNetNTLMAuth
+				
+				ntlmcred = SMBWSNETCredential()
+				ntlmcred.type = 'NTLM'
+				if creds.username is not None:
+					ntlmcred.username = '<CURRENT>'
+				if creds.domain is not None:
+					ntlmcred.domain = '<CURRENT>'
+				if creds.secret is not None:
+					ntlmcred.password = '<CURRENT>'
+				ntlmcred.is_guest = False
+				
+				handler = SMBWSNetNTLMAuth(ntlmcred)
+				spneg = SPNEGO()
+				spneg.add_auth_context('NTLMSSP - Microsoft NTLM Security Support Provider', handler)
+				return spneg
 			
-			
-			
+
+			elif creds.authentication_type in [SMBAuthProtocol.WSNET_KERBEROS]:
+				from aiosmb.authentication.kerberos.wsnet import SMBWSNetKerberosAuth
+
+				ntlmcred = SMBWSNETCredential()
+				ntlmcred.type = 'KERBEROS'
+				ntlmcred.target = creds.target
+				if creds.username is not None:
+					ntlmcred.username = '<CURRENT>'
+				if creds.domain is not None:
+					ntlmcred.domain = '<CURRENT>'
+				if creds.secret is not None:
+					ntlmcred.password = '<CURRENT>'
+				ntlmcred.is_guest = False
+
+				handler = SMBWSNetKerberosAuth(ntlmcred)
+				#setting up SPNEGO
+				spneg = SPNEGO()
+				spneg.add_auth_context('MS KRB5 - Microsoft Kerberos 5', handler)
+				return spneg
 		

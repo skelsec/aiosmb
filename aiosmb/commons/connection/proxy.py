@@ -53,7 +53,7 @@ class SMBProxy:
 			return None
 
 		proxy.type = SMBProxyType(query['proxytype'][0].upper())
-
+		
 		if proxy.type in [SMBProxyType.WSNET, SMBProxyType.SOCKS4, SMBProxyType.SOCKS4_SSL, SMBProxyType.SOCKS5, SMBProxyType.SOCKS5_SSL]:
 			cu = SocksClientURL.from_params(url_str)
 			cu[-1].endpoint_port = 445
