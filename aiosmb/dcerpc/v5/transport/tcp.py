@@ -142,7 +142,7 @@ class DCERPCTCPTransport:
 		if self.target.proxy is None:
 			return DCERPCTCPConnection(self.target.ip, self.target.port), None
 			
-		elif self.target.proxy.type in [SMBProxyType.WSNET, SMBProxyType.SOCKS5, SMBProxyType.SOCKS5_SSL, SMBProxyType.SOCKS4, SMBProxyType.SOCKS4_SSL]:
+		elif self.target.proxy.type in [SMBProxyType.WSNET,SMBProxyType.WSNETWS, SMBProxyType.WSNETWSS, SMBProxyType.SOCKS5, SMBProxyType.SOCKS5_SSL, SMBProxyType.SOCKS4, SMBProxyType.SOCKS4_SSL]:
 			self.is_proxy = True
 			return SocksProxyConnection(target = self.target), None
 

@@ -274,3 +274,57 @@ class AuthenticatorBuilder:
 				spneg.add_auth_context('MS KRB5 - Microsoft Kerberos 5', handler)
 				return spneg
 		
+		elif creds.authentication_type.value.startswith('SSPIPROXY'):
+			if creds.authentication_type == SMBAuthProtocol.SSPIPROXY_NTLM:
+				from aiosmb.authentication.ntlm.sspiproxy import SMBSSPIProxyNTLMAuth
+				
+				ntlmcred = SMBSSPIProxyCredential()
+				ntlmcred.type = 'NTLM'
+				if creds.username is not None:
+					ntlmcred.username = '<CURRENT>'
+				if creds.domain is not None:
+					ntlmcred.domain = '<CURRENT>'
+				if creds.secret is not None:
+					ntlmcred.password = '<CURRENT>'
+				ntlmcred.is_guest = False
+				ntlmcred.host = creds.settings['host'][0]
+				ntlmcred.port = int(creds.settings['port'][0])
+				ntlmcred.proto = 'ws'
+				if 'proto' in creds.settings:
+					ntlmcred.proto = creds.settings['proto'][0]
+				if 'agentid' in creds.settings:
+					ntlmcred.agent_id = bytes.fromhex(creds.settings['agentid'][0])
+				
+				handler = SMBSSPIProxyNTLMAuth(ntlmcred)
+				spneg = SPNEGO()
+				spneg.add_auth_context('NTLMSSP - Microsoft NTLM Security Support Provider', handler)
+				return spneg
+			
+
+			elif creds.authentication_type == SMBAuthProtocol.SSPIPROXY_KERBEROS:
+				from aiosmb.authentication.kerberos.sspiproxy import SMBSSPIProxyKerberosAuth
+
+				ntlmcred = SMBSSPIProxyCredential()
+				ntlmcred.type = 'KERBEROS'
+				ntlmcred.target = creds.target
+				if creds.username is not None:
+					ntlmcred.username = '<CURRENT>'
+				if creds.domain is not None:
+					ntlmcred.domain = '<CURRENT>'
+				if creds.secret is not None:
+					ntlmcred.password = '<CURRENT>'
+				ntlmcred.is_guest = False
+				ntlmcred.host = creds.settings['host'][0]
+				ntlmcred.port = int(creds.settings['port'][0])
+				ntlmcred.proto = 'ws'
+				if 'proto' in creds.settings:
+					ntlmcred.proto = creds.settings['proto'][0]
+				if 'agentid' in creds.settings:
+					ntlmcred.agent_id = bytes.fromhex(creds.settings['agentid'][0])
+
+				handler = SMBSSPIProxyKerberosAuth(ntlmcred)
+				#setting up SPNEGO
+				spneg = SPNEGO()
+				spneg.add_auth_context('MS KRB5 - Microsoft Kerberos 5', handler)
+				return spneg
+		
