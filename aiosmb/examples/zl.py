@@ -99,7 +99,7 @@ async def run(dc_name, dc_ip, exploit = False):
 	url = SMBConnectionURL('smb2+ntlm-password://XXX\\aaa:aaa@%s' % dc_name) # dummy url to speed up the process..
 	connection = url.get_connection()
 
-	with connection:
+	async with connection:
 		epm = EPM(connection, protocol = 'ncacn_ip_tcp')
 		_, err = await epm.connect()
 		if err is not None:
