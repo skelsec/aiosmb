@@ -40,6 +40,7 @@ class SMBFile:
 		unc = PureWindowsPath(unc_path)
 		f = SMBFile()
 		f.share_path = unc.drive
+		f.name = unc.name
 		f.fullpath = '\\'.join(unc.parts[1:])
 		
 		return f
