@@ -1,5 +1,6 @@
 import enum
 from urllib.parse import urlparse, parse_qs
+from aiosmb.commons.interfaces.file import SMBFile
 from aiosmb.commons.connection.credential import SMBCredential, SMBCredentialsSecretType, SMBAuthProtocol
 from aiosmb.commons.connection.proxy import SMBProxy
 from aiosmb.commons.connection.target import SMBTarget, SMBConnectionDialect, SMBConnectionProtocol
@@ -63,6 +64,9 @@ class SMBConnectionURL:
 		spneg = AuthenticatorBuilder.to_spnego_cred(credential, target)
 		
 		return SMBConnection(spneg, target)
+
+	def get_file(self):
+		return SMBFile.from_smburl(self)
 
 	def get_proxy(self):
 		return self.proxy
@@ -272,6 +276,7 @@ class SMBConnectionURL:
 			self.proxy = SMBProxy.from_params(self.connection_url)
 			
 if __name__ == '__main__':
+	from aiosmb.commons.interfaces.file import SMBFile
 	url_tests = [
 		#'smb://10.10.10.2',
 		#'smb://10.10.10.2:9000',
@@ -296,16 +301,17 @@ if __name__ == '__main__':
 		#'smb+multiplexor-ssl://10.10.10.10.2',
 		#'smb+multiplexor-ssl-ntlm://10.10.10.10.2',
 		#'smb+multiplexor-ssl-kerberos://10.10.10.10.2',
-		'smb://10.10.10.2/?timeout=10',
-		'smb://10.10.10.2/?timeout=10&dc=10.10.10.2',
-		'smb://10.10.10.2/?timeout=10&dc=10.10.10.2&proxytype=socks5',
-		'smb://10.10.10.2/?timeout=10&dc=10.10.10.2&proxytype=socks5&proxyserver=127.0.0.1',
-		'smb://10.10.10.2/?timeout=10&dc=10.10.10.2&proxytype=socks5&proxyserver=127.0.0.1&proxyuser=admin&proxypass=alma',
-		'smb://10.10.10.2/?timeout=10&dc=10.10.10.2&proxytype=socks5&proxyserver=127.0.0.1&proxyuser=admin&proxypass=alma&dc=10.10.10.2&dns=8.8.8.8',
-		'smb://10.10.10.2/?timeout=10&dc=10.10.10.2&proxytype=socks5-ssl&proxyserver=127.0.0.1&proxyuser=admin&proxypass=alma&dc=10.10.10.2&dns=8.8.8.8',
-		'smb://10.10.10.2/?timeout=10&dc=10.10.10.2&proxytype=multiplexor&proxyserver=127.0.0.1',
-		'smb://10.10.10.2/?timeout=10&dc=10.10.10.2&proxytype=multiplexor&proxyserver=127.0.0.1&proxyagentid=alma',
-		'smb://10.10.10.2/?timeout=10&dc=10.10.10.2&proxytype=multiplexor&proxyserver=127.0.0.1&proxyagentid=alma&proxytimeout=111',
+		#'smb://10.10.10.2/?timeout=10',
+		#'smb://10.10.10.2/?timeout=10&dc=10.10.10.2',
+		#'smb://10.10.10.2/?timeout=10&dc=10.10.10.2&proxytype=socks5',
+		#'smb://10.10.10.2/?timeout=10&dc=10.10.10.2&proxytype=socks5&proxyserver=127.0.0.1',
+		#'smb://10.10.10.2/?timeout=10&dc=10.10.10.2&proxytype=socks5&proxyserver=127.0.0.1&proxyuser=admin&proxypass=alma',
+		#'smb://10.10.10.2/?timeout=10&dc=10.10.10.2&proxytype=socks5&proxyserver=127.0.0.1&proxyuser=admin&proxypass=alma&dc=10.10.10.2&dns=8.8.8.8',
+		#'smb://10.10.10.2/?timeout=10&dc=10.10.10.2&proxytype=socks5-ssl&proxyserver=127.0.0.1&proxyuser=admin&proxypass=alma&dc=10.10.10.2&dns=8.8.8.8',
+		#'smb://10.10.10.2/?timeout=10&dc=10.10.10.2&proxytype=multiplexor&proxyserver=127.0.0.1',
+		#'smb://10.10.10.2/?timeout=10&dc=10.10.10.2&proxytype=multiplexor&proxyserver=127.0.0.1&proxyagentid=alma',
+		#'smb://10.10.10.2/?timeout=10&dc=10.10.10.2&proxytype=multiplexor&proxyserver=127.0.0.1&proxyagentid=alma&proxytimeout=111',
+		'smb://10.10.10.2/C$/test/tst111.dmp?timeout=10&dc=10.10.10.2&proxytype=multiplexor&proxyhost=127.0.0.1&proxyport=1&proxyagentid=alma&proxytimeout=111',
 
 	]
 	for url in url_tests:
@@ -315,6 +321,8 @@ if __name__ == '__main__':
 			dec = SMBConnectionURL(url)
 			creds = dec.get_credential()
 			target = dec.get_target()
+			smbfile = dec.get_file()
+			print(smbfile)
 		except Exception as e:
 			import traceback
 			traceback.print_exc()

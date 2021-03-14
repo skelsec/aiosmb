@@ -29,6 +29,7 @@ class SMBFile:
 		self.__connection = None
 		self.__position = 0
 		self.is_pipe = False
+		self.maxreadsize = None
 
 	@staticmethod
 	def from_uncpath(unc_path):
@@ -53,6 +54,19 @@ class SMBFile:
 		if remotepath[0] == '\\':
 			temp = '\\\\%s%s'
 		unc = temp % (connection.target.get_hostname_or_ip(), remotepath)
+		return SMBFile.from_uncpath(unc)
+	
+	@staticmethod
+	def from_smburl(smburl):
+		"""
+		Creates SMBFile object from the SMBUrl object
+		"""
+		if smburl.path is None:
+			return None
+		
+		fpath = smburl.path.replace('/','\\')
+		temp = '\\\\%s%s'
+		unc = temp % (smburl.get_target().get_hostname_or_ip(), fpath)
 		return SMBFile.from_uncpath(unc)
 
 	@staticmethod
@@ -202,6 +216,7 @@ class SMBFile:
 	async def open(self, connection, mode = 'r'):
 		try:
 			self.__connection = connection
+			self.maxreadsize = connection.MaxReadSize
 			self.mode = mode
 			if 'p' in self.mode:
 				self.is_pipe = True
@@ -417,6 +432,8 @@ class SMBFile:
 		await self.flush()
 		await self.__connection.close(self.tree_id, self.file_id)
 	
+	def tell(self):
+		return self.__position
 		
 	def __str__(self):
 		t = '===== FILE =====\r\n'
