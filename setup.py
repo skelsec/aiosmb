@@ -42,10 +42,10 @@ setup(
 		'minikerberos>=0.2.9',
 		'winsspi>=0.0.9',
 		'six',
-		'asysocks>=0.1.0',
+		'asysocks>=0.1.1',
 		'tqdm',
 		'prompt-toolkit>=3.0.2',
-		'winacl>=0.1.0',
+		'winacl>=0.1.1',
 	],
 	
 	classifiers=(
@@ -59,6 +59,7 @@ setup(
 			'asmbshareenum = aiosmb.examples.smbshareenum:main',
 			'asmbprotocolenum = aiosmb.examples.smbprotocolenum:main',
 			'asmbosenum = aiosmb.examples.smbosenum:main',
+			'asmbgetfile = aiosmb.examples.smbgetfile:main',
 		],
 
 	}
