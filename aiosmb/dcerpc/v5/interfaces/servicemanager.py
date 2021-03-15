@@ -261,7 +261,7 @@ class SMBRemoteServieManager:
 			if err is not None:
 				return None, err
 			
-		_, err = await scmr.hRChangeServiceConfigW(self.dce, self.service_handles[service_name])
+		_, err = await scmr.hRChangeServiceConfigW(self.dce, self.service_handles[service_name], dwStartType=scmr.SERVICE_AUTO_START)
 		if err is not None:
 			return None, err
 

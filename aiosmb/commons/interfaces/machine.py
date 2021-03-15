@@ -184,7 +184,10 @@ class SMBMachine:
 		return self
 		
 	async def __aexit__(self, exc_type, exc, traceback):
-		await asyncio.wait_for(self.close(), timeout = 3)
+		try:
+			await asyncio.wait_for(self.close(), timeout = 5)
+		except:
+			pass
 
 	async def close(self):
 		# TODO: make it prettier!
@@ -398,7 +401,7 @@ class SMBMachine:
 			yield data, err
 
 	async def del_file(self, file_path):
-		return await SMBFile.delete(self.connection, file_path)
+		return await SMBFile.delete_rempath(self.connection, file_path)
 	
 	async def del_directory_path(self, dir_path):
 		return await SMBDirectory.delete_unc(self.connection, dir_path)
@@ -414,7 +417,7 @@ class SMBMachine:
 
 	@req_servicemanager
 	async def enable_service(self, service_name):
-		res, exc = await rr(self.servicemanager.enable_service(service_name))
+		res, exc = await self.servicemanager.enable_service(service_name)
 		return res, exc
 
 	#@red_gen

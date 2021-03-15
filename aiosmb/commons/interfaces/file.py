@@ -98,7 +98,7 @@ class SMBFile:
 			return False, e
 
 	@staticmethod
-	async def delete(connection, remotepath):
+	async def delete_rempath(connection, remotepath):
 		try:
 			remfile = SMBFile.from_remotepath(connection, remotepath)
 			tree_entry, err = await connection.tree_connect(remfile.share_path)
@@ -119,6 +119,43 @@ class SMBFile:
 				await connection.close(tree_id, file_id)
 
 			await connection.tree_disconnect(tree_id)
+			return True, None
+		
+		except Exception as e:
+			return False, e
+
+	async def delete(self):
+		try:
+			await self.close()
+			#remfile = SMBFile.from_remotepath(connection, remotepath)
+			tree_entry, err = await self.__connection.tree_connect(self.share_path)
+			if err is not None:
+				raise err
+			tree_id = tree_entry.tree_id
+
+			desired_access = FileAccessMask.DELETE | FileAccessMask.FILE_READ_ATTRIBUTES
+			share_mode = ShareAccess.FILE_SHARE_DELETE
+			create_options = CreateOptions.FILE_NON_DIRECTORY_FILE | CreateOptions.FILE_DELETE_ON_CLOSE 
+			create_disposition = CreateDisposition.FILE_OPEN
+			file_attrs = 0
+
+			file_id, err = await self.__connection.create(
+				tree_id, 
+				self.fullpath, 
+				desired_access, 
+				share_mode, 
+				create_options, 
+				create_disposition, 
+				file_attrs, 
+				return_reply = False
+			)
+
+			if err is not None:
+				raise err
+			if file_id is not None:
+				await self.__connection.close(tree_id, file_id)
+
+			await self.__connection.tree_disconnect(tree_id)
 			return True, None
 		
 		except Exception as e:

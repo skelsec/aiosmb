@@ -93,9 +93,9 @@ class SMBConnectionURL:
 		if self.fragment is not None:
 			fs = 0x100000
 			if self.fragment == 5:
-				fs = 1*1024
-			elif self.fragment == 4:
 				fs = 5*1024
+			elif self.fragment == 4:
+				fs = 7*1024
 			elif self.fragment == 3:
 				fs = 10*1024
 			elif self.fragment == 2:
