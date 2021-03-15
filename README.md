@@ -1,12 +1,6 @@
 # aiosmb
 Fully asynchronous SMB library written in pure python. Python 3.7+ ONLY
 
-# IMPORTANT
-It is far from ready. There are TONS of things to do to make this library usable for production.  
-
-# What is expected
-A lot of bugs and weird crashes. That aside, I believe I can bring this project to a stable version so you will be able to use it to perform normal operations as well as security ones as well.
-
 # Features
 
 ## Authentication
@@ -34,7 +28,7 @@ Bear in mind, that proxy support doesnt always play well with all auth methods, 
 |          | SOCKS4                 | SOCKS5               |
 |----------|------------------------|----------------------|
 | NTLM     | Y                      | Y                    |
-| Kerberos | N (incompatible)       | N (TODO)             |
+| Kerberos | N (incompatible)       | Y                    |
 | SSPI     | Y (only local users)   | Y (only local users) |
 
 
@@ -79,9 +73,9 @@ Socks4 proxy port : `9050`
 #### Example 3 - NTLM using the SSPI in Windows
 `smb+sspi-ntlm://10.10.10.2`
 #### Example 4 - KERBEROS with password
-`smb+kerberos-password://TEST\victim:Passw0rd!1@10.10.10.2`
+`smb+kerberos-password://TEST\victim:Passw0rd!1@10.10.10.2/?dc=10.10.10.2`
 #### Example 5 - KERBEROS with NT hash
-`smb+kerberos-nt://TEST\victim:f8963568a1ec62a3161d9d6449baba93@win2019ad.test.corp`
+`smb+kerberos-nt://TEST\victim:f8963568a1ec62a3161d9d6449baba93@win2019ad.test.corp/?dc=10.10.10.2`
 #### Example 6 - KERBEROS using the SSPI in Windows
 `smb+sspi-kerberos://win2019ad.test.corp`
 #### Example 7 - Socks proxy and NTLM with password
@@ -90,8 +84,6 @@ Socks4 proxy port : `9050`
 `smb+ntlm-password://TEST\victim:Passw0rd!1@10.10.10.2/?timeout=60`
 
 # TODO
-- Authentication to fully support SPNEGO with SSPI : DONE (SMB and !!!!DCERPC!!!!!)
-- Have nice interface for reading/writing files: Ongoing, reading works now but far from ready
 - DCERPC:
   - Not going to lie, I'm ripping off impacket for this one. The whole DCERPC is a mess as a protocol. A word for whoever designed it: you are a bad person.
   - Interface for controlling services: object is ready and stable, but missing a lot of functionalities
