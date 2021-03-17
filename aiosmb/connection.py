@@ -109,7 +109,7 @@ class SMBPendingMsg:
 		await self.__destroy_message(SMBPendingTimeout())
 
 	async def __destroy_message(self, problem):
-		self.OutstandingResponses[self.message_id] = problem
+		self.OutstandingResponses[self.message_id] = (None, problem)
 		if self.message_id in self.OutstandingResponsesEvent:
 			self.OutstandingResponsesEvent[self.message_id].set()
 		return
@@ -269,7 +269,7 @@ class SMBConnection:
 					logger.debug('__handle_smb_in got error from transport layer %s' % err)
 					#setting all outstanding events to finished
 					for mid in self.OutstandingResponsesEvent:
-						self.OutstandingResponses[mid] = None, err
+						self.OutstandingResponses[mid] = (None, err)
 						self.OutstandingResponsesEvent[mid].set()
 
 					await self.terminate()
@@ -742,7 +742,7 @@ class SMBConnection:
 		"""
 		if message_id not in self.OutstandingResponses:
 			logger.log(1, 'Waiting on messageID : %s' % message_id)
-			await self.OutstandingResponsesEvent[message_id].wait()
+			await self.OutstandingResponsesEvent[message_id].wait() #TODO: add timeout here?
 			
 		msg, msg_data = self.OutstandingResponses.pop(message_id)
 		if msg is None:
