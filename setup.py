@@ -39,7 +39,7 @@ setup(
 	# long_description=open("README.txt").read(),
 	python_requires='>=3.7',
 	install_requires=[
-		'minikerberos>=0.2.9',
+		'minikerberos>=0.2.10',
 		'winsspi>=0.0.9',
 		'six',
 		'asysocks>=0.1.1',

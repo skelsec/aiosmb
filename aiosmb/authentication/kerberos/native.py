@@ -49,7 +49,7 @@ class SMBKerberos:
 		
 		
 	async def sign(self, data, message_no, direction = 'init'):
-		return self.gssapi.GSS_GetMIC(data, message_no, direction = direction)	
+		return self.gssapi.GSS_GetMIC(data, message_no)	
 		
 	async def encrypt(self, data, message_no):
 		return self.gssapi.GSS_Wrap(data, message_no)
@@ -69,7 +69,7 @@ class SMBKerberos:
 
 	async def setup_kc(self):
 		try:
-			if isinstance(self.target.proxy, KerberosProxy):
+			if self.target.proxy is None or isinstance(self.target.proxy, KerberosProxy) is True:
 				self.kc = AIOKerberosClient(self.ccred, self.target)
 
 
