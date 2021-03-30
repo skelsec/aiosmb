@@ -350,7 +350,7 @@ class SMBMachine:
 			if share.name.upper() == 'IPC$':
 				continue
 			shares[share.name] = share
-			yield share.fullpath, 'share', None
+			yield share, 'share', None
 
 		for share_name in shares:
 			_, err = await shares[share_name].connect(self.connection)

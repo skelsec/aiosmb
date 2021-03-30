@@ -140,8 +140,9 @@ class SMBAdminCheck:
 					er = await self.res_q.get()
 					if er.status == EnumResultStatus.FINISHED:
 						self.__total_finished += 1
-						print('[P][%s/%s][%s]' % (self.__total_targets, self.__total_finished, str(self.__gens_finished)))
+						print('[P][%s/%s][%s]' % (self.__total_targets, self.__total_finished, 'False'))
 						if self.__total_finished == self.__total_targets and self.__gens_finished is True:
+							print('[P][%s/%s][%s]' % (self.__total_targets, self.__total_finished, 'True'))
 							asyncio.create_task(self.terminate())
 							return
 					
@@ -214,7 +215,16 @@ async def amain():
 	import sys
 	from aiosmb.commons.connection.params import SMBConnectionParams
 
-	parser = argparse.ArgumentParser(description='SMB Share enumerator')
+	epilog = """
+Output legend:
+    [SHARE] C$ is accessible
+    [SRV] Remote Service Manager is accessible
+    [REG] Remote registry is accessible
+    [E] Error
+    [P] Progress (current/total)
+"""
+
+	parser = argparse.ArgumentParser(description='SMB Share enumerator', formatter_class=argparse.RawDescriptionHelpFormatter, epilog=epilog)
 	SMBConnectionParams.extend_parser(parser)
 	parser.add_argument('-v', '--verbose', action='count', default=0)
 	parser.add_argument('-w', '--smb-worker-count', type=int, default=100, help='Parallell count')

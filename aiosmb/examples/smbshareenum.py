@@ -82,8 +82,8 @@ class SMBFileEnum:
 					raise err
 
 				machine = SMBMachine(connection)
-				async for path, otype, err in machine.enum_all_recursively(depth = self.depth):
-					er = EnumResult(tid, target, (path, otype, err))
+				async for obj, otype, err in machine.enum_all_recursively(depth = self.depth):
+					er = EnumResult(tid, target, (obj, otype, err))
 					await self.res_q.put(er)
 
 		except asyncio.CancelledError:
@@ -141,11 +141,11 @@ class SMBFileEnum:
 							continue
 							
 					if er.result is not None:
-						path, otype, err = er.result
+						obj, otype, err = er.result
 						if otype is not None:
-							out_buffer.append('[%s] %s' % (otype[0].upper(), path))
+							out_buffer.append('[%s] %s' % (otype[0].upper(), obj.unc_path))							
 						if err is not None:
-							out_buffer.append('[E] %s %s' % (err, path))
+							out_buffer.append('[E] %s %s' % (err, obj.unc_path))
 				except asyncio.CancelledError:
 					return
 				except Exception as e:
@@ -206,7 +206,16 @@ async def amain():
 	import sys
 	from aiosmb.commons.connection.params import SMBConnectionParams
 
-	parser = argparse.ArgumentParser(description='SMB Share enumerator')
+	epilog = """
+Output legend:
+    [S] Share
+    [D] Dictionary
+    [F] File
+    [E] Error
+    [P] Progress (current/total)
+"""
+
+	parser = argparse.ArgumentParser(description='SMB Share enumerator', formatter_class=argparse.RawDescriptionHelpFormatter, epilog=epilog)
 	SMBConnectionParams.extend_parser(parser)
 	parser.add_argument('-v', '--verbose', action='count', default=0)
 	parser.add_argument('--depth', type=int, default=3, help='Recursion depth, -1 means infinite')

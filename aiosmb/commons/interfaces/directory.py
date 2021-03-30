@@ -1,5 +1,7 @@
 
+import copy
 from pathlib import PureWindowsPath
+
 from aiosmb.commons.interfaces.file import SMBFile
 from aiosmb.wintypes.access_mask import *
 from aiosmb.wintypes.fscc.FileAttributes import FileAttributes
@@ -219,25 +221,108 @@ class SMBDirectory:
 
 	async def list_r(self, connection, depth = 3):
 		"""
+		recursive list files and folders
 		Beware this will clear out the lists of files/folders to save memory!
 		"""
 		if depth == 0:
 			return
 		depth -= 1
-		_, err = await self.list(connection)
-		if err is not None:
-			yield self.unc_path, 'dir', err
+		dirs = []
+		async for obj, otype, err in self.list_gen(connection):
+			yield obj, otype, err
+			if err is not None:
+				break
+			if otype == 'dir':
+				dirs.append(obj)
 
-		for file_entry in self.files:
-			yield self.files[file_entry].unc_path, 'file', None
-		
-		for directory in self.subdirs:
-			yield self.subdirs[directory].unc_path, 'dir', None
-			async for e,t,err in self.subdirs[directory].list_r(connection, depth):
+
+		for directory in dirs:
+			async for e,t,err in directory.list_r(connection, depth):
 				yield e,t,err
-		
-		self.subdirs = {}
+
+	async def list_gen(self, connection):
+		"""
+		Lists all files and folders in the directory, yields the results as they arrive
+		directory: SMBDirectory
+		DOESN'T fill the SMBDirectory's data
+		"""
 		self.files = {}
+		self.subdirs = {}
+		
+		desired_access = FileAccessMask.FILE_READ_DATA
+		share_mode = ShareAccess.FILE_SHARE_READ
+		create_options = CreateOptions.FILE_DIRECTORY_FILE | CreateOptions.FILE_SYNCHRONOUS_IO_NONALERT
+		file_attrs = 0
+		create_disposition = CreateDisposition.FILE_OPEN
+
+		
+		if not self.tree_id:
+			tree_entry, err = await connection.tree_connect(self.get_share_path())
+			if err is not None:
+				yield self, 'dir', err
+				return
+			self.tree_id = tree_entry.tree_id
+		
+		file_id, err = await connection.create(self.tree_id, self.fullpath, desired_access, share_mode, create_options, create_disposition, file_attrs)
+		if err is not None:
+			yield self, 'dir', err
+			return
+		try:
+			while True:
+				fileinfos, err = await connection.query_directory(self.tree_id, file_id)
+				if err is not None:
+					raise err
+				if not fileinfos:
+					break
+				for info in fileinfos:
+					if info.FileAttributes & FileAttributes.FILE_ATTRIBUTE_DIRECTORY:
+						dirname = info.FileName 
+						if info.FileName in ['.','..']:
+							continue
+						subdir = SMBDirectory()
+						subdir.tree_id = self.tree_id
+						if self.fullpath != '':
+							subdir.fullpath = '%s\\%s' % (self.fullpath, info.FileName)	
+						else:
+							subdir.fullpath = info.FileName
+						subdir.unc_path = '%s\\%s' % (self.unc_path, info.FileName)
+						subdir.parent_dir = self
+						subdir.name = info.FileName
+						subdir.creation_time = info.CreationTime
+						subdir.last_access_time = info.LastAccessTime
+						subdir.last_write_time = info.LastWriteTime
+						subdir.change_time = info.ChangeTime
+						subdir.allocation_size = info.AllocationSize
+						subdir.attributes = info.FileAttributes
+						
+						yield subdir, 'dir', None
+						
+					else:
+						file = SMBFile()
+						file.tree_id = self.tree_id
+						file.parent_dir = None
+						if self.fullpath != '':
+							file.fullpath = '%s\\%s' % (self.fullpath, info.FileName)
+							file.unc_path = '%s\\%s' % (self.unc_path, info.FileName)
+						else:
+							file.fullpath = info.FileName
+							file.unc_path = '%s\\%s' % (self.unc_path, info.FileName)
+						file.name = info.FileName
+						file.size = info.EndOfFile
+						file.creation_time = info.CreationTime
+						file.last_access_time = info.LastAccessTime
+						file.last_write_time = info.LastWriteTime
+						file.change_time = info.ChangeTime
+						file.allocation_size = info.AllocationSize
+						file.attributes = info.FileAttributes
+						yield file, 'file', None
+			
+		except Exception as e:
+			yield self, 'dir', e
+			return
+		finally:
+			if file_id is not None:
+				await connection.close(self.tree_id, file_id)
 
 	async def list(self, connection):
 		"""
