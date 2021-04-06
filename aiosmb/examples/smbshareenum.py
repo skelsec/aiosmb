@@ -8,6 +8,18 @@ from aiosmb import logger
 from aiosmb.commons.connection.url import SMBConnectionURL
 from aiosmb.commons.interfaces.machine import SMBMachine
 
+from tqdm import tqdm
+
+# https://stackoverflow.com/questions/1094841/get-human-readable-version-of-file-size
+def sizeof_fmt(num, suffix='B'):
+	if num is None:
+		return ''
+	for unit in ['','Ki','Mi','Gi','Ti','Pi','Ei','Zi']:
+		if abs(num) < 1024.0:
+			return "%3.1f%s%s" % (num, unit, suffix)
+		num /= 1024.0
+	return "%.1f%s%s" % (num, 'Yi', suffix)
+
 class EnumResultStatus(enum.Enum):
 	RESULT = 'RESULT'
 	FINISHED = 'FINISED'
@@ -58,7 +70,7 @@ class ListTargetGen:
 
 
 class SMBFileEnum:
-	def __init__(self, smb_url, worker_count = 10, depth = 3, enum_url = True, out_file = None):
+	def __init__(self, smb_url, worker_count = 10, depth = 3, enum_url = True, out_file = None, show_pbar = True):
 		self.target_gens = []
 		self.smb_mgr = SMBConnectionURL(smb_url)
 		self.worker_count = worker_count
@@ -69,6 +81,7 @@ class SMBFileEnum:
 		self.result_processing_task = None
 		self.enum_url = enum_url
 		self.out_file = out_file
+		self.show_pbar = show_pbar
 		self.__gens_finished = False
 		self.__total_targets = 0
 		self.__total_finished = 0
@@ -116,6 +129,14 @@ class SMBFileEnum:
 
 	async def result_processing(self):
 		try:
+			pbar = None
+			if self.show_pbar is True:
+				pbar = {}
+				pbar['targets'] = tqdm(desc='Targets', position=0)
+				pbar['shares'] = tqdm(desc='Shares', position=1)
+				pbar['dirs']   = tqdm(desc='Directories', position=2)
+				pbar['files']  = tqdm(desc='Files', position=3)
+				pbar['errors'] = tqdm(desc='Errors', position=4)
 
 			out_buffer = []
 			final_iter = False
@@ -135,6 +156,9 @@ class SMBFileEnum:
 					er = await self.res_q.get()
 					if er.status == EnumResultStatus.FINISHED:
 						self.__total_finished += 1
+						if self.show_pbar is True:
+							pbar['targets'].update(1)
+
 						out_buffer.append('[P][%s/%s][%s]' % (self.__total_targets, self.__total_finished, str(self.__gens_finished)))
 						if self.__total_finished == self.__total_targets and self.__gens_finished is True:
 							final_iter = True
@@ -143,9 +167,26 @@ class SMBFileEnum:
 					if er.result is not None:
 						obj, otype, err = er.result
 						if otype is not None:
-							out_buffer.append('[%s] %s' % (otype[0].upper(), obj.unc_path))							
+							if otype == 'file':
+								out_buffer.append('[%s] %s | %s | %s' % (otype[0].upper(), obj.unc_path, obj.creation_time, sizeof_fmt(obj.size)))
+							elif otype == 'dir':
+								out_buffer.append('[%s] %s | %s' % (otype[0].upper(), obj.unc_path, obj.creation_time))
+							elif otype == 'share':
+								out_buffer.append('[%s] %s' % (otype[0].upper(), obj.unc_path))
+							else:
+								out_buffer.append('[%s] %s' % (otype[0].upper(), obj.unc_path))
+							if self.show_pbar is True:
+								if otype == 'dir':
+									pbar['dirs'].update(1)
+								elif otype == 'file':
+									pbar['files'].update(1)
+								elif otype == 'share':
+									pbar['shares'].update(1)
+
 						if err is not None:
 							out_buffer.append('[E] %s %s' % (err, obj.unc_path))
+							if self.show_pbar is True:
+								pbar['errors'].update(1)
 				except asyncio.CancelledError:
 					return
 				except Exception as e:
@@ -226,6 +267,7 @@ Output legend:
 	parser.add_argument('-m', '--max-items', type = int, default=None, help='Stop enumeration of a directory after M items were discovered.')
 	parser.add_argument('--url', help='Connection URL base, target can be set to anything. Owerrides all parameter based connection settings! Example: "smb2+ntlm-password://TEST\\victim@test"')
 	parser.add_argument('targets', nargs='*', help = 'Hostname or IP address or file with a list of targets')
+	parser.add_argument('--progress', action='store_true', help='Show progress bar')
 	args = parser.parse_args()
 
 	if args.verbose >=1:
@@ -247,7 +289,7 @@ Output legend:
 			print('Either URL or all connection parameters must be set! Error: %s' % str(e))
 			sys.exit(1)
 	
-	enumerator = SMBFileEnum(smb_url, worker_count = args.smb_worker_count, depth = args.depth, out_file = args.out_file)
+	enumerator = SMBFileEnum(smb_url, worker_count = args.smb_worker_count, depth = args.depth, out_file = args.out_file, show_pbar = args.progress)
 	
 	notfile = []
 	if len(args.targets) == 0 and args.stdin is True:

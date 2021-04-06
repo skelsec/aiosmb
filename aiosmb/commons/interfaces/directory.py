@@ -227,7 +227,6 @@ class SMBDirectory:
 		if depth == 0:
 			return
 		depth -= 1
-		dirs = []
 		ctr = 0
 		async for obj, otype, err in self.list_gen(connection):
 			yield obj, otype, err
@@ -241,21 +240,9 @@ class SMBDirectory:
 			
 			if otype == 'dir':
 				obj.tree_id = self.tree_id
-				#async for e,t,err in obj.list_r(connection, depth, maxentries = maxentries):
-				#	yield e,t,err
-				dirs.append(obj)
+				async for e,t,err in obj.list_r(connection, depth, maxentries = maxentries):
+					yield e,t,err
 
-				if len(dirs) > 100:
-					for directory in dirs:
-						async for e,t,err in directory.list_r(connection, depth, maxentries = maxentries):
-							yield e,t,err
-					dirs = []
-
-		for directory in dirs:
-			async for e,t,err in directory.list_r(connection, depth, maxentries = maxentries):
-				yield e,t,err
-
-		dirs = []
 
 	async def list_gen(self, connection):
 		"""
