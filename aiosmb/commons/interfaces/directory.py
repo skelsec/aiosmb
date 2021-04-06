@@ -219,7 +219,7 @@ class SMBDirectory:
 	async def delete_subdir(self, dir_name):
 		raise Exception('delete subdir not implemented!')
 
-	async def list_r(self, connection, depth = 3):
+	async def list_r(self, connection, depth = 3, maxentries = None):
 		"""
 		recursive list files and folders
 		Beware this will clear out the lists of files/folders to save memory!
@@ -228,17 +228,34 @@ class SMBDirectory:
 			return
 		depth -= 1
 		dirs = []
+		ctr = 0
 		async for obj, otype, err in self.list_gen(connection):
 			yield obj, otype, err
+			ctr += 1
 			if err is not None:
 				break
+			
+			if ctr == maxentries:
+				yield self, 'maxed', None
+				break
+			
 			if otype == 'dir':
+				obj.tree_id = self.tree_id
+				#async for e,t,err in obj.list_r(connection, depth, maxentries = maxentries):
+				#	yield e,t,err
 				dirs.append(obj)
 
+				if len(dirs) > 100:
+					for directory in dirs:
+						async for e,t,err in directory.list_r(connection, depth, maxentries = maxentries):
+							yield e,t,err
+					dirs = []
 
 		for directory in dirs:
-			async for e,t,err in directory.list_r(connection, depth):
+			async for e,t,err in directory.list_r(connection, depth, maxentries = maxentries):
 				yield e,t,err
+
+		dirs = []
 
 	async def list_gen(self, connection):
 		"""

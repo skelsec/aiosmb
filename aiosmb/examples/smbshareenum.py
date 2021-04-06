@@ -212,6 +212,7 @@ Output legend:
     [D] Dictionary
     [F] File
     [E] Error
+    [M] Maxed (max items limit reached for directory)
     [P] Progress (current/total)
 """
 
@@ -222,6 +223,7 @@ Output legend:
 	parser.add_argument('-w', '--smb-worker-count', type=int, default=100, help='Parallell count')
 	parser.add_argument('-o', '--out-file', help='Output file path.')
 	parser.add_argument('-s', '--stdin', action='store_true', help='Read targets from stdin')
+	parser.add_argument('-m', '--max-items', type = int, default=None, help='Stop enumeration of a directory after M items were discovered.')
 	parser.add_argument('--url', help='Connection URL base, target can be set to anything. Owerrides all parameter based connection settings! Example: "smb2+ntlm-password://TEST\\victim@test"')
 	parser.add_argument('targets', nargs='*', help = 'Hostname or IP address or file with a list of targets')
 	args = parser.parse_args()

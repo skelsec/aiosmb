@@ -342,7 +342,7 @@ class SMBMachine:
 		for entry in directory.get_console_output():
 			yield entry
 
-	async def enum_all_recursively(self, depth = 3):
+	async def enum_all_recursively(self, depth = 3, maxentries = None):
 		shares = {}
 		async for share, err in self.list_shares():
 			if err is not None:
