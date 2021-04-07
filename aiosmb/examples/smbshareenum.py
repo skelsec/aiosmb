@@ -165,6 +165,10 @@ class SMBFileEnum:
 					try:
 						er = await asyncio.wait_for(self.res_q.get(), timeout = 5)
 					except asyncio.TimeoutError:
+						if self.show_pbar is True:
+							for key in pbar:
+								pbar[key].refresh()
+								
 						if self.__total_finished == self.__total_targets and self.__gens_finished is True:
 							final_iter = True
 						continue
