@@ -92,9 +92,11 @@ class SMBFileEnum:
 		self.__total_dirs = 0
 		self.__total_files = 0
 		self.__total_errors = 0
+		self.__current_targets = {}
 
 	async def __executor(self, tid, target):
 		try:
+			self.__current_targets[target] = 1
 			connection = self.smb_mgr.create_connection_newtarget(target)
 			async with connection:
 				_, err = await connection.login()
@@ -111,6 +113,10 @@ class SMBFileEnum:
 		except Exception as e:
 			await self.res_q.put(EnumResult(tid, target, None, error = e, status = EnumResultStatus.ERROR))
 		finally:
+			try:
+				del self.__current_targets[target]
+			except:
+				pass
 			await self.res_q.put(EnumResult(tid, target, None, status = EnumResultStatus.FINISHED))
 
 	async def worker(self):
@@ -165,10 +171,11 @@ class SMBFileEnum:
 					try:
 						er = await asyncio.wait_for(self.res_q.get(), timeout = 5)
 					except asyncio.TimeoutError:
+						print(self.__current_targets)
 						if self.show_pbar is True:
 							for key in pbar:
 								pbar[key].refresh()
-								
+
 						if self.__total_finished == self.__total_targets and self.__gens_finished is True:
 							final_iter = True
 						continue
