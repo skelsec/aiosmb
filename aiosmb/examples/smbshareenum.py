@@ -162,7 +162,14 @@ class SMBFileEnum:
 					if final_iter:
 						asyncio.create_task(self.terminate())
 						return
-					er = await self.res_q.get()
+					try:
+						er = await asyncio.wait_for(self.res_q.get(), timeout = 5)
+					except asyncio.TimeoutError:
+						if self.__total_finished == self.__total_targets and self.__gens_finished is True:
+							final_iter = True
+						continue
+
+
 					if er.status == EnumResultStatus.FINISHED:
 						self.__total_finished += 1
 						if self.show_pbar is True:
