@@ -181,7 +181,7 @@ class SMBFileEnum:
 								self.__total_files += 1
 								if isinstance(obj.size, int) is True: #just making sure...
 									self.__total_size += obj.size
-									if pbar is not None:
+									if self.show_pbar is True:
 										pbar['filesize'].update(obj.size)
 							elif otype == 'dir':
 								out_buffer.append('[%s] %s | %s' % (otype[0].upper(), obj.unc_path, obj.creation_time))
