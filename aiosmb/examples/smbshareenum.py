@@ -96,6 +96,7 @@ class SMBFileEnum:
 
 	async def __executor(self, tid, target):
 		try:
+			print(target)
 			self.__current_targets[target] = 1
 			connection = self.smb_mgr.create_connection_newtarget(target)
 			async with connection:
@@ -259,14 +260,6 @@ class SMBFileEnum:
 			return True, None
 		except Exception as e:
 			return None, e
-
-	# TODO: remove this
-	async def __target_test(self):
-		while True:
-			await asyncio.sleep(10)
-			for target in self.__current_targets:
-				print(target)
-
 	
 	async def run(self):
 		try:
@@ -286,9 +279,7 @@ class SMBFileEnum:
 
 			self.__gens_finished = True
 			
-			x = asyncio.create_task(self.__target_test())
 			await asyncio.gather(*self.workers)
-			x.cancel()
 			return True, None
 		except Exception as e:
 			print(e)
