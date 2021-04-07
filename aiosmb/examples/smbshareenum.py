@@ -190,7 +190,7 @@ class SMBFileEnum:
 						if self.show_pbar is True:
 							pbar['targets'].update(1)
 
-						out_buffer.append('[P][%s/%s][%s]' % (self.__total_targets, self.__total_finished, str(self.__gens_finished)))
+						out_buffer.append('[P][%s/%s][%s] %s' % (self.__total_targets, self.__total_finished, str(self.__gens_finished), er.target))
 						if self.__total_finished == self.__total_targets and self.__gens_finished is True:
 							final_iter = True
 							continue
