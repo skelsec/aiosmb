@@ -165,13 +165,17 @@ class SMBFileEnum:
 								f.write(out_data)
 						else:
 							print(out_data)
+						
+						if self.show_pbar is True:
+							for key in pbar:
+								pbar[key].refresh()
+
 					if final_iter:
 						asyncio.create_task(self.terminate())
 						return
 					try:
 						er = await asyncio.wait_for(self.res_q.get(), timeout = 5)
 					except asyncio.TimeoutError:
-						print(self.__current_targets)
 						if self.show_pbar is True:
 							for key in pbar:
 								pbar[key].refresh()
@@ -255,6 +259,14 @@ class SMBFileEnum:
 			return True, None
 		except Exception as e:
 			return None, e
+
+	# TODO: remove this
+	async def __target_test(self):
+		while True:
+			await asyncio.sleep(10)
+			for target in self.__current_targets:
+				print(target)
+
 	
 	async def run(self):
 		try:
@@ -274,7 +286,9 @@ class SMBFileEnum:
 
 			self.__gens_finished = True
 			
+			x = asyncio.create_task(self.__target_test())
 			await asyncio.gather(*self.workers)
+			x.cancel()
 			return True, None
 		except Exception as e:
 			print(e)

@@ -342,7 +342,7 @@ class SMBMachine:
 		for entry in directory.get_console_output():
 			yield entry
 
-	async def enum_all_recursively(self, depth = 3, maxentries = None):
+	async def enum_all_recursively(self, depth = 3, maxentries = None, exclude_share=['print$', 'PRINT$']):
 		shares = {}
 		async for share, err in self.list_shares():
 			if err is not None:
@@ -353,6 +353,9 @@ class SMBMachine:
 			yield share, 'share', None
 
 		for share_name in shares:
+			if share_name in exclude_share:
+				continue
+
 			_, err = await shares[share_name].connect(self.connection)
 			if err is not None:
 				continue
