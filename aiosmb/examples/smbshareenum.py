@@ -70,7 +70,7 @@ class ListTargetGen:
 
 
 class SMBFileEnum:
-	def __init__(self, smb_url, worker_count = 10, depth = 3, enum_url = True, out_file = None, show_pbar = True):
+	def __init__(self, smb_url, worker_count = 10, depth = 3, enum_url = True, out_file = None, show_pbar = True, max_items = None):
 		self.target_gens = []
 		self.smb_mgr = SMBConnectionURL(smb_url)
 		self.worker_count = worker_count
@@ -82,9 +82,16 @@ class SMBFileEnum:
 		self.enum_url = enum_url
 		self.out_file = out_file
 		self.show_pbar = show_pbar
+		self.max_items = max_items
 		self.__gens_finished = False
 		self.__total_targets = 0
 		self.__total_finished = 0
+
+		self.__total_size = 0
+		self.__total_shares = 0
+		self.__total_dirs = 0
+		self.__total_files = 0
+		self.__total_errors = 0
 
 	async def __executor(self, tid, target):
 		try:
@@ -95,7 +102,7 @@ class SMBFileEnum:
 					raise err
 
 				machine = SMBMachine(connection)
-				async for obj, otype, err in machine.enum_all_recursively(depth = self.depth):
+				async for obj, otype, err in machine.enum_all_recursively(depth = self.depth, maxentries = self.max_items):
 					er = EnumResult(tid, target, (obj, otype, err))
 					await self.res_q.put(er)
 
@@ -132,11 +139,13 @@ class SMBFileEnum:
 			pbar = None
 			if self.show_pbar is True:
 				pbar = {}
-				pbar['targets'] = tqdm(desc='Targets', position=0)
-				pbar['shares'] = tqdm(desc='Shares', position=1)
-				pbar['dirs']   = tqdm(desc='Directories', position=2)
-				pbar['files']  = tqdm(desc='Files', position=3)
-				pbar['errors'] = tqdm(desc='Errors', position=4)
+				pbar['targets'] = tqdm(desc='Targets     ', position=0)
+				pbar['shares']  = tqdm(desc='Shares      ', position=1)
+				pbar['dirs']    = tqdm(desc='Dirs        ', position=2)
+				pbar['files']   = tqdm(desc='Files       ', position=3)
+				pbar['filesize']= tqdm(desc='Files (size)', unit='B', unit_scale=True, position=4)
+				pbar['maxed']   = tqdm(desc='Maxed       ', position=5)
+				pbar['errors']  = tqdm(desc='Errors      ', position=6)
 
 			out_buffer = []
 			final_iter = False
@@ -168,13 +177,20 @@ class SMBFileEnum:
 						obj, otype, err = er.result
 						if otype is not None:
 							if otype == 'file':
-								out_buffer.append('[%s] %s | %s | %s' % (otype[0].upper(), obj.unc_path, obj.creation_time, sizeof_fmt(obj.size)))
+								out_buffer.append('[%s] %s | %s | %s | %s' % (otype[0].upper(), obj.unc_path, obj.creation_time, obj.size, sizeof_fmt(obj.size)))
+								self.__total_files += 1
+								if isinstance(obj.size, int) is True: #just making sure...
+									self.__total_size += obj.size
+									pbar['filesize'].update(obj.size)
 							elif otype == 'dir':
 								out_buffer.append('[%s] %s | %s' % (otype[0].upper(), obj.unc_path, obj.creation_time))
+								self.__total_dirs += 1
 							elif otype == 'share':
 								out_buffer.append('[%s] %s' % (otype[0].upper(), obj.unc_path))
+								self.__total_shares += 1
 							else:
 								out_buffer.append('[%s] %s' % (otype[0].upper(), obj.unc_path))
+							
 							if self.show_pbar is True:
 								if otype == 'dir':
 									pbar['dirs'].update(1)
@@ -182,9 +198,12 @@ class SMBFileEnum:
 									pbar['files'].update(1)
 								elif otype == 'share':
 									pbar['shares'].update(1)
+								elif otype == 'maxed':
+									pbar['maxed'].update(1)
 
 						if err is not None:
 							out_buffer.append('[E] %s %s' % (err, obj.unc_path))
+							self.__total_errors += 1
 							if self.show_pbar is True:
 								pbar['errors'].update(1)
 				except asyncio.CancelledError:
@@ -289,7 +308,7 @@ Output legend:
 			print('Either URL or all connection parameters must be set! Error: %s' % str(e))
 			sys.exit(1)
 	
-	enumerator = SMBFileEnum(smb_url, worker_count = args.smb_worker_count, depth = args.depth, out_file = args.out_file, show_pbar = args.progress)
+	enumerator = SMBFileEnum(smb_url, worker_count = args.smb_worker_count, depth = args.depth, out_file = args.out_file, show_pbar = args.progress, max_items = args.max_items)
 	
 	notfile = []
 	if len(args.targets) == 0 and args.stdin is True:

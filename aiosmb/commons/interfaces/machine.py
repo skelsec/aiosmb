@@ -358,7 +358,7 @@ class SMBMachine:
 				continue
 				raise err
 
-			async for entry in shares[share_name].subdirs[''].list_r(self.connection, depth = depth):
+			async for entry in shares[share_name].subdirs[''].list_r(self.connection, depth = depth, maxentries = maxentries):
 				yield entry
 
 	async def put_file(self, local_path, remote_path):
