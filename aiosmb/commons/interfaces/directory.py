@@ -1,5 +1,6 @@
 
 import copy
+import asyncio
 from pathlib import PureWindowsPath
 
 from aiosmb.commons.interfaces.file import SMBFile
@@ -229,6 +230,7 @@ class SMBDirectory:
 		depth -= 1
 		ctr = 0
 		async for obj, otype, err in self.list_gen(connection):
+			await asyncio.sleep(0)
 			yield obj, otype, err
 			ctr += 1
 			if err is not None:
@@ -242,6 +244,7 @@ class SMBDirectory:
 				obj.tree_id = self.tree_id
 				async for e,t,err in obj.list_r(connection, depth, maxentries = maxentries):
 					yield e,t,err
+					await asyncio.sleep(0)
 
 
 	async def list_gen(self, connection):
@@ -259,7 +262,7 @@ class SMBDirectory:
 		file_attrs = 0
 		create_disposition = CreateDisposition.FILE_OPEN
 
-		
+	
 		if not self.tree_id:
 			tree_entry, err = await connection.tree_connect(self.get_share_path())
 			if err is not None:
@@ -273,6 +276,7 @@ class SMBDirectory:
 			return
 		try:
 			while True:
+				await asyncio.sleep(0)
 				fileinfos, err = await connection.query_directory(self.tree_id, file_id)
 				if err is not None:
 					raise err

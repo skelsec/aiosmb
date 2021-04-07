@@ -70,7 +70,7 @@ class ListTargetGen:
 
 
 class SMBFileEnum:
-	def __init__(self, smb_url, worker_count = 10, depth = 3, enum_url = True, out_file = None, show_pbar = True, max_items = None):
+	def __init__(self, smb_url, worker_count = 10, depth = 3, enum_url = True, out_file = None, show_pbar = True, max_items = None, max_runtime = 60):
 		self.target_gens = []
 		self.smb_mgr = SMBConnectionURL(smb_url)
 		self.worker_count = worker_count
@@ -83,6 +83,7 @@ class SMBFileEnum:
 		self.out_file = out_file
 		self.show_pbar = show_pbar
 		self.max_items = max_items
+		self.max_runtime = max_runtime
 		self.__gens_finished = False
 		self.__total_targets = 0
 		self.__total_finished = 0
@@ -96,8 +97,6 @@ class SMBFileEnum:
 
 	async def __executor(self, tid, target):
 		try:
-			print(target)
-			self.__current_targets[target] = 1
 			connection = self.smb_mgr.create_connection_newtarget(target)
 			async with connection:
 				_, err = await connection.login()
@@ -114,10 +113,6 @@ class SMBFileEnum:
 		except Exception as e:
 			await self.res_q.put(EnumResult(tid, target, None, error = e, status = EnumResultStatus.ERROR))
 		finally:
-			try:
-				del self.__current_targets[target]
-			except:
-				pass
 			await self.res_q.put(EnumResult(tid, target, None, status = EnumResultStatus.FINISHED))
 
 	async def worker(self):
@@ -129,9 +124,13 @@ class SMBFileEnum:
 				
 				tid, target = indata
 				try:
-					await asyncio.wait_for(self.__executor(tid, target), timeout=60)
+					await asyncio.wait_for(self.__executor(tid, target), timeout=self.max_runtime)
 				except asyncio.CancelledError:
 					return
+				except asyncio.TimeoutError as e:
+					await self.res_q.put(EnumResult(tid, target, None, error = e, status = EnumResultStatus.ERROR))
+					await self.res_q.put(EnumResult(tid, target, None, status = EnumResultStatus.FINISHED))
+					continue
 				except Exception as e:
 					logger.exception('worker')
 					continue
@@ -185,7 +184,7 @@ class SMBFileEnum:
 							final_iter = True
 						continue
 
-
+					
 					if er.status == EnumResultStatus.FINISHED:
 						self.__total_finished += 1
 						if self.show_pbar is True:
@@ -234,11 +233,13 @@ class SMBFileEnum:
 					return
 				except Exception as e:
 					logger.exception('result_processing inner')
-					continue
+					asyncio.create_task(self.terminate())
+					return
 		except asyncio.CancelledError:
 			return
 		except Exception as e:
 			logger.exception('result_processing')
+			asyncio.create_task(self.terminate())
 
 	async def terminate(self):
 		for worker in self.workers:
@@ -249,7 +250,7 @@ class SMBFileEnum:
 	async def setup(self):
 		try:
 			if self.res_q is None:
-				self.res_q = asyncio.Queue(self.worker_count)
+				self.res_q = asyncio.Queue() #self.worker_count
 				self.result_processing_task = asyncio.create_task(self.result_processing())
 			if self.task_q is None:
 				self.task_q = asyncio.Queue()
@@ -280,6 +281,7 @@ class SMBFileEnum:
 			self.__gens_finished = True
 			
 			await asyncio.gather(*self.workers)
+			await self.result_processing_task
 			return True, None
 		except Exception as e:
 			print(e)

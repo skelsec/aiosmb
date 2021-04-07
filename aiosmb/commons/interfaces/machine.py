@@ -363,6 +363,7 @@ class SMBMachine:
 
 			async for entry in shares[share_name].subdirs[''].list_r(self.connection, depth = depth, maxentries = maxentries):
 				yield entry
+				await asyncio.sleep(0)
 
 	async def put_file(self, local_path, remote_path):
 		"""
