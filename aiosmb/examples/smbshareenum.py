@@ -148,7 +148,7 @@ class ListTargetGen:
 
 
 class SMBFileEnum:
-	def __init__(self, smb_url, worker_count = 10, depth = 3, enum_url = False, out_file = None, show_pbar = True, max_items = None, max_runtime = 60, fetch_dir_sd = False, fetch_file_sd = False, task_q = None, res_q = None, output_type = 'str'):
+	def __init__(self, smb_url, worker_count = 10, depth = 3, enum_url = False, out_file = None, show_pbar = True, max_items = None, max_runtime = None, fetch_dir_sd = False, fetch_file_sd = False, task_q = None, res_q = None, output_type = 'str'):
 		self.target_gens = []
 		self.smb_mgr = SMBConnectionURL(smb_url)
 		self.worker_count = worker_count
@@ -343,7 +343,7 @@ class SMBFileEnum:
 	async def setup(self):
 		try:
 			if self.res_q is None:
-				self.res_q = asyncio.Queue() #self.worker_count
+				self.res_q = asyncio.Queue(10000)
 				self.result_processing_task = asyncio.create_task(self.result_processing())
 			if self.task_q is None:
 				self.task_q = asyncio.Queue()
@@ -402,7 +402,8 @@ Output legend:
 	parser.add_argument('-w', '--smb-worker-count', type=int, default=100, help='Parallell count')
 	parser.add_argument('-o', '--out-file', help='Output file path.')
 	parser.add_argument('-s', '--stdin', action='store_true', help='Read targets from stdin')
-	parser.add_argument('-m', '--max-items', type = int, default=None, help='Stop enumeration of a directory after M items were discovered.')
+	parser.add_argument('--max-items', type = int, default=None, help='Stop enumeration of a directory after N items were discovered.')
+	parser.add_argument('--max-runtime', type = int, default=None, help='Stop enumeration of a host after N seconds')
 	parser.add_argument('--url', help='Connection URL base, target can be set to anything. Owerrides all parameter based connection settings! Example: "smb2+ntlm-password://TEST\\victim@test"')
 	parser.add_argument('targets', nargs='*', help = 'Hostname or IP address or file with a list of targets')
 	parser.add_argument('--progress', action='store_true', help='Show progress bar')
@@ -439,15 +440,16 @@ Output legend:
 			sys.exit(1)
 	
 	enumerator = SMBFileEnum(
-		smb_url, 
-		worker_count = args.smb_worker_count, 
-		depth = args.depth, 
-		out_file = args.out_file, 
-		show_pbar = args.progress, 
+		smb_url,
+		worker_count = args.smb_worker_count,
+		depth = args.depth,
+		out_file = args.out_file,
+		show_pbar = args.progress,
 		max_items = args.max_items,
 		fetch_dir_sd = args.dirsd,
 		fetch_file_sd = args.filesd,
-		output_type = output_type
+		output_type = output_type,
+		max_runtime = args.max_runtime,
 	)
 	
 	notfile = []
