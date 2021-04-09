@@ -74,6 +74,10 @@ class NetBIOSTransport:
 				data, err = await self.socket_in_queue.get()
 				if err is not None:
 					raise err
+				if data == b'':
+					buffer = await self.parse_buffer(buffer)
+					raise Exception('Remote end terminated the connection')
+
 				#parse
 				buffer += data
 				buffer = await self.parse_buffer(buffer)

@@ -95,7 +95,7 @@ class CREATE_REQ:
 			t_ctx = self.CreateContext.to_bytes()
 			self.CreateContextsLength = len(t_ctx)
 			
-			pos = curself.NameOffset + self.NameLength
+			pos = self.NameOffset + self.NameLength
 			t_m = pos % 8
 			if t_m != 0:
 				pad = b'\x00' * (8 - t_m)

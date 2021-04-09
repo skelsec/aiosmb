@@ -54,6 +54,8 @@ class TCPSocket:
 				try:
 					data = await self.reader.read(10240)
 					await self.in_queue.put( (data, None) )
+					if data == b'':
+						return
 				
 				except asyncio.CancelledError as e:
 					lasterror = e

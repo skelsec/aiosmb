@@ -23,7 +23,7 @@ class SMBFile:
 		self.allocation_size = None
 		self.attributes = None
 		self.file_id = None
-		self.sid = None
+		self.security_descriptor = None
 
 		#internal
 		self.__connection = None
@@ -162,7 +162,7 @@ class SMBFile:
 			return False, e
 
 	async def get_security_descriptor(self, connection):
-		if self.sid is None:
+		if self.security_descriptor is None:
 			file_id = None
 			try:
 				tree_id = self.tree_id
@@ -181,7 +181,7 @@ class SMBFile:
 				if err is not None:
 					raise err
 
-				self.sid, err = await connection.query_info(
+				self.security_descriptor, err = await connection.query_info(
 					tree_id,
 					file_id,
 					info_type = QueryInfoType.SECURITY, 
@@ -200,7 +200,7 @@ class SMBFile:
 				if tree_id is not None and self.tree_id is None:
 					await connection.tree_disconnect(tree_id)
 
-		return self.sid, None
+		return self.security_descriptor, None
 
 	async def __read(self, size, offset):
 		"""

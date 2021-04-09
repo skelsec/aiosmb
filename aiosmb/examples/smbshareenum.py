@@ -3,10 +3,12 @@ import asyncio
 import enum
 import uuid
 import logging
+import json
 
 from aiosmb import logger
 from aiosmb.commons.connection.url import SMBConnectionURL
 from aiosmb.commons.interfaces.machine import SMBMachine
+from aiosmb.commons.utils.univeraljson import UniversalEncoder
 
 from tqdm import tqdm
 
@@ -32,6 +34,82 @@ class EnumResult:
 		self.error = error
 		self.result = result
 		self.status = status
+
+class EnumProgress:
+	def __init__(self, total_targets, total_finished, gens_finished, current_finised):
+		self.total_targets = total_targets
+		self.total_finished = total_finished
+		self.gens_finished = gens_finished
+		self.current_finised = current_finised
+
+ENUMRESFINAL_TSV_HDR = ['otype', 'path', 'creationtime', 'size', 'sizefmt', 'sddl', 'err']
+class EnumResultFinal:
+	def __init__(self, obj, otype, err):
+		self.obj = obj
+		self.otype = otype
+		self.err = err
+
+		self.creation_time = None
+		self.size = None
+		self.size_fmt = None
+		self.security_descriptor = None
+		self.security_descriptor_sddl = None
+		self.unc_path = None
+
+		if self.otype != 'progress':
+			self.unc_path = self.obj.unc_path
+			if self.otype == 'dir' or self.otype == 'file':
+				self.creation_time = self.obj.creation_time
+				self.security_descriptor = self.obj.security_descriptor
+				self.security_descriptor_sddl = '' if self.security_descriptor is None else self.security_descriptor.to_sddl()
+
+			if self.otype == 'file':
+				self.size = self.obj.size
+				self.size_fmt = sizeof_fmt(self.size)
+
+
+	def __str__(self):
+		if self.err is not None:
+			return '[E] %s | %s' % (self.unc_path, self.err)
+
+		elif self.otype == 'file':
+			return '[F] %s | %s | %s | %s | %s' % (self.unc_path, self.creation_time, self.size, self.size_fmt, self.security_descriptor_sddl)
+
+		elif self.otype == 'dir':
+			return '[D] %s | %s | %s' % (self.unc_path, self.creation_time, self.security_descriptor_sddl)
+	
+		elif self.otype == 'share':
+			return '[S] %s' % self.unc_path
+
+		elif self.otype == 'progress':
+			return '[P][%s/%s][%s] %s' % (self.obj.total_targets, self.obj.total_finished, str(self.obj.gens_finished), self.obj.current_finised)
+
+		else:
+			return '[UNK]'
+
+	def to_dict(self):
+		return {
+			'path' : self.unc_path,
+			'creationtime' : self.creation_time,
+			'size' : self.size,
+			'sizefmt' : self.size_fmt,
+			'securitydescriptor' : self.security_descriptor,
+			'sddl' : self.security_descriptor_sddl,
+			'otype' : self.otype,
+			'err' : self.err,
+		}
+	
+	def to_json(self):
+		dd = self.to_dict()
+		del dd['securitydescriptor']
+		return json.dumps(dd, cls = UniversalEncoder)
+
+	def to_tsv(self, hdrs = ENUMRESFINAL_TSV_HDR):
+		if self.otype == 'progress':
+			return ''
+		dd = self.to_dict()
+		data = [ str(dd[x]) for x in hdrs ]
+		return '\t'.join(data)
 
 class FileTargetGen:
 	def __init__(self, filename):
@@ -70,12 +148,12 @@ class ListTargetGen:
 
 
 class SMBFileEnum:
-	def __init__(self, smb_url, worker_count = 10, depth = 3, enum_url = True, out_file = None, show_pbar = True, max_items = None, max_runtime = 60):
+	def __init__(self, smb_url, worker_count = 10, depth = 3, enum_url = False, out_file = None, show_pbar = True, max_items = None, max_runtime = 60, fetch_dir_sd = False, fetch_file_sd = False, task_q = None, res_q = None, output_type = 'str'):
 		self.target_gens = []
 		self.smb_mgr = SMBConnectionURL(smb_url)
 		self.worker_count = worker_count
-		self.task_q = None
-		self.res_q = None
+		self.task_q = task_q
+		self.res_q = res_q
 		self.depth = depth
 		self.workers = []
 		self.result_processing_task = None
@@ -84,6 +162,10 @@ class SMBFileEnum:
 		self.show_pbar = show_pbar
 		self.max_items = max_items
 		self.max_runtime = max_runtime
+		self.fetch_dir_sd = fetch_dir_sd
+		self.fetch_file_sd = fetch_file_sd
+		self.output_type = output_type
+
 		self.__gens_finished = False
 		self.__total_targets = 0
 		self.__total_finished = 0
@@ -104,7 +186,7 @@ class SMBFileEnum:
 					raise err
 
 				machine = SMBMachine(connection)
-				async for obj, otype, err in machine.enum_all_recursively(depth = self.depth, maxentries = self.max_items):
+				async for obj, otype, err in machine.enum_all_recursively(depth = self.depth, maxentries = self.max_items, fetch_dir_sd = self.fetch_dir_sd, fetch_file_sd = self.fetch_file_sd):
 					er = EnumResult(tid, target, (obj, otype, err))
 					await self.res_q.put(er)
 
@@ -158,17 +240,32 @@ class SMBFileEnum:
 			while True:
 				try:
 					if len(out_buffer) >= 10000 or final_iter:
-						out_data = '\r\n'.join(out_buffer)
-						out_buffer = []
+						out_data = ''
+						if self.output_type == 'str':
+							out_data = '\r\n'.join([str(x) for x in out_buffer])
+						elif self.output_type == 'tsv':
+							for res in out_buffer:
+								out_data += '%s\r\n' % res.to_tsv()
+						elif self.output_type == 'json':
+							for res in out_buffer:
+								out_data += '%s\r\n' % res.to_json()
+					
+						else:
+							out_data = '\r\n'.join(out_buffer)
+
 						if self.out_file is not None:
 							with open(self.out_file, 'a+', newline = '') as f:
 								f.write(out_data)
+						
 						else:
 							print(out_data)
 						
 						if self.show_pbar is True:
 							for key in pbar:
 								pbar[key].refresh()
+						
+						out_buffer = []
+						out_data = ''
 
 					if final_iter:
 						asyncio.create_task(self.terminate())
@@ -190,29 +287,26 @@ class SMBFileEnum:
 						if self.show_pbar is True:
 							pbar['targets'].update(1)
 
-						out_buffer.append('[P][%s/%s][%s] %s' % (self.__total_targets, self.__total_finished, str(self.__gens_finished), er.target))
+						obj = EnumProgress(self.__total_targets, self.__total_finished, self.__gens_finished, er.target)
+						out_buffer.append(EnumResultFinal(obj, 'progress', None))
 						if self.__total_finished == self.__total_targets and self.__gens_finished is True:
 							final_iter = True
 							continue
 							
 					if er.result is not None:
 						obj, otype, err = er.result
+						out_buffer.append(EnumResultFinal(obj, otype, err))
 						if otype is not None:
 							if otype == 'file':
-								out_buffer.append('[%s] %s | %s | %s | %s' % (otype[0].upper(), obj.unc_path, obj.creation_time, obj.size, sizeof_fmt(obj.size)))
 								self.__total_files += 1
 								if isinstance(obj.size, int) is True: #just making sure...
 									self.__total_size += obj.size
 									if self.show_pbar is True:
 										pbar['filesize'].update(obj.size)
 							elif otype == 'dir':
-								out_buffer.append('[%s] %s | %s' % (otype[0].upper(), obj.unc_path, obj.creation_time))
 								self.__total_dirs += 1
 							elif otype == 'share':
-								out_buffer.append('[%s] %s' % (otype[0].upper(), obj.unc_path))
 								self.__total_shares += 1
-							else:
-								out_buffer.append('[%s] %s' % (otype[0].upper(), obj.unc_path))
 							
 							if self.show_pbar is True:
 								if otype == 'dir':
@@ -225,7 +319,6 @@ class SMBFileEnum:
 									pbar['maxed'].update(1)
 
 						if err is not None:
-							out_buffer.append('[E] %s %s' % (err, obj.unc_path))
 							self.__total_errors += 1
 							if self.show_pbar is True:
 								pbar['errors'].update(1)
@@ -313,6 +406,11 @@ Output legend:
 	parser.add_argument('--url', help='Connection URL base, target can be set to anything. Owerrides all parameter based connection settings! Example: "smb2+ntlm-password://TEST\\victim@test"')
 	parser.add_argument('targets', nargs='*', help = 'Hostname or IP address or file with a list of targets')
 	parser.add_argument('--progress', action='store_true', help='Show progress bar')
+	parser.add_argument('--dirsd', action='store_true', help='Fetch directory security descriptor')
+	parser.add_argument('--filesd', action='store_true', help='Fetch file security descriptor')
+	parser.add_argument('--json', action='store_true', help='Output in JSON format')
+	parser.add_argument('--tsv', action='store_true', help='Output in TSV format. (TAB Separated Values)')
+
 	args = parser.parse_args()
 
 	if args.verbose >=1:
@@ -324,6 +422,12 @@ Output legend:
 		asyncio.get_event_loop().set_debug(True)
 		logging.basicConfig(level=logging.DEBUG)
 
+	output_type = 'str'
+	if args.json is True:
+		output_type = 'json'
+	if args.tsv is True:
+		output_type = 'tsv'
+
 	smb_url = None
 	if args.url is not None:
 		smb_url = args.url
@@ -334,7 +438,17 @@ Output legend:
 			print('Either URL or all connection parameters must be set! Error: %s' % str(e))
 			sys.exit(1)
 	
-	enumerator = SMBFileEnum(smb_url, worker_count = args.smb_worker_count, depth = args.depth, out_file = args.out_file, show_pbar = args.progress, max_items = args.max_items)
+	enumerator = SMBFileEnum(
+		smb_url, 
+		worker_count = args.smb_worker_count, 
+		depth = args.depth, 
+		out_file = args.out_file, 
+		show_pbar = args.progress, 
+		max_items = args.max_items,
+		fetch_dir_sd = args.dirsd,
+		fetch_file_sd = args.filesd,
+		output_type = output_type
+	)
 	
 	notfile = []
 	if len(args.targets) == 0 and args.stdin is True:
@@ -352,9 +466,8 @@ Output legend:
 		enumerator.target_gens.append(ListTargetGen(notfile))
 
 	if len(enumerator.target_gens) == 0:
-		print('[-] No suitable targets were found!')
-		return
-		
+		enumerator.enum_url = True
+
 	await enumerator.run()
 
 def main():

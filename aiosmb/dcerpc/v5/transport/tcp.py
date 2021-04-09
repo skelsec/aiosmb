@@ -5,7 +5,6 @@ from aiosmb.commons.exceptions import *
 from aiosmb.commons.connection.proxy import SMBProxyType
 from aiosmb.network.socks import SocksProxyConnection
 from aiosmb.network.multiplexornetwork import MultiplexorProxyConnection
-from aiosmb.commons.utils.decorators import red, rr
 from aiosmb.dcerpc.v5.rpcrt import MSRPCRespHeader
 
 class DCERPCTCPConnection:
@@ -40,6 +39,7 @@ class DCERPCTCPConnection:
 					data = await self.reader.readexactly(response_header['frag_len'] - 24)
 					msg_data += data
 					await self.in_queue.put((msg_data, None))
+					await asyncio.sleep(0)
 				
 				except asyncio.CancelledError:
 					return
@@ -74,10 +74,7 @@ class DCERPCTCPConnection:
 			logger.exception('[DCERPCTCPConnection] handle_outgoing %s' % str(e))
 			await self.disconnect()
 	
-	@red
 	async def connect(self):
-		
-		
 		try:
 			con = asyncio.open_connection(self.ip, self.port)
 			self.reader, self.writer = await asyncio.wait_for(con, None)
@@ -95,29 +92,30 @@ class DCERPCTCPConnection:
 		self.__incoming_task = asyncio.create_task(self.handle_incoming())
 		self.__outgoing_task = asyncio.create_task(self.handle_outgoing())
 		
-		
 		return True, None
 	
-	@red
 	async def disconnect(self):
 		"""
 		Disconnects from the socket.
 		Stops the reader and writer streams.
 		"""
-		if self.__incoming_task:
-			self.__incoming_task.cancel()
-		if self.__outgoing_task:
-			self.__outgoing_task.cancel()
-
-		self.reader = None
 		try:
-			self.writer.close()
-		except:
-			pass
-		self.writer = None
-		self.disconnected.set()
+			if self.__incoming_task:
+				self.__incoming_task.cancel()
+			if self.__outgoing_task:
+				self.__outgoing_task.cancel()
 
-		return True, None
+			self.reader = None
+			try:
+				self.writer.close()
+			except:
+				pass
+			self.writer = None
+			self.disconnected.set()
+
+			return True, None
+		except Exception as e:
+			return False, e
 
 
 class DCERPCTCPTransport:
@@ -137,23 +135,26 @@ class DCERPCTCPTransport:
 
 		self._max_send_frag = 1024
 
-	@red
+	
 	async def get_connection_layer(self):
-		if self.target.proxy is None:
-			return DCERPCTCPConnection(self.target.ip, self.target.port), None
-			
-		elif self.target.proxy.type in [SMBProxyType.WSNET,SMBProxyType.WSNETWS, SMBProxyType.WSNETWSS, SMBProxyType.SOCKS5, SMBProxyType.SOCKS5_SSL, SMBProxyType.SOCKS4, SMBProxyType.SOCKS4_SSL]:
-			self.is_proxy = True
-			return SocksProxyConnection(target = self.target), None
+		try:
+			if self.target.proxy is None:
+				return DCERPCTCPConnection(self.target.ip, self.target.port), None
+				
+			elif self.target.proxy.type in [SMBProxyType.WSNET,SMBProxyType.WSNETWS, SMBProxyType.WSNETWSS, SMBProxyType.SOCKS5, SMBProxyType.SOCKS5_SSL, SMBProxyType.SOCKS4, SMBProxyType.SOCKS4_SSL]:
+				self.is_proxy = True
+				return SocksProxyConnection(target = self.target), None
 
-		elif self.target.proxy.type in [SMBProxyType.MULTIPLEXOR, SMBProxyType.MULTIPLEXOR_SSL]:
-			self.is_proxy = True
-			mpc = MultiplexorProxyConnection(self.target)
-			socks_proxy, err = await mpc.connect()
-			return socks_proxy, err
+			elif self.target.proxy.type in [SMBProxyType.MULTIPLEXOR, SMBProxyType.MULTIPLEXOR_SSL]:
+				self.is_proxy = True
+				mpc = MultiplexorProxyConnection(self.target)
+				socks_proxy, err = await mpc.connect()
+				return socks_proxy, err
 
-		else:
-			raise Exception('Unknown proxy type %s' % self.target.proxy.type)
+			else:
+				raise Exception('Unknown proxy type %s' % self.target.proxy.type)
+		except Exception as e:
+			return None, e
 
 
 	async def __handle_incoming(self):
@@ -185,16 +186,20 @@ class DCERPCTCPTransport:
 			self.exception_evt.set()
 			return
 	
-	@red
 	async def connect(self):
-		self.connection, _ = await rr(self.get_connection_layer())
-		await self.connection.connect()
+		try:
+			self.connection, err = await self.get_connection_layer()
+			if err is not None:
+				raise err
+			await self.connection.connect()
 
-		#self.__incoming_task = asyncio.create_task(self.__handle_incoming())
-		
-		return True, None
+			#self.__incoming_task = asyncio.create_task(self.__handle_incoming())
+			
+			return True, None
+		except Exception as e:
+			return None, e
 	
-	@red
+
 	async def disconnect(self):
 		try:
 			if self.__incoming_task:
@@ -202,12 +207,13 @@ class DCERPCTCPTransport:
 			if self.data_in_evt:
 				self.data_in_evt.set()
 			await self.connection.disconnect()
-		except:
-			pass
 
-		return True, None
+
+			return True, None
+		except Exception as e:
+			return False, e
 	
-	@red
+	
 	async def send(self, data, forceWriteAndx = 0, forceRecv = 0):
 		try:
 			if self.__last_exception is not None:
@@ -229,7 +235,7 @@ class DCERPCTCPTransport:
 		except Exception as e:
 			return None, e
 	
-	@red
+	
 	async def recv(self, count, forceRecv = 0):
 		try:
 			if self.is_proxy is False:
@@ -251,9 +257,7 @@ class DCERPCTCPTransport:
 					return None, err
 				
 				self.buffer += data
-				
-
-
+		
 		except Exception as e:
 			return None, e
 		

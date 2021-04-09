@@ -25,7 +25,7 @@ class SMBDirectory:
 		self.allocation_size = None
 		self.attributes = None
 		self.file_id = None
-		self.sid = None
+		self.security_descriptor = None
 		
 		self.files = {}
 		self.subdirs = {}
@@ -127,7 +127,7 @@ class SMBDirectory:
 			return False, e
 
 	async def get_security_descriptor(self, connection):
-		if self.sid is None:
+		if self.security_descriptor is None:
 			file_id = None
 			try:
 				tree_id = self.tree_id
@@ -146,7 +146,7 @@ class SMBDirectory:
 				if err is not None:
 					raise err
 				
-				self.sid, err = await connection.query_info(
+				self.security_descriptor, err = await connection.query_info(
 					tree_id, 
 					file_id,
 					info_type = QueryInfoType.SECURITY, 
@@ -166,7 +166,7 @@ class SMBDirectory:
 					await connection.tree_disconnect(tree_id)
 
 
-		return self.sid, None
+		return self.security_descriptor, None
 	
 
 	def get_console_output(self):
@@ -220,7 +220,7 @@ class SMBDirectory:
 	async def delete_subdir(self, dir_name):
 		raise Exception('delete subdir not implemented!')
 
-	async def list_r(self, connection, depth = 3, maxentries = None):
+	async def list_r(self, connection, depth = 3, maxentries = None, fetch_dir_sd = False, fetch_file_sd = False):
 		"""
 		recursive list files and folders
 		Beware this will clear out the lists of files/folders to save memory!
@@ -229,9 +229,23 @@ class SMBDirectory:
 			return
 		depth -= 1
 		ctr = 0
+
 		async for obj, otype, err in self.list_gen(connection):
 			await asyncio.sleep(0)
+			if otype == 'dir' and fetch_dir_sd is True:
+				obj.tree_id = self.tree_id
+				_, err = await obj.get_security_descriptor(connection)
+				if err is not None:
+					print(err)
+			
+			if otype == 'file' and fetch_file_sd is True:
+				obj.tree_id = self.tree_id
+				_, err = await obj.get_security_descriptor(connection)
+				if err is not None:
+					print(err)
+
 			yield obj, otype, err
+			
 			ctr += 1
 			if err is not None:
 				break
