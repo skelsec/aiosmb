@@ -239,7 +239,7 @@ class SMBFileEnum:
 			final_iter = False
 			while True:
 				try:
-					if len(out_buffer) >= 10000 or final_iter:
+					if len(out_buffer) >= 1000 or final_iter:
 						out_data = ''
 						if self.output_type == 'str':
 							out_data = '\r\n'.join([str(x) for x in out_buffer])
@@ -343,7 +343,7 @@ class SMBFileEnum:
 	async def setup(self):
 		try:
 			if self.res_q is None:
-				self.res_q = asyncio.Queue(10000)
+				self.res_q = asyncio.Queue(self.worker_count)
 				self.result_processing_task = asyncio.create_task(self.result_processing())
 			if self.task_q is None:
 				self.task_q = asyncio.Queue()
