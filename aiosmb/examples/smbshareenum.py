@@ -4,11 +4,13 @@ import enum
 import uuid
 import logging
 import json
+import ipaddress
 
 from aiosmb import logger
 from aiosmb.commons.connection.url import SMBConnectionURL
 from aiosmb.commons.interfaces.machine import SMBMachine
 from aiosmb.commons.utils.univeraljson import UniversalEncoder
+
 
 from tqdm import tqdm
 
@@ -115,36 +117,37 @@ class FileTargetGen:
 	def __init__(self, filename):
 		self.filename = filename
 
-	async def run(self, target_q):
+	async def generate(self):
 		try:
-			cnt = 0
 			with open(self.filename, 'r') as f:
 				for line in f:
 					line = line.strip()
 					if line == '':
 						continue
-					await target_q.put((str(uuid.uuid4()), line))
-					await asyncio.sleep(0)
-					cnt += 1
-			return cnt, None
+					yield str(uuid.uuid4()), line, None
 		except Exception as e:
-			return cnt, e
+			yield None, None, e
 
 class ListTargetGen:
 	def __init__(self, targets):
 		self.targets = targets
 
-	async def run(self, target_q):
+	async def generate(self):
 		try:
-			cnt = 0
 			for target in self.targets:
-				cnt += 1
 				target = target.strip()
-				await target_q.put((str(uuid.uuid4()),target))
-				await asyncio.sleep(0)
-			return cnt, None
+				try:
+					ip = ipaddress.ip_address(target)
+					yield str(uuid.uuid4()),str(ip), None
+				except:
+					try:
+						for ip in ipaddress.ip_network(target, strict = False):
+							yield  str(uuid.uuid4()),str(ip), None
+					except:
+						yield str(uuid.uuid4()), target, None
 		except Exception as e:
-			return cnt, e
+			yield None, None, e
+			
 
 
 class SMBFileEnum:
@@ -281,7 +284,6 @@ class SMBFileEnum:
 							final_iter = True
 						continue
 
-					
 					if er.status == EnumResultStatus.FINISHED:
 						self.__total_finished += 1
 						if self.show_pbar is True:
@@ -346,7 +348,7 @@ class SMBFileEnum:
 				self.res_q = asyncio.Queue(self.worker_count)
 				self.result_processing_task = asyncio.create_task(self.result_processing())
 			if self.task_q is None:
-				self.task_q = asyncio.Queue()
+				self.task_q = asyncio.Queue(self.worker_count)
 
 			for _ in range(self.worker_count):
 				self.workers.append(asyncio.create_task(self.worker()))
@@ -354,6 +356,23 @@ class SMBFileEnum:
 			return True, None
 		except Exception as e:
 			return None, e
+
+	async def __generate_targets(self):
+		if self.enum_url is True:
+			self.__total_targets += 1
+			await self.task_q.put((str(uuid.uuid4()), self.smb_mgr.get_target().get_hostname_or_ip()))
+			
+		for target_gen in self.target_gens:
+			async for uid, target, err in target_gen.generate():
+				if err is not None:
+					print('Target gen error! %s' % err)
+					break
+				
+				self.__total_targets += 1
+				await self.task_q.put((uid, target))
+				await asyncio.sleep(0)
+
+		self.__gens_finished = True
 	
 	async def run(self):
 		try:
@@ -361,17 +380,7 @@ class SMBFileEnum:
 			if err is not None:
 				raise err
 			
-			if self.enum_url is True:
-				self.__total_targets += 1
-				await self.task_q.put((str(uuid.uuid4()), self.smb_mgr.get_target().get_hostname_or_ip()))
-			
-			for target_gen in self.target_gens:
-				total, err = await target_gen.run(self.task_q)
-				self.__total_targets += total
-				if err is not None:
-					print('Target gen error! %s' % err)
-
-			self.__gens_finished = True
+			gen_task = asyncio.create_task(self.__generate_targets())
 			
 			await asyncio.gather(*self.workers)
 			await self.result_processing_task
