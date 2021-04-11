@@ -151,7 +151,7 @@ class ListTargetGen:
 
 
 class SMBFileEnum:
-	def __init__(self, smb_url, worker_count = 10, depth = 3, enum_url = False, out_file = None, show_pbar = True, max_items = None, max_runtime = None, fetch_dir_sd = False, fetch_file_sd = False, task_q = None, res_q = None, output_type = 'str', exclude_share = [], exclude_dir = []):
+	def __init__(self, smb_url, worker_count = 10, depth = 3, enum_url = False, out_file = None, show_pbar = True, max_items = None, max_runtime = None, fetch_dir_sd = False, fetch_file_sd = False, task_q = None, res_q = None, output_type = 'str', exclude_share = [], exclude_dir = [], exclude_target = []):
 		self.target_gens = []
 		self.smb_mgr = SMBConnectionURL(smb_url)
 		self.worker_count = worker_count
@@ -170,6 +170,7 @@ class SMBFileEnum:
 		self.output_type = output_type
 		self.exclude_share = exclude_share
 		self.exclude_dir = exclude_dir
+		self.exclude_target = exclude_target
 
 		self.__gens_finished = False
 		self.__total_targets = 0
@@ -383,6 +384,9 @@ class SMBFileEnum:
 				if err is not None:
 					print('Target gen error! %s' % err)
 					break
+				
+				if target in self.exclude_target:
+					continue
 				
 				self.__total_targets += 1
 				await self.task_q.put((uid, target))

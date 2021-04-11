@@ -41,11 +41,12 @@ setup(
 	install_requires=[
 		'minikerberos>=0.2.10',
 		'winsspi>=0.0.9',
-		'six',
 		'asysocks>=0.1.1',
-		'tqdm',
 		'prompt-toolkit>=3.0.2',
 		'winacl>=0.1.1',
+		'six',
+		'tqdm',
+		'colorama',
 	],
 	
 	classifiers=(
