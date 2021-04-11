@@ -220,7 +220,7 @@ class SMBDirectory:
 	async def delete_subdir(self, dir_name):
 		raise Exception('delete subdir not implemented!')
 
-	async def list_r(self, connection, depth = 3, maxentries = None, fetch_dir_sd = False, fetch_file_sd = False):
+	async def list_r(self, connection, depth = 3, maxentries = None, fetch_dir_sd = False, fetch_file_sd = False, exclude_dir = []):
 		"""
 		recursive list files and folders
 		Beware this will clear out the lists of files/folders to save memory!
@@ -232,17 +232,17 @@ class SMBDirectory:
 
 		async for obj, otype, err in self.list_gen(connection):
 			await asyncio.sleep(0)
-			if otype == 'dir' and fetch_dir_sd is True:
+			if otype == 'dir' and fetch_dir_sd is True and obj.name not in exclude_dir:
 				obj.tree_id = self.tree_id
 				_, err = await obj.get_security_descriptor(connection)
-				if err is not None:
-					print(err)
+				#if err is not None:
+				#	print(err)
 			
 			if otype == 'file' and fetch_file_sd is True:
 				obj.tree_id = self.tree_id
 				_, err = await obj.get_security_descriptor(connection)
-				if err is not None:
-					print(err)
+				#if err is not None:
+				#	print(err)
 
 			yield obj, otype, err
 			
@@ -254,9 +254,9 @@ class SMBDirectory:
 				yield self, 'maxed', None
 				break
 			
-			if otype == 'dir':
+			if otype == 'dir' and obj.name not in exclude_dir:
 				obj.tree_id = self.tree_id
-				async for e,t,err in obj.list_r(connection, depth, maxentries = maxentries):
+				async for e,t,err in obj.list_r(connection, depth, maxentries = maxentries, exclude_dir = exclude_dir):
 					yield e,t,err
 					await asyncio.sleep(0)
 

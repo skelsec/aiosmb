@@ -151,7 +151,7 @@ class ListTargetGen:
 
 
 class SMBFileEnum:
-	def __init__(self, smb_url, worker_count = 10, depth = 3, enum_url = False, out_file = None, show_pbar = True, max_items = None, max_runtime = None, fetch_dir_sd = False, fetch_file_sd = False, task_q = None, res_q = None, output_type = 'str'):
+	def __init__(self, smb_url, worker_count = 10, depth = 3, enum_url = False, out_file = None, show_pbar = True, max_items = None, max_runtime = None, fetch_dir_sd = False, fetch_file_sd = False, task_q = None, res_q = None, output_type = 'str', exclude_share = [], exclude_dir = []):
 		self.target_gens = []
 		self.smb_mgr = SMBConnectionURL(smb_url)
 		self.worker_count = worker_count
@@ -168,6 +168,8 @@ class SMBFileEnum:
 		self.fetch_dir_sd = fetch_dir_sd
 		self.fetch_file_sd = fetch_file_sd
 		self.output_type = output_type
+		self.exclude_share = exclude_share
+		self.exclude_dir = exclude_dir
 
 		self.__gens_finished = False
 		self.__total_targets = 0
@@ -189,7 +191,7 @@ class SMBFileEnum:
 					raise err
 
 				machine = SMBMachine(connection)
-				async for obj, otype, err in machine.enum_all_recursively(depth = self.depth, maxentries = self.max_items, fetch_dir_sd = self.fetch_dir_sd, fetch_file_sd = self.fetch_file_sd):
+				async for obj, otype, err in machine.enum_all_recursively(depth = self.depth, maxentries = self.max_items, fetch_dir_sd = self.fetch_dir_sd, fetch_file_sd = self.fetch_file_sd, exclude_share = self.exclude_share, exclude_dir = self.exclude_dir):
 					er = EnumResult(tid, target, (obj, otype, err))
 					await self.res_q.put(er)
 
@@ -230,18 +232,25 @@ class SMBFileEnum:
 			pbar = None
 			if self.show_pbar is True:
 				pbar = {}
-				pbar['targets'] = tqdm(desc='Targets     ', position=0)
-				pbar['shares']  = tqdm(desc='Shares      ', position=1)
-				pbar['dirs']    = tqdm(desc='Dirs        ', position=2)
-				pbar['files']   = tqdm(desc='Files       ', position=3)
-				pbar['filesize']= tqdm(desc='Files (size)', unit='B', unit_scale=True, position=4)
-				pbar['maxed']   = tqdm(desc='Maxed       ', position=5)
-				pbar['errors']  = tqdm(desc='Errors      ', position=6)
+				pbar['targets']    = tqdm(desc='Targets     ', unit='', position=0)
+				pbar['shares']     = tqdm(desc='Shares      ', unit='', position=1)
+				pbar['dirs']       = tqdm(desc='Dirs        ', unit='', position=2)
+				pbar['files']      = tqdm(desc='Files       ', unit='', position=3)
+				pbar['filesize']   = tqdm(desc='Files (size)', unit='B', unit_scale=True, position=4)
+				pbar['maxed']      = tqdm(desc='Maxed       ', unit='', position=5)
+				pbar['enumerrors'] = tqdm(desc='Enum Errors ', unit='', position=6)
+				pbar['connerrors'] = tqdm(desc='Conn Errors ', unit='', position=7)
 
 			out_buffer = []
 			final_iter = False
 			while True:
 				try:
+					if self.__gens_finished is True and self.show_pbar is True and pbar['targets'].total is None:
+						pbar['targets'].total = self.__total_targets
+						for key in pbar:
+							pbar[key].refresh()
+
+
 					if len(out_buffer) >= 1000 or final_iter:
 						out_data = ''
 						if self.output_type == 'str':
@@ -323,7 +332,14 @@ class SMBFileEnum:
 						if err is not None:
 							self.__total_errors += 1
 							if self.show_pbar is True:
-								pbar['errors'].update(1)
+								pbar['enumerrors'].update(1)
+					
+					if er.status == EnumResultStatus.ERROR:
+						self.__total_errors += 1
+						if self.show_pbar is True:
+							pbar['connerrors'].update(1)
+
+
 				except asyncio.CancelledError:
 					return
 				except Exception as e:
@@ -386,7 +402,7 @@ class SMBFileEnum:
 			await self.result_processing_task
 			return True, None
 		except Exception as e:
-			print(e)
+			logger.exception('run')
 			return None, e
 
 async def amain():
@@ -414,12 +430,14 @@ Output legend:
 	parser.add_argument('--max-items', type = int, default=None, help='Stop enumeration of a directory after N items were discovered.')
 	parser.add_argument('--max-runtime', type = int, default=None, help='Stop enumeration of a host after N seconds')
 	parser.add_argument('--url', help='Connection URL base, target can be set to anything. Owerrides all parameter based connection settings! Example: "smb2+ntlm-password://TEST\\victim@test"')
-	parser.add_argument('targets', nargs='*', help = 'Hostname or IP address or file with a list of targets')
 	parser.add_argument('--progress', action='store_true', help='Show progress bar')
 	parser.add_argument('--dirsd', action='store_true', help='Fetch directory security descriptor')
 	parser.add_argument('--filesd', action='store_true', help='Fetch file security descriptor')
 	parser.add_argument('--json', action='store_true', help='Output in JSON format')
 	parser.add_argument('--tsv', action='store_true', help='Output in TSV format. (TAB Separated Values)')
+	parser.add_argument('--es', '--exclude-share', nargs='*', help = 'Exclude shares with name specified')
+	parser.add_argument('--ed', '--exclude-dir', nargs='*', help = 'Exclude directories with name specified')
+	parser.add_argument('targets', nargs='*', help = 'Hostname or IP address or file with a list of targets')
 
 	args = parser.parse_args()
 
@@ -447,7 +465,16 @@ Output legend:
 		except Exception as e:
 			print('Either URL or all connection parameters must be set! Error: %s' % str(e))
 			sys.exit(1)
+
+	exclude_share = []
+	if args.es is not None:
+		exclude_share = args.es
 	
+	exclude_dir = []
+	if args.ed is not None:
+		exclude_dir = args.ed
+	
+
 	enumerator = SMBFileEnum(
 		smb_url,
 		worker_count = args.smb_worker_count,
@@ -459,6 +486,8 @@ Output legend:
 		fetch_file_sd = args.filesd,
 		output_type = output_type,
 		max_runtime = args.max_runtime,
+		exclude_share = exclude_share,
+		exclude_dir = exclude_dir,
 	)
 	
 	notfile = []
