@@ -20,6 +20,7 @@ class SMBCredentialTypes(enum.Enum):
 	KERBEROS_AES = 'kerberos-aes'
 	KERBEROS_RC4 = 'kerberos-rc4'
 	KERBEROS_CCACHE = 'kerberos-ccache'
+	KERBEROS_KIRBI = 'kerberos-kirbi'
 
 class SMBCredentialsSecretType(enum.Enum):
 	NT = 'NT'
@@ -31,6 +32,7 @@ class SMBCredentialsSecretType(enum.Enum):
 	RC4 = 'RC4'
 	CCACHE = 'CCACHE'
 	KEYTAB = 'KEYTAB'
+	KIRBI = 'KIRBI'
 	NONE = 'NONE'
 
 class SMBAuthProtocol(enum.Enum):

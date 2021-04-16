@@ -27,7 +27,7 @@ from minikerberos.aioclient import AIOKerberosClient
 from minikerberos.network.aioclientsockssocket import AIOKerberosClientSocksSocket
 from minikerberos.common.proxy import KerberosProxy
 
-# SMBKerberosCredential
+from aiosmb import logger
 
 class SMBKerberos:
 	def __init__(self, settings):
@@ -101,7 +101,10 @@ class SMBKerberos:
 
 			if self.iterations == 0:
 				try:
-					#check TGs first, maybe ccache already has what we need
+					#check TGS first, maybe ccache already has what we need
+					for target in self.ccred.ccache.list_targets():
+						# just printing this to debug...
+						logger.debug('CCACHE target SPN record: %s' % target)
 					tgs, encpart, self.session_key = await self.kc.get_TGS(self.spn)
 					
 					self.from_ccache = True

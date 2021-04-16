@@ -79,6 +79,12 @@ class AuthenticatorBuilder:
 				kc.username = creds.username
 				kc.domain = creds.domain
 			
+			elif creds.secret_type == SMBCredentialsSecretType.KIRBI:
+				filename = creds.secret
+				kc = KerberosCredential.from_kirbi(filename)
+				kc.username = creds.username
+				kc.domain = creds.domain
+			
 			else:
 				kc = KerberosCredential()
 				kc.username = creds.username
