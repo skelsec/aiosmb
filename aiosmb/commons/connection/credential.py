@@ -21,6 +21,7 @@ class SMBCredentialTypes(enum.Enum):
 	KERBEROS_RC4 = 'kerberos-rc4'
 	KERBEROS_CCACHE = 'kerberos-ccache'
 	KERBEROS_KIRBI = 'kerberos-kirbi'
+	NEGOEX_CERTFILE = 'negoex_certfile'
 
 class SMBCredentialsSecretType(enum.Enum):
 	NT = 'NT'
@@ -34,6 +35,7 @@ class SMBCredentialsSecretType(enum.Enum):
 	KEYTAB = 'KEYTAB'
 	KIRBI = 'KIRBI'
 	NONE = 'NONE'
+	CERTFILE = 'CERTFILE'
 
 class SMBAuthProtocol(enum.Enum):
 	NTLM = 'NTLM'
@@ -52,6 +54,7 @@ class SMBAuthProtocol(enum.Enum):
 	WSNET_KERBEROS = 'WSNET_KERBEROS'
 	SSPIPROXY_KERBEROS = 'SSPIPROXY_KERBEROS'
 	SSPIPROXY_NTLM = 'SSPIPROXY_NTLM'
+	NEGOEX = 'NEGOEX'
 
 class SMBCredential:
 	def __init__(self, username = None, domain = None, secret = None, secret_type = None, authentication_type = None, settings = None, target = None):

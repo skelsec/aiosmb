@@ -8,6 +8,7 @@ from aiosmb.commons.connection.proxy import  SMBProxyType
 from aiosmb.authentication.spnego.native import SPNEGO
 from aiosmb.authentication.ntlm.native import NTLMAUTHHandler, NTLMHandlerSettings
 from aiosmb.authentication.kerberos.native import SMBKerberos
+from aiosmb.authentication.negoex.native import SPNEGOEXAuthHandlerSettings, SPNEGOEXAuthHandler
 from minikerberos.common.target import KerberosTarget
 from minikerberos.common.proxy import KerberosProxy
 from minikerberos.common.creds import KerberosCredential
@@ -24,7 +25,18 @@ class AuthenticatorBuilder:
 	
 	@staticmethod
 	def to_spnego_cred(creds, target = None):
-		if creds.authentication_type == SMBAuthProtocol.NTLM:
+		if creds.authentication_type == SMBAuthProtocol.NEGOEX:
+			settings = SPNEGOEXAuthHandlerSettings(creds.username, creds.secret, target, dh_params = None)
+			handler = SPNEGOEXAuthHandler(settings)
+			
+			#setting up SPNEGO
+			spneg = SPNEGO()
+			spneg.add_auth_context('NEGOEX - SPNEGO Extended Negotiation Security Mechanism', handler)
+			
+			return spneg
+
+
+		elif creds.authentication_type == SMBAuthProtocol.NTLM:
 			ntlmcred = SMBNTLMCredential()
 			ntlmcred.username = creds.username
 			ntlmcred.domain = creds.domain if creds.domain is not None else ''
