@@ -13,7 +13,7 @@ import os
 
 from asn1crypto import core
 from asn1crypto.x509 import NameTypeAndValue, NameType
-from minikerberos.protocol.asn1_structs import PrincipalName
+from minikerberos.protocol.asn1_structs import PrincipalName, Checksum
 
 # KerberosV5Spec2 DEFINITIONS EXPLICIT TAGS ::=
 TAG = 'explicit'
@@ -22,6 +22,29 @@ TAG = 'explicit'
 UNIVERSAL = 0
 APPLICATION = 1
 CONTEXT = 2
+
+
+########
+
+# GSS_EXTS_FINISHED             2 #Data type for the IAKERB checksum.
+# corresponding checksum type: KEY_USAGE_FINISHED            41
+# https://tools.ietf.org/html/draft-ietf-kitten-iakerb-03
+class KRB_FINISHED(core.Sequence):
+    _fields = [
+        ('gss-mic', Checksum, {'tag_type': TAG, 'tag': 1}),
+    ]
+
+# https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-kile/1aeca7fb-d6b4-4402-8fa4-6ec3e955c16e
+class KERB_AD_RESTRICTION_ENTRY(core.Sequence):
+    _fields = [
+        ('restriction-type', core.Integer, {'tag_type': TAG, 'tag': 0}),
+        ('restriction', core.OctetString, {'tag_type': TAG, 'tag': 1}),
+    ]
+    
+class KERB_AD_RESTRICTION_ENTRYS(core.SequenceOf):
+    _child_spec = KERB_AD_RESTRICTION_ENTRY
+
+########
 
 class NameTypeAndValueBMP(core.Sequence):
     _fields = [
@@ -147,6 +170,36 @@ class PA_PK_AS_REQ(core.Sequence):
 		('kdcPkId', core.OctetString, {'tag_type': 'implicit', 'tag': 2, 'optional' : True}), 
 	]
 
+# https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-kile/ec551137-c5e5-476a-9c89-e0029473c41b
+
+class LSAP_TOKEN_INFO_INTEGRITY:
+	def __init__(self):
+		self.Flags = None # unsigned long
+		self.TokenIL = None # unsigned long
+		self.MachineID = os.urandom(32) # KILE implements a 32-byte binary random string machine ID.
+
+	def to_bytes(self):
+		t = self.Flags.to_bytes(4, byteorder='little', signed = False)
+		t += self.TokenIL.to_bytes(4, byteorder='little', signed = False)
+		t += self.MachineID
+		return t
+	
+	@staticmethod
+	def from_bytes(data):
+		return LSAP_TOKEN_INFO_INTEGRITY.from_buffer(io.BytesIO(data))
+	
+	@staticmethod
+	def from_buffer(buff):
+		msg = LSAP_TOKEN_INFO_INTEGRITY()
+		msg.Flags = int.from_bytes(buff.read(4), byteorder='little', signed = False)
+		msg.TokenIL = int.from_bytes(buff.read(4), byteorder='little', signed = False)
+		msg.MachineID = buff.read(32)
+		return msg
+
+
+
+
+
 from minikerberos.protocol.asn1_structs import AS_REQ, AS_REP, AP_REQ, AP_REP
 
 NEGOEXTS_DEFAULT_AUTHID = uuid.UUID(bytes_le=bytes.fromhex('5c33530deaf90d4db2ec4ae3786ec308'))
@@ -174,6 +227,7 @@ class PKU2U_TOKEN:
 	def __init__(self, tok_id = b'\x01\x00'):
 		self.tok_id = tok_id
 		self.inner_token = None
+		self.inner_token_raw = None #unparsed bytes
 		self._pku2u_oid = bytes.fromhex('2b0601050207')
 	
 	@staticmethod
@@ -192,7 +246,7 @@ class PKU2U_TOKEN:
 		t_oid = buff.read(oid_length)
 		t.tok_id = PKU2U_TOKEN_TYPE(buff.read(2))
 		t_data = buff.read(total_length - buff.tell())
-
+		t.inner_token_raw = t_data
 
 		if t.tok_id == PKU2U_TOKEN_TYPE.KRB_AS_REQ:
 			t.inner_token = AS_REQ.load(t_data)
@@ -499,8 +553,33 @@ class EXCHANGE_MESSAGE:
 class VERIFY_MESSAGE:
 	def __init__(self):
 		self.Header = None # MESSAGE_HEADER  // MESSAGE_TYPE_VERIFY
-		self.AuthScheme = None #AUTH_SCHEME 
-		self.Checksum = None # CHECKSUM 
+		self.AuthScheme = None #AUTH_SCHEME
+
+		self.cbHeaderLength = 20 #ULONG, always 20
+		self.ChecksumScheme = 1 #ULONG RFC3961
+		self.ChecksumType = None #ULONG // in the case of RFC3961 scheme, this is the RFC3961 checksum type
+		self.ChecksumArrayOffset = None
+		self.ChecksumArrayLength = None
+		self.Checksum = None
+		self.msgsize = 40 + 16 + 20 + 4
+	
+	def to_bytes(self):
+		self.ChecksumArrayLength = len(self.Checksum)
+		self.ChecksumArrayOffset = self.msgsize
+		self.Header.cbMessageLength = self.msgsize + len(self.Checksum)
+		self.Header.cbHeaderLength = self.msgsize
+
+		res = self.Header.to_bytes()
+		res += self.AuthScheme.bytes_le
+		res += self.cbHeaderLength.to_bytes(4, byteorder='little', signed = False)
+		res += self.ChecksumScheme.to_bytes(4, byteorder='little', signed = False)
+		res += self.ChecksumType.to_bytes(4, byteorder='little', signed = False)
+		res += self.ChecksumArrayOffset.to_bytes(4, byteorder='little', signed = False)
+		res += self.ChecksumArrayLength.to_bytes(4, byteorder='little', signed = False)
+		res += b'\x00' * 4 # manually adding pad
+		res += self.Checksum
+
+		return res
 	
 	@staticmethod
 	def from_bytes(data):
@@ -512,7 +591,16 @@ class VERIFY_MESSAGE:
 		msg = VERIFY_MESSAGE()
 		msg.Header = MESSAGE_HEADER.from_buffer(buff)
 		msg.AuthScheme = uuid.UUID(bytes_le=buff.read(16))
-		msg.Checksum = CHECKSUM.from_buffer(buff)
+
+		msg.cbHeaderLength = int.from_bytes(buff.read(4), byteorder='little', signed = False)
+		msg.ChecksumScheme = int.from_bytes(buff.read(4), byteorder='little', signed = False)
+		msg.ChecksumType = int.from_bytes(buff.read(4), byteorder='little', signed = False)
+		msg.ChecksumArrayOffset = int.from_bytes(buff.read(4), byteorder='little', signed = False)
+		msg.ChecksumArrayLength = int.from_bytes(buff.read(4), byteorder='little', signed = False)
+
+		if msg.ChecksumArrayLength != 0:
+			buff.seek(msg.ChecksumArrayOffset)
+			msg.Checksum = buff.read(msg.ChecksumArrayLength)
 		return msg
 
 
@@ -629,6 +717,20 @@ def generate_ap_req(seq_number, conv_id, ap_req, authscheme = NEGOEXTS_DEFAULT_A
 	exchange.Exchange = token.to_bytes()	
 	return exchange.to_bytes()
 
+def generate_verify(seq_number, conv_id, checksum, checksumtype, authscheme = NEGOEXTS_DEFAULT_AUTHID):
+	hdr = MESSAGE_HEADER()
+	hdr.MessageType = MESSAGE_TYPE.VERIFY
+	hdr.SequenceNum = seq_number
+	hdr.ConversationId = conv_id
+
+	verify = VERIFY_MESSAGE()
+	verify.Header = hdr
+	verify.AuthScheme = authscheme
+	verify.Checksum = checksum
+	verify.ChecksumType = checksumtype
+
+
+	return verify.to_bytes()
 
 def negoexts_parse_bytes(data):
 	return negoexts_parse_buffer(io.BytesIO(data))
