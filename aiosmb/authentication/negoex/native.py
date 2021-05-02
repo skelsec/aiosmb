@@ -4,10 +4,11 @@ from asn1crypto import core
 from asn1crypto.algos import DHParameters
 from asn1crypto.keys import DomainParameters, PublicKeyAlgorithm
 from asn1crypto.keys import PublicKeyInfo as SubjectPublicKeyInfo
-from aiosmb.authentication.negoex.protocol.messages import KDCDHKeyInfo, PA_PK_AS_REP, MESSAGE_TYPE, PKAuthenticator, AuthPack, generate_initiator_metadata, MetaData, generate_init_nego, generate_ap_req, PA_PK_AS_REQ, negoexts_parse_bytes
+from aiosmb.authentication.negoex.protocol.messages import KRB_FINISHED, generate_verify, KERB_AD_RESTRICTION_ENTRYS, KERB_AD_RESTRICTION_ENTRY,  LSAP_TOKEN_INFO_INTEGRITY, KDCDHKeyInfo, PA_PK_AS_REP, MESSAGE_TYPE, PKAuthenticator, AuthPack, generate_initiator_metadata, MetaData, generate_init_nego, generate_ap_req, PA_PK_AS_REQ, negoexts_parse_bytes
 
-from minikerberos.protocol.asn1_structs import AS_REQ
+from minikerberos.protocol.asn1_structs import AS_REQ, AS_REP
 from minikerberos.protocol.constants import PaDataType
+from minikerberos.gssapi.gssapi import GSSAPIFlags
 
 import hashlib
 import base64
@@ -34,8 +35,7 @@ class DirtyDH:
 		self.shared_key = None
 		self.shared_key_int = None
 		self.private_key = os.urandom(32)
-		self.private_key_int = 72764112906046569742760636444493855740760078688881228462873371941677061278611526803054381818644875855167728826228101883887156340871682136831219750416559998567227805189452500583766686867519278844232674078694746027698814055934919355140771557475235517269506974933883648359785247983328280419492831553995014146106
-		#int(self.private_key.hex(), 16)
+		self.private_key_int = int(self.private_key.hex(), 16)
 	
 	@staticmethod
 	def from_params(p, g):
@@ -96,10 +96,11 @@ class SPNEGOEXAuthHandler:
 		self.user_name = None
 		self.cname = None
 		self.diffie = None
-		self.dh_nonce = bytes.fromhex('6B328FA66EEBDFD3D69ED34E5007776AB30832A2ED1DCB1699781BFE0BEDF87A')#os.urandom(32)
+		self.dh_nonce = os.urandom(32)
 		self._convid = os.urandom(16)
 		self._msgctr = 0
-
+		self._krb_finished_data = b''
+		self._msgs = b''
 
 		self.iteractions = 0
 
@@ -161,7 +162,7 @@ class SPNEGOEXAuthHandler:
 		kdc_req_body['till'] = (now + datetime.timedelta(days=1)).replace(microsecond=0)
 		kdc_req_body['rtime'] = (now + datetime.timedelta(days=1)).replace(microsecond=0)
 		kdc_req_body['nonce'] = secrets.randbits(31)
-		kdc_req_body['etype'] = [18,17,23]
+		kdc_req_body['etype'] = [18,17] # 23 breaks...
 		kdc_req_body['addresses'] = [HostAddress({'addr-type': 20, 'address': b'127.0.0.1'})] # not sure if this is needed
 		return KDC_REQ_BODY(kdc_req_body)
 		
@@ -239,8 +240,8 @@ class SPNEGOEXAuthHandler:
 		dp = {}
 		dp['p'] = self.diffie.p
 		dp['g'] = self.diffie.g
-		dp['q'] = 89884656743115795385419578396893726598930148024378005853222211842098590108079259684473916897932462770751090282742990251823220274099619550025396438501677908319614776568119538254367879957411287431287503712651038723856294775478968889212221213308667363814649693834354602803025135405421453846466009564097233813503
-		
+		dp['q'] = 0 # mandatory parameter, but it is not needed
+
 		pka = {}
 		pka['algorithm'] = '1.2.840.10046.2.1'
 		pka['parameters'] = DomainParameters(dp)
@@ -328,8 +329,6 @@ class SPNEGOEXAuthHandler:
 				break
 		else:
 			raise Exception('PA_PK_AS_REP not found!')
-		
-		input(as_rep)
 
 		sd = cms.SignedData.load(pkasrep['dhSignedData']).native
 		keyinfo = sd['encap_content_info']
@@ -337,14 +336,11 @@ class SPNEGOEXAuthHandler:
 			raise Exception('Keyinfo content type unexpected value')
 		authdata = KDCDHKeyInfo.load(keyinfo['content']).native
 		pubkey = int(''.join(['1'] + [str(x) for x in authdata['subjectPublicKey']]), 2)		
-		#print('pubkey_hex %s' % core.BitString(authdata['subjectPublicKey']).dump()[7:].hex())
+
 		pubkey = int.from_bytes(core.BitString(authdata['subjectPublicKey']).dump()[7:], 'big', signed = False)
-		#print('pubkey %s' % pubkey)
 		shared_key = self.diffie.exchange(pubkey)
-		#print(shared_key)
 		
 		server_nonce = pkasrep['serverDHNonce']
-		#input('server_nonce \r\n%s' % pkasrep['serverDHNonce'].hex())
 		fullKey = shared_key + self.dh_nonce + server_nonce
 
 		etype = as_rep['enc-part']['etype']
@@ -355,6 +351,7 @@ class SPNEGOEXAuthHandler:
 		elif etype == Enctype.AES128:
 			t_key = truncate_key(fullKey, 16)
 		elif etype == Enctype.RC4:
+			raise NotImplementedError('RC4 key truncation documentation missing. it is different from AES')
 			t_key = truncate_key(fullKey, 16)
 		
 
@@ -363,13 +360,95 @@ class SPNEGOEXAuthHandler:
 		print('enc_data %s' % enc_data.hex())
 		dec_data = cipher.decrypt(key, 3, enc_data)
 		print(dec_data)
-		rep =  EncASRepPart.load(dec_data).native
-		print(rep)
-		cipher = _enctype_table[ int(rep['key']['keytype'])]
-		session_key = Key(cipher.enctype, rep['key']['keyvalue'])
-		return session_key, cipher, rep
+		encasrep =  EncASRepPart.load(dec_data).native
+		print(encasrep)
+		cipher = _enctype_table[ int(encasrep['key']['keytype'])]
+		session_key = Key(cipher.enctype, encasrep['key']['keyvalue'])
+		return encasrep, session_key, cipher
 
+	def __build_apreq(self, asrep, session_key, cipher, subkey_data, krb_finished_data, flags = GSSAPIFlags.GSS_C_MUTUAL_FLAG | GSSAPIFlags.GSS_C_INTEG_FLAG ): #| GSSAPIFlags.GSS_C_EXTENDED_ERROR_FLAG
+		from minikerberos.protocol.encryption import Enctype, _checksum_table, _enctype_table, Key
+		from minikerberos.protocol.asn1_structs import AP_REQ, AuthorizationData, Checksum, krb5_pvno, Realm, EncryptionKey, Authenticator, Ticket, APOptions, EncryptedData, KDCOptions
+		from minikerberos.protocol.structures import AuthenticatorChecksum
+		from minikerberos.protocol.constants import MESSAGE_TYPE as KRB5_MESSAGE_TYPE
+
+		# TODO: https://www.ietf.org/rfc/rfc4757.txt
+
+		#subkey_data = {}
+		#subkey_data['keytype'] = Enctype.AES256
+		#subkey_data['keyvalue'] = os.urandom(32)
+
+		subkey_cipher = _enctype_table[subkey_data['keytype']]
+		subkey_key = Key(subkey_cipher.enctype, subkey_data['keyvalue'])
+		subkey_checksum = _checksum_table[16] # ChecksumTypes.hmac_sha1_96_aes256
+
+		krb_finished_checksum_data = {}
+		krb_finished_checksum_data['cksumtype'] = 16
+		krb_finished_checksum_data['checksum'] = subkey_checksum.checksum(subkey_key, 41, krb_finished_data)
+
+		krb_finished_data = {}
+		krb_finished_data['gss-mic'] = Checksum(krb_finished_checksum_data)
+
+		krb_finished = KRB_FINISHED(krb_finished_data).dump()
+
+		a = 2
+		extensions_data = a.to_bytes(4, byteorder='big', signed=True) + len(krb_finished).to_bytes(4, byteorder='big', signed=True)
+
+		ac = AuthenticatorChecksum()
+		ac.flags = flags
+		ac.channel_binding = b'\x00'*16
+		chksum = {}
+		chksum['cksumtype'] = 0x8003
+		chksum['checksum'] = ac.to_bytes() + extensions_data
+
+
+		tii = LSAP_TOKEN_INFO_INTEGRITY()
+		tii.Flags = 1
+		tii.TokenIL = 0x00002000 # Medium integrity
+		tii.MachineID = os.urandom(32)
+
+		restriction_data = {}
+		restriction_data['restriction-type'] = 0
+		restriction_data['restriction'] = tii.to_bytes()
+		restriction_data = KERB_AD_RESTRICTION_ENTRY(restriction_data)
+		x = KERB_AD_RESTRICTION_ENTRYS([restriction_data]).dump()
+		restrictions = AuthorizationData([{ 'ad-type' : 141, 'ad-data' : x}]).dump()
+
+
+
+		now = datetime.datetime.now(datetime.timezone.utc)
+		authenticator_data = {}
+		authenticator_data['authenticator-vno'] = krb5_pvno 
+		authenticator_data['crealm'] = Realm(asrep['crealm'])
+		authenticator_data['cname'] = asrep['cname']
+		authenticator_data['cusec'] = now.microsecond
+		authenticator_data['ctime'] = now.replace(microsecond=0)
+		authenticator_data['subkey'] = EncryptionKey(subkey_data)
+		authenticator_data['seq-number'] = 682437742 #??? TODO: check this!
+		authenticator_data['authorization-data'] = AuthorizationData([{'ad-type': 1, 'ad-data' : restrictions}])
+		authenticator_data['cksum'] = Checksum(chksum)
 		
+		
+		pprint(chksum)
+		pprint(authenticator_data)
+
+		authenticator_data_enc = cipher.encrypt(session_key, 11, Authenticator(authenticator_data).dump(), None)
+		
+		ap_opts = ['forwarded']
+
+		ap_req = {}
+		ap_req['pvno'] = krb5_pvno
+		ap_req['msg-type'] = KRB5_MESSAGE_TYPE.KRB_AP_REQ.value
+		ap_req['ticket'] = Ticket(asrep['ticket'])
+		ap_req['ap-options'] = APOptions(set(ap_opts))
+		ap_req['authenticator'] = EncryptedData({'etype': session_key.enctype, 'cipher': authenticator_data_enc})
+		
+		pprint('AP_REQ \r\n%s' % AP_REQ(ap_req).native)
+		input()
+
+		return AP_REQ(ap_req).dump()
+
+
 
 	async def sign(self, data, message_no, direction = 'init'):
 		raise NotImplementedError()
@@ -388,6 +467,7 @@ class SPNEGOEXAuthHandler:
 			#issuer, self._asReq = build_as_req_negoEx(self._userCert, self._certPass, self._remoteComputer, self._diffieHellmanExchange)
 			asreqbody = self.__build_asreq()
 			asreq = self.__build_pkinit_pa(asreqbody)
+			self._krb_finished_data += asreq # for the checksum calc...
 
 			negodata = generate_init_nego(self._msgctr, self._convid)
 			self._msgctr += 1
@@ -396,17 +476,42 @@ class SPNEGOEXAuthHandler:
 			ap_req = generate_ap_req(self._msgctr, self._convid, asreq)
 			self._msgctr += 1
 			msg = negodata + metadata + ap_req
+			self._msgs += msg
 
 			return msg, True, None
 
 		if self.iteractions:
+			from minikerberos.protocol.encryption import Enctype, _checksum_table, _enctype_table, Key
 			self.iteractions += 1
 			
+			self._msgs += authData
 			msgs = negoexts_parse_bytes(authData)
+			self._msgctr += len(msgs)
 			#print(msgs[MESSAGE_TYPE.CHALLENGE].Exchange.inner_token.native)
 			as_rep = msgs[MESSAGE_TYPE.CHALLENGE].Exchange.inner_token.native
-			session_key, cipher, rep = self.__decrypt_pk_dh(as_rep)
 			
+			self._krb_finished_data += msgs[MESSAGE_TYPE.CHALLENGE].Exchange.inner_token_raw # for the checksum calc...
+			encasrep, session_key, cipher = self.__decrypt_pk_dh(as_rep)
+
+			subkey_data = {}
+			subkey_data['keytype'] = Enctype.AES256
+			subkey_data['keyvalue'] = os.urandom(32)
+			subkey_cipher = _enctype_table[subkey_data['keytype']]
+			subkey_key = Key(subkey_cipher.enctype, subkey_data['keyvalue'])
+			subkey_checksum = _checksum_table[16] # ChecksumTypes.hmac_sha1_96_aes256
+
+			ap_req = self.__build_apreq(as_rep, session_key, cipher, subkey_data, self._krb_finished_data)
+
+			ap_req_msg = generate_ap_req(self._msgctr, self._convid, ap_req)
+			self._msgctr += 1
+			checksum_final = subkey_checksum.checksum(subkey_key, 25, self._msgs + ap_req_msg )
+			verify_msg = generate_verify(self._msgctr, self._convid, checksum_final,  16)
+			self._msgctr += 1
+
+			ret_msg = ap_req_msg + verify_msg
+			self._msgs += ret_msg
+
+			return ret_msg, True, None
 
 
 
