@@ -32,8 +32,10 @@ class DirtyDH:
 		self.p = None
 		self.g = None
 		self.shared_key = None
+		self.shared_key_int = None
 		self.private_key = os.urandom(32)
-		self.private_key_int = int(self.private_key.hex(), 16)
+		self.private_key_int = 72764112906046569742760636444493855740760078688881228462873371941677061278611526803054381818644875855167728826228101883887156340871682136831219750416559998567227805189452500583766686867519278844232674078694746027698814055934919355140771557475235517269506974933883648359785247983328280419492831553995014146106
+		#int(self.private_key.hex(), 16)
 	
 	@staticmethod
 	def from_params(p, g):
@@ -63,7 +65,11 @@ class DirtyDH:
 		return pow(self.g, self.private_key_int, self.p)
 	
 	def exchange(self, bob_int):
-		self.shared_key = pow(bob_int, self.private_key_int, self.p)
+		self.shared_key_int = pow(bob_int, self.private_key_int, self.p)
+		x = hex(self.shared_key_int)[2:]
+		if len(x) % 2 != 0:
+			x = '0' + x
+		self.shared_key = bytes.fromhex(x)
 		return self.shared_key
 
 
@@ -155,7 +161,7 @@ class SPNEGOEXAuthHandler:
 		kdc_req_body['till'] = (now + datetime.timedelta(days=1)).replace(microsecond=0)
 		kdc_req_body['rtime'] = (now + datetime.timedelta(days=1)).replace(microsecond=0)
 		kdc_req_body['nonce'] = secrets.randbits(31)
-		kdc_req_body['etype'] = [23, 18,17]
+		kdc_req_body['etype'] = [18,17,23]
 		kdc_req_body['addresses'] = [HostAddress({'addr-type': 20, 'address': b'127.0.0.1'})] # not sure if this is needed
 		return KDC_REQ_BODY(kdc_req_body)
 		
@@ -233,7 +239,7 @@ class SPNEGOEXAuthHandler:
 		dp = {}
 		dp['p'] = self.diffie.p
 		dp['g'] = self.diffie.g
-		dp['q'] = 0
+		dp['q'] = 89884656743115795385419578396893726598930148024378005853222211842098590108079259684473916897932462770751090282742990251823220274099619550025396438501677908319614776568119538254367879957411287431287503712651038723856294775478968889212221213308667363814649693834354602803025135405421453846466009564097233813503
 		
 		pka = {}
 		pka['algorithm'] = '1.2.840.10046.2.1'
@@ -300,6 +306,7 @@ class SPNEGOEXAuthHandler:
 		from asn1crypto import core
 		from asn1crypto import x509
 		from minikerberos.protocol.encryption import Enctype, Key, _enctype_table
+		from minikerberos.protocol.asn1_structs import EncASRepPart
 
 		
 		def truncate_key(value, keysize):
@@ -321,32 +328,23 @@ class SPNEGOEXAuthHandler:
 				break
 		else:
 			raise Exception('PA_PK_AS_REP not found!')
+		
+		input(as_rep)
 
-		#pkasrep = PA_PK_AS_REP.load(bytes.fromhex('a0820665308206618082063930820635020103310b300906052b0e03021a05003081a406072b060105020302a08198048195308192a0818703818400028180208e0f69f5d60e713a5398837e1bdc7698f06648423d90b9df392ec484b549e81399a968bdc443bf5c56a06da73dd647b0cce26ee4c56297fa4a9d06f51f336f9e14649a01550246cf32a849ae1b4ebff897294bf95fe87fc771b38bf28964322f52d03d8b9dac332b067dc71c4bedcf0e891e80557224c5e5ccbce0439e24e7a10602046292c3a0a08203af308203ab30820293a0030201020210414135227b1a4ba5647832c1277770b0300d06092a864886f70d01010b0500304d314b304906035504031e42004d0053002d004f007200670061006e0069007a006100740069006f006e002d005000320050002d0041006300630065007300730020005b0032003000320031005d301e170d3231303530313230333134375a170d3231303530323230333634375a306531343032060a0992268993f22c640119162430663965653539642d366137632d343333392d383264322d336534633935366564343666312d302b06035504030c2431666633616363662d383262302d343230322d393831632d66333033343562653766323730820122300d06092a864886f70d01010105000382010f003082010a0282010100bbaf9cc572c606d9e22ff78bcb1583ab62a0830036cb62259bf5f177b8de4ed63e9b5ea5164355b9db128e31a443fe11f13a197524411d7a51ee6e98e14ad66df32e5dd1701a04ab200455dcac195c92c064927cb80cbcb864da5e78266f24129d02dc5ee4eb459c84e1c100b08c26ec07ac6409a2dbda7091043fc529c089607c058254e178021d8e22da6a526351cd0567e025f3e1fafef4de023c7d959608b7b3eea8af63c743acae742ecc76cb3532ab6db74056b2de8d69142b0aad2b93dedddfd15fe9d986e0e4af65e7f3904b5455277f2365f25365a8606cff19f3263094cbdc342ef048141d4de4b7caa679757affceb20b21540c16c1008bd9b1bd0203010001a36f306d300e0603551d0f0101ff0404030205a030290603551d11042230208209617a616474657374318209617a61647465737431820831302e302e302e3430130603551d25040c300a06082b06010505070301301b06092b060104018237150a040e300c300a06082b06010505070301300d06092a864886f70d01010b050003820101000bd995a9a2e51eb8cdbdef7386c5611332051597115cf4e7e5b9f4dddf8f2d579066522635cc32be053c842cb7c56f24d9c5ffe79c638232c13619bb50a5329877389a7a6035631f61fca602d3b019ddc69ed825dd6190a9f6977de571c7a3e86dd669dacd4b78cf1b87f2adc4fcf7bc170cfa613831f57dd66d929a99c187b0ba6d5b40b516e8372827ebb4abf91eedf58645ce3d09612941bb90711b3627ca5fe57daa46ffcd0d16738173fdecd18115d9d9d491c4415566f7fdf9dba5dbbbdeea84d8814237e45c48788ae2c846694ce981ff6353208889de91a5460e0d3b1635c3b8efee3433aa426790de8a220dacddc8e301c3b23cea53ef247df9bd54318201c7308201c30201013061304d314b304906035504031e42004d0053002d004f007200670061006e0069007a006100740069006f006e002d005000320050002d0041006300630065007300730020005b0032003000320031005d0210414135227b1a4ba5647832c1277770b0300906052b0e03021a0500a03d301606092a864886f70d010903310906072b060105020302302306092a864886f70d0109043116041421ec92a30e967cdd5182b2ff6eafd65e127938f3300d06092a864886f70d0101010500048201009b6f5eb1aa21e0a101bafef173603a181080da6f104919772edd0cd09bb91e933ecc62b2d18ac63e60dd17a714b860b0452c4ebc2963da25f0a010ce05c78331c7d79d4af4fdc96efdb1b078f78c07897eff50c8d9da91fc5fd5999d42e2f49215f2a507350d46967eb466b104a6374ef87a99eda87b50f956e815fd4c118e69f8057c7e25471af4359ab972e2c8c7724c55a255b63670aba4883923c6b8feab10ff0f8987fd04615be122056ded99b1e7884e805ecd3b6ee0638b0448b8ed125fa47c4bbc423d1fa878adb711e77f86035d9c7c320e6bcfa516ae858f9dafbfe9506dc939558bf55a1bb272a70d03feea838859e0e9d5177353217edb8058eda122042040ee7ac8a8b09d9d7178d2c20f58862963c75261d4b9890152b421ef88b22d24')).native
-		#input(pa['padata-value'].hex())
 		sd = cms.SignedData.load(pkasrep['dhSignedData']).native
 		keyinfo = sd['encap_content_info']
 		if keyinfo['content_type'] != '1.3.6.1.5.2.3.2':
 			raise Exception('Keyinfo content type unexpected value')
 		authdata = KDCDHKeyInfo.load(keyinfo['content']).native
-		input(authdata['subjectPublicKey'])
-		pubkey = int(''.join(['1'] + [str(x) for x in authdata['subjectPublicKey']]), 2)
-		print(''.join([str(x) for x in authdata['subjectPublicKey']]))
-		
-		print(core.BitString(authdata['subjectPublicKey']).dump().hex())
-		
-		print('pubkey_hex %s' % core.BitString(authdata['subjectPublicKey']).dump()[7:].hex())
+		pubkey = int(''.join(['1'] + [str(x) for x in authdata['subjectPublicKey']]), 2)		
+		#print('pubkey_hex %s' % core.BitString(authdata['subjectPublicKey']).dump()[7:].hex())
 		pubkey = int.from_bytes(core.BitString(authdata['subjectPublicKey']).dump()[7:], 'big', signed = False)
-		print('pubkey %s' % pubkey)
+		#print('pubkey %s' % pubkey)
 		shared_key = self.diffie.exchange(pubkey)
-		shared_key = shared_key.to_bytes((shared_key.bit_length() + 7) // 8, 'big')
-		print('shared_key %s' % shared_key.hex())
-		
-		
-		
+		#print(shared_key)
 		
 		server_nonce = pkasrep['serverDHNonce']
-		input('server_nonce \r\n%s' % pkasrep['serverDHNonce'].hex())
+		#input('server_nonce \r\n%s' % pkasrep['serverDHNonce'].hex())
 		fullKey = shared_key + self.dh_nonce + server_nonce
 
 		etype = as_rep['enc-part']['etype']
@@ -359,13 +357,16 @@ class SPNEGOEXAuthHandler:
 		elif etype == Enctype.RC4:
 			t_key = truncate_key(fullKey, 16)
 		
+
 		key = Key(cipher.enctype, t_key)
 		enc_data = as_rep['enc-part']['cipher']
+		print('enc_data %s' % enc_data.hex())
 		dec_data = cipher.decrypt(key, 3, enc_data)
 		print(dec_data)
-		rep = dec_data
-		cipher = _enctype_table[ int(encASRepPart['key']['keytype'])]
-		session_key = Key(cipher.enctype, encASRepPart['key']['keyvalue'])
+		rep =  EncASRepPart.load(dec_data).native
+		print(rep)
+		cipher = _enctype_table[ int(rep['key']['keytype'])]
+		session_key = Key(cipher.enctype, rep['key']['keyvalue'])
 		return session_key, cipher, rep
 
 		
