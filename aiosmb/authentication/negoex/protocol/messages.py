@@ -227,7 +227,7 @@ class PKU2U_TOKEN:
 	def __init__(self, tok_id = b'\x01\x00'):
 		self.tok_id = tok_id
 		self.inner_token = None
-		self.inner_token_raw = None #unparsed bytes
+		#self.inner_token_raw = None #unparsed bytes
 		self._pku2u_oid = bytes.fromhex('2b0601050207')
 	
 	@staticmethod
@@ -246,7 +246,7 @@ class PKU2U_TOKEN:
 		t_oid = buff.read(oid_length)
 		t.tok_id = PKU2U_TOKEN_TYPE(buff.read(2))
 		t_data = buff.read(total_length - buff.tell())
-		t.inner_token_raw = t_data
+		#t.inner_token_raw = t_data
 
 		if t.tok_id == PKU2U_TOKEN_TYPE.KRB_AS_REQ:
 			t.inner_token = AS_REQ.load(t_data)
@@ -505,6 +505,7 @@ class EXCHANGE_MESSAGE:
 		self.ExchangeByteCount = None
 		self.Exchange = None #BYTE_VECTOR  // contains the opaque handshake message for the authentication scheme
 		self.msgsize = 40 + 16 + 4 + 4
+		self.exchange_data_raw = None
 
 	def to_bytes(self):
 		self.ExchangeByteCount = len(self.Exchange)
@@ -535,6 +536,7 @@ class EXCHANGE_MESSAGE:
 		msg.ExchangeByteCount = int.from_bytes(buff.read(4), byteorder='little', signed = False)
 		buff.seek(start_offset + msg.ExchangeOffset)
 		exch_data = buff.read(msg.ExchangeByteCount)
+		msg.exchange_data_raw = exch_data
 		
 		if msg.Header.MessageType in [MESSAGE_TYPE.AP_REQUEST, MESSAGE_TYPE.CHALLENGE]:
 			token = PKU2U_TOKEN.from_bytes(exch_data)
@@ -702,7 +704,7 @@ def generate_init_nego(seq_number, conv_id, authschemes = None, extensions = Non
 
 	return nego.to_bytes()
 
-def generate_ap_req(seq_number, conv_id, ap_req, authscheme = NEGOEXTS_DEFAULT_AUTHID):
+def generate_ap_req(seq_number, conv_id, ap_req, tok_type, authscheme = NEGOEXTS_DEFAULT_AUTHID):
 	hdr = MESSAGE_HEADER()
 	hdr.MessageType = MESSAGE_TYPE.AP_REQUEST
 	hdr.SequenceNum = seq_number
@@ -712,10 +714,10 @@ def generate_ap_req(seq_number, conv_id, ap_req, authscheme = NEGOEXTS_DEFAULT_A
 	exchange.Header = hdr
 	exchange.AuthScheme = authscheme
 	token = PKU2U_TOKEN()
-	token.tok_id = PKU2U_TOKEN_TYPE.KRB_AS_REQ
+	token.tok_id = tok_type #PKU2U_TOKEN_TYPE.KRB_AS_REQ
 	token.inner_token = ap_req
-	exchange.Exchange = token.to_bytes()	
-	return exchange.to_bytes()
+	exchange.Exchange = token.to_bytes()
+	return exchange.to_bytes(), token.to_bytes()
 
 def generate_verify(seq_number, conv_id, checksum, checksumtype, authscheme = NEGOEXTS_DEFAULT_AUTHID):
 	hdr = MESSAGE_HEADER()

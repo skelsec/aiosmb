@@ -704,6 +704,11 @@ class SMBConnection:
 				maxiter -= 1
 			
 			if rply.header.Status == NTStatus.SUCCESS:
+				command.Buffer, res, err  = await self.gssapi.authenticate(authdata)
+				if err is not None:
+					raise err
+
+
 				if self.gssapi.is_guest() is True:
 					self.signing_required = False
 

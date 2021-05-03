@@ -4,7 +4,7 @@ from asn1crypto import core
 from asn1crypto.algos import DHParameters
 from asn1crypto.keys import DomainParameters, PublicKeyAlgorithm
 from asn1crypto.keys import PublicKeyInfo as SubjectPublicKeyInfo
-from aiosmb.authentication.negoex.protocol.messages import KRB_FINISHED, generate_verify, KERB_AD_RESTRICTION_ENTRYS, KERB_AD_RESTRICTION_ENTRY,  LSAP_TOKEN_INFO_INTEGRITY, KDCDHKeyInfo, PA_PK_AS_REP, MESSAGE_TYPE, PKAuthenticator, AuthPack, generate_initiator_metadata, MetaData, generate_init_nego, generate_ap_req, PA_PK_AS_REQ, negoexts_parse_bytes
+from aiosmb.authentication.negoex.protocol.messages import PKU2U_TOKEN_TYPE, KRB_FINISHED, generate_verify, KERB_AD_RESTRICTION_ENTRYS, KERB_AD_RESTRICTION_ENTRY,  LSAP_TOKEN_INFO_INTEGRITY, KDCDHKeyInfo, PA_PK_AS_REP, MESSAGE_TYPE, PKAuthenticator, AuthPack, generate_initiator_metadata, MetaData, generate_init_nego, generate_ap_req, PA_PK_AS_REQ, negoexts_parse_bytes
 
 from minikerberos.protocol.asn1_structs import AS_REQ, AS_REP
 from minikerberos.protocol.constants import PaDataType
@@ -101,6 +101,8 @@ class SPNEGOEXAuthHandler:
 		self._msgctr = 0
 		self._krb_finished_data = b''
 		self._msgs = b''
+		self.session_key_data = None
+		self.xxxxx = None
 
 		self.iteractions = 0
 
@@ -143,8 +145,7 @@ class SPNEGOEXAuthHandler:
 		return
 	
 	def get_session_key(self):
-		raise NotImplementedError()
-		#return self.session_key.contents
+		return self.session_key.contents
 
 	def __build_asreq(self):
 		import datetime
@@ -344,7 +345,6 @@ class SPNEGOEXAuthHandler:
 		fullKey = shared_key + self.dh_nonce + server_nonce
 
 		etype = as_rep['enc-part']['etype']
-		print(etype)
 		cipher = _enctype_table[etype]
 		if etype == Enctype.AES256:
 			t_key = truncate_key(fullKey, 32)
@@ -357,16 +357,15 @@ class SPNEGOEXAuthHandler:
 
 		key = Key(cipher.enctype, t_key)
 		enc_data = as_rep['enc-part']['cipher']
-		print('enc_data %s' % enc_data.hex())
 		dec_data = cipher.decrypt(key, 3, enc_data)
-		print(dec_data)
 		encasrep =  EncASRepPart.load(dec_data).native
-		print(encasrep)
 		cipher = _enctype_table[ int(encasrep['key']['keytype'])]
 		session_key = Key(cipher.enctype, encasrep['key']['keyvalue'])
 		return encasrep, session_key, cipher
 
-	def __build_apreq(self, asrep, session_key, cipher, subkey_data, krb_finished_data, flags = GSSAPIFlags.GSS_C_MUTUAL_FLAG | GSSAPIFlags.GSS_C_INTEG_FLAG ): #| GSSAPIFlags.GSS_C_EXTENDED_ERROR_FLAG
+	#GSSAPIFlags.GSS_C_MUTUAL_FLAG | GSSAPIFlags.GSS_C_INTEG_FLAG  | GSSAPIFlags.GSS_C_EXTENDED_ERROR_FLAG
+	
+	def __build_apreq(self, asrep, session_key, cipher, subkey_data, krb_finished_data, flags = 16418):
 		from minikerberos.protocol.encryption import Enctype, _checksum_table, _enctype_table, Key
 		from minikerberos.protocol.asn1_structs import AP_REQ, AuthorizationData, Checksum, krb5_pvno, Realm, EncryptionKey, Authenticator, Ticket, APOptions, EncryptedData, KDCOptions
 		from minikerberos.protocol.structures import AuthenticatorChecksum
@@ -392,7 +391,7 @@ class SPNEGOEXAuthHandler:
 		krb_finished = KRB_FINISHED(krb_finished_data).dump()
 
 		a = 2
-		extensions_data = a.to_bytes(4, byteorder='big', signed=True) + len(krb_finished).to_bytes(4, byteorder='big', signed=True)
+		extensions_data = a.to_bytes(4, byteorder='big', signed=True) + len(krb_finished).to_bytes(4, byteorder='big', signed=True) + krb_finished
 
 		ac = AuthenticatorChecksum()
 		ac.flags = flags
@@ -401,20 +400,20 @@ class SPNEGOEXAuthHandler:
 		chksum['cksumtype'] = 0x8003
 		chksum['checksum'] = ac.to_bytes() + extensions_data
 
-
 		tii = LSAP_TOKEN_INFO_INTEGRITY()
 		tii.Flags = 1
 		tii.TokenIL = 0x00002000 # Medium integrity
-		tii.MachineID = os.urandom(32)
+		tii.MachineID = bytes.fromhex('7e303fffe6bff25146addca4fbddf1b94f1634178eb4528fb2731c669ca23cde')
 
 		restriction_data = {}
 		restriction_data['restriction-type'] = 0
 		restriction_data['restriction'] = tii.to_bytes()
 		restriction_data = KERB_AD_RESTRICTION_ENTRY(restriction_data)
+
 		x = KERB_AD_RESTRICTION_ENTRYS([restriction_data]).dump()
 		restrictions = AuthorizationData([{ 'ad-type' : 141, 'ad-data' : x}]).dump()
 
-
+		
 
 		now = datetime.datetime.now(datetime.timezone.utc)
 		authenticator_data = {}
@@ -429,12 +428,12 @@ class SPNEGOEXAuthHandler:
 		authenticator_data['cksum'] = Checksum(chksum)
 		
 		
-		pprint(chksum)
-		pprint(authenticator_data)
+		print('Authenticator(authenticator_data).dump()')
+		print(Authenticator(authenticator_data).dump().hex())
 
 		authenticator_data_enc = cipher.encrypt(session_key, 11, Authenticator(authenticator_data).dump(), None)
 		
-		ap_opts = ['forwarded']
+		ap_opts = ['mutual-required']
 
 		ap_req = {}
 		ap_req['pvno'] = krb5_pvno
@@ -444,7 +443,9 @@ class SPNEGOEXAuthHandler:
 		ap_req['authenticator'] = EncryptedData({'etype': session_key.enctype, 'cipher': authenticator_data_enc})
 		
 		pprint('AP_REQ \r\n%s' % AP_REQ(ap_req).native)
-		input()
+		
+		print(AP_REQ(ap_req).dump().hex())
+		#input()
 
 		return AP_REQ(ap_req).dump()
 
@@ -467,20 +468,20 @@ class SPNEGOEXAuthHandler:
 			#issuer, self._asReq = build_as_req_negoEx(self._userCert, self._certPass, self._remoteComputer, self._diffieHellmanExchange)
 			asreqbody = self.__build_asreq()
 			asreq = self.__build_pkinit_pa(asreqbody)
-			self._krb_finished_data += asreq # for the checksum calc...
 
 			negodata = generate_init_nego(self._msgctr, self._convid)
 			self._msgctr += 1
 			metadata = self.__get_metadata()
 			self._msgctr += 1
-			ap_req = generate_ap_req(self._msgctr, self._convid, asreq)
+			ap_req, token_raw = generate_ap_req(self._msgctr, self._convid, asreq, PKU2U_TOKEN_TYPE.KRB_AS_REQ)
+			self._krb_finished_data += token_raw # for the checksum calc...
 			self._msgctr += 1
 			msg = negodata + metadata + ap_req
 			self._msgs += msg
 
 			return msg, True, None
 
-		if self.iteractions:
+		elif self.iteractions == 1:
 			from minikerberos.protocol.encryption import Enctype, _checksum_table, _enctype_table, Key
 			self.iteractions += 1
 			
@@ -489,20 +490,22 @@ class SPNEGOEXAuthHandler:
 			self._msgctr += len(msgs)
 			#print(msgs[MESSAGE_TYPE.CHALLENGE].Exchange.inner_token.native)
 			as_rep = msgs[MESSAGE_TYPE.CHALLENGE].Exchange.inner_token.native
-			
-			self._krb_finished_data += msgs[MESSAGE_TYPE.CHALLENGE].Exchange.inner_token_raw # for the checksum calc...
+			self._krb_finished_data += msgs[MESSAGE_TYPE.CHALLENGE].exchange_data_raw # for the checksum calc...
 			encasrep, session_key, cipher = self.__decrypt_pk_dh(as_rep)
 
-			subkey_data = {}
-			subkey_data['keytype'] = Enctype.AES256
-			subkey_data['keyvalue'] = os.urandom(32)
-			subkey_cipher = _enctype_table[subkey_data['keytype']]
-			subkey_key = Key(subkey_cipher.enctype, subkey_data['keyvalue'])
+			self.xxxxx = session_key
+
+			self.session_key_data = {}
+			self.session_key_data['keytype'] = Enctype.AES256
+			self.session_key_data['keyvalue'] = os.urandom(32)
+			subkey_cipher = _enctype_table[self.session_key_data['keytype']]
+			subkey_key = Key(subkey_cipher.enctype, self.session_key_data['keyvalue'])
 			subkey_checksum = _checksum_table[16] # ChecksumTypes.hmac_sha1_96_aes256
 
-			ap_req = self.__build_apreq(as_rep, session_key, cipher, subkey_data, self._krb_finished_data)
+			ap_req = self.__build_apreq(as_rep, session_key, cipher, self.session_key_data, self._krb_finished_data)
 
-			ap_req_msg = generate_ap_req(self._msgctr, self._convid, ap_req)
+			ap_req_msg, _ = generate_ap_req(self._msgctr, self._convid, ap_req, PKU2U_TOKEN_TYPE.KRB_AP_REQ)
+			print(ap_req_msg.hex())
 			self._msgctr += 1
 			checksum_final = subkey_checksum.checksum(subkey_key, 25, self._msgs + ap_req_msg )
 			verify_msg = generate_verify(self._msgctr, self._convid, checksum_final,  16)
@@ -514,7 +517,31 @@ class SPNEGOEXAuthHandler:
 			return ret_msg, True, None
 
 
+		elif self.iteractions == 2:
+			from minikerberos.protocol.encryption import Enctype, _checksum_table, _enctype_table, Key
+			from minikerberos.protocol.asn1_structs import EncAPRepPart
 
+			input('aaaaaaaaaaaaaa')
+			self.iteractions += 1
+			self._msgs += authData
+			msgs = negoexts_parse_bytes(authData)
+			self._msgctr += len(msgs)
+			ap_rep = msgs[MESSAGE_TYPE.CHALLENGE].Exchange.inner_token.native
+			print(ap_rep)
+
+			#self.xxxxx
+
+			cipher = _enctype_table[int(ap_rep['enc-part']['etype'])]()
+			cipher_text = ap_rep['enc-part']['cipher']
+			subkey_key = Key(cipher.enctype, self.xxxxx.contents)
+			temp = cipher.decrypt(subkey_key, 12, cipher_text)
+			enc_part = EncAPRepPart.load(temp).native
+			print(enc_part)
+			
+			cipher = _enctype_table[int(enc_part['subkey']['keytype'])]()
+			self.session_key = Key(cipher.enctype, enc_part['subkey']['keyvalue'])
+
+			return None, False, None
 
 
 
