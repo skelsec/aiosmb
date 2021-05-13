@@ -3,63 +3,67 @@ import asyncio
 import enum
 import uuid
 import logging
+import json
 
 from aiosmb import logger
+from aiosmb.examples.scancommons.targetgens import *
+from aiosmb.examples.scancommons.internal import *
 from aiosmb.commons.connection.url import SMBConnectionURL
 from aiosmb.commons.interfaces.machine import SMBMachine
 from aiosmb.protocol.common import SMB_NEGOTIATE_PROTOCOL_TEST, NegotiateDialects
+from aiosmb.commons.utils.univeraljson import UniversalEncoder
 
-class EnumResultStatus(enum.Enum):
-	RESULT = 'RESULT'
-	FINISHED = 'FINISED'
-	ERROR = 'ERROR'
+from tqdm import tqdm
 
-class EnumResult:
-	def __init__(self, target_id, target, result, error = None, status = EnumResultStatus.RESULT):
-		self.target_id = target_id
+SMBOSENUM_TSV_HDR = ['target', 'target_id', 'domainname', 'computername', 'dnsforestname', 'dnscomputername', 'dnsdomainname', 'local_time', 'os_major_version', 'os_minor_version', 'os_build', 'os_guess' ]
+
+class SMBOSEnumProgressResult:
+	def __init__(self, total_targets, total_finished, gens_finished, target):
+		self.total_targets = total_targets
+		self.total_finished = total_finished
+		self.gens_finished = gens_finished
 		self.target = target
-		self.error = error
-		self.result = result
-		self.status = status
 
-class FileTargetGen:
-	def __init__(self, filename):
-		self.filename = filename
+class SMBOSEnumResult:
+	def __init__(self, obj, otype):
+		self.obj = obj
+		self.otype = otype
 
-	async def run(self, target_q):
-		try:
-			cnt = 0
-			with open(self.filename, 'r') as f:
-				for line in f:
-					line = line.strip()
-					if line == '':
-						continue
-					await target_q.put((str(uuid.uuid4()), line))
-					await asyncio.sleep(0)
-					cnt += 1
-			return cnt, None
-		except Exception as e:
-			return cnt, e
+	def __str__(self):
+		if self.otype == 'result':
+			return '[R] %s | %s' % (self.obj.target, self.obj.result.to_tsv())
+	
+		elif self.otype == 'error':
+			return '[E] %s | %s' % (self.obj.target, self.obj.error)
 
-class ListTargetGen:
-	def __init__(self, targets):
-		self.targets = targets
+		elif self.otype == 'progress':
+			return '[P][%s/%s][%s] %s' % (self.obj.total_targets, self.obj.total_finished, str(self.obj.gens_finished), self.obj.target)
 
-	async def run(self, target_q):
-		try:
-			cnt = 0
-			for target in self.targets:
-				cnt += 1
-				target = target.strip()
-				await target_q.put((str(uuid.uuid4()),target))
-				await asyncio.sleep(0)
-			return cnt, None
-		except Exception as e:
-			return cnt, e
+		else:
+			return '[UNK]'
 
+	def to_dict(self):
+		if self.otype == 'result':
+			t = self.obj.result.to_dict()
+			t['target'] = self.obj.target
+			t['target_id'] = self.obj.target_id
+			return t
+		return {}
+	
+	def to_json(self):
+		dd = self.to_dict()
+		return json.dumps(dd, cls = UniversalEncoder)
 
+	def to_tsv(self, hdrs = SMBOSENUM_TSV_HDR, separator = '\t'):
+		if self.otype == 'result':
+			dd = self.to_dict()
+			data = [ str(dd[x]) for x in hdrs ]
+			return separator.join(data)
+
+		return ''
+	
 class SMBOSEnum:
-	def __init__(self, worker_count = 100, timeout = 5):
+	def __init__(self, worker_count = 100, timeout = 5, show_pbar = True, output_type = 'str', out_file = None, out_buffer_size = 1, ext_result_q = None):
 		self.target_gens = []
 		self.timeout = timeout
 		self.worker_count = worker_count
@@ -67,9 +71,15 @@ class SMBOSEnum:
 		self.res_q = None
 		self.workers = []
 		self.result_processing_task = None
+		self.show_pbar = show_pbar
+		self.output_type = output_type
+		self.out_file = out_file
+		self.out_buffer_size = out_buffer_size
+		self.ext_result_q = ext_result_q
 		self.__gens_finished = False
 		self.__total_targets = 0
 		self.__total_finished = 0
+		self.__total_errors = 0
 
 	async def __executor(self, tid, target):
 		try:
@@ -78,7 +88,7 @@ class SMBOSEnum:
 			res, err = await connection.fake_login()
 			if err is not None:
 				raise err
-			er = EnumResult(tid, target, (res,))
+			er = EnumResult(tid, target, res)
 			await self.res_q.put(er)
 		except asyncio.CancelledError:
 			return
@@ -109,34 +119,121 @@ class SMBOSEnum:
 
 	async def result_processing(self):
 		try:
+			pbar = None
+			if self.show_pbar is True:
+				pbar = {}
+				pbar['targets']    = tqdm(desc='Targets     ', unit='', position=0)
+				pbar['results']    = tqdm(desc='Results     ', unit='', position=1)
+				pbar['errors']     = tqdm(desc='Errors      ', unit='', position=2)
+
+			out_buffer = []
+			final_iter = False
 			while True:
 				try:
-					er = await self.res_q.get()
+					if self.__gens_finished is True and self.show_pbar is True and pbar['targets'].total is None:
+						pbar['targets'].total = self.__total_targets
+						for key in pbar:
+							pbar[key].refresh()
+					
+					if self.ext_result_q is not None:
+						out_buffer = []
+
+					if len(out_buffer) >= self.out_buffer_size or final_iter and self.ext_result_q is None:
+						out_data = ''
+						if self.output_type == 'str':
+							out_data = '\r\n'.join([str(x) for x in out_buffer])
+						elif self.output_type == 'tsv':
+							for res in out_buffer:
+								temp = res.to_tsv()
+								if temp is None or temp == '':
+									continue
+								out_data += '%s\r\n' % temp
+						elif self.output_type == 'json':
+							for res in out_buffer:
+								temp = res.to_json()
+								if temp is None or len(temp) <= 2:
+									continue
+								out_data += '%s\r\n' % temp
+					
+						else:
+							out_data = '\r\n'.join(out_buffer)
+
+						if self.out_file is not None:
+							with open(self.out_file, 'a+', newline = '') as f:
+								f.write(out_data)
+						
+						else:
+							if len(out_data) != 0:
+								print(out_data)
+
+						if self.show_pbar is True:
+							for key in pbar:
+								pbar[key].refresh()
+						
+						out_buffer = []
+						out_data = ''
+					
+					if final_iter:
+						asyncio.create_task(self.terminate())
+						return
+
+					try:
+						er = await asyncio.wait_for(self.res_q.get(), timeout = 5)
+					except asyncio.TimeoutError:
+						if self.show_pbar is True:
+							for key in pbar:
+								pbar[key].refresh()
+
+						if self.__total_finished == self.__total_targets and self.__gens_finished is True:
+							final_iter = True
+						continue
 
 					if er.result is not None:
-						res, *t = er.result
-						print('[%s] %s' % (er.target, res.to_grep()))
+						if self.ext_result_q is not None:
+							await self.ext_result_q.put(SMBOSEnumResult(er, 'result'))
+						out_buffer.append(SMBOSEnumResult(er, 'result'))
+						if self.show_pbar is True:
+							pbar['results'].update(1)
+						
 					
 					if er.status == EnumResultStatus.ERROR:
-						print('[%s][E][%s]' % (er.target, er.error))
+						self.__total_errors += 1
+						if self.ext_result_q is not None:
+							await self.ext_result_q.put(SMBOSEnumResult(er, 'error'))
+						out_buffer.append(SMBOSEnumResult(er, 'error'))
+						if self.show_pbar is True:
+							pbar['errors'].update(1)
+						
 					
 					if er.status == EnumResultStatus.FINISHED:
 						self.__total_finished += 1
-						print('[P][%s/%s][%s]' % (self.__total_targets, self.__total_finished, str(self.__gens_finished)))
+						res = SMBOSEnumProgressResult(self.__total_targets, self.__total_finished, self.__gens_finished, er.target)
+						if self.ext_result_q is not None:
+							await self.ext_result_q.put(SMBOSEnumResult(res, 'progress'))
+						out_buffer.append(SMBOSEnumResult(res, 'progress'))
+						if self.show_pbar is True:
+							pbar['targets'].update(1)
+						
 						if self.__total_finished == self.__total_targets and self.__gens_finished is True:
-							
-							asyncio.create_task(self.terminate())
-							return
+							final_iter = True
+							continue
 
 				except asyncio.CancelledError:
 					return
 				except Exception as e:
-					print(e)
+					logger.exception('result_processing inner')
+					asyncio.create_task(self.terminate())
+					return
 
 		except asyncio.CancelledError:
 			return
 		except Exception as e:
-			print(e)
+			logger.exception('result_processing')
+			asyncio.create_task(self.terminate())
+			return
+		finally:
+			if self.ext_result_q is not None:
+				await self.ext_result_q.put(SMBOSEnumResult(None, 'finished'))
 
 	async def terminate(self):
 		for worker in self.workers:
@@ -158,25 +255,33 @@ class SMBOSEnum:
 			return True, None
 		except Exception as e:
 			return None, e
+
+	async def __generate_targets(self):
+		for target_gen in self.target_gens:
+			async for uid, target, err in target_gen.generate():
+				if err is not None:
+					print('Target gen error! %s' % err)
+					break
+				
+				self.__total_targets += 1
+				await self.task_q.put((uid, target))
+				await asyncio.sleep(0)
+
+		self.__gens_finished = True
 	
 	async def run(self):
 		try:
 			_, err = await self.setup()
 			if err is not None:
 				raise err
-			
-			for target_gen in self.target_gens:
-				total, err = await target_gen.run(self.task_q)
-				self.__total_targets += total
-				if err is not None:
-					print('Target gen error! %s' % err)
 
-			self.__gens_finished = True
+			gen_task = asyncio.create_task(self.__generate_targets())
 			
 			await asyncio.gather(*self.workers)
+			await self.result_processing_task
 			return True, None
 		except Exception as e:
-			print(e)
+			logger.exception('run')
 			return None, e
 
 async def amain():
@@ -188,6 +293,10 @@ async def amain():
 	parser.add_argument('-w', '--smb-worker-count', type=int, default=100, help='Parallell count')
 	parser.add_argument('-t', '--timeout', type=int, default=50, help='Timeout for each connection')
 	parser.add_argument('-s', '--stdin', action='store_true', help='Read targets from stdin')
+	parser.add_argument('--json', action='store_true', help='Output in JSON format')
+	parser.add_argument('--tsv', action='store_true', help='Output in TSV format. (TAB Separated Values)')
+	parser.add_argument('--progress', action='store_true', help='Show progress bar')
+	parser.add_argument('-o', '--out-file', help='Output file path.')
 	parser.add_argument('targets', nargs='*', help = 'Hostname or IP address or file with a list of targets')
 	args = parser.parse_args()
 
@@ -200,7 +309,20 @@ async def amain():
 		asyncio.get_event_loop().set_debug(True)
 		logging.basicConfig(level=logging.DEBUG)
 
-	enumerator = SMBOSEnum(worker_count = args.smb_worker_count, timeout = args.timeout)
+	
+	output_type = 'str'
+	if args.json is True:
+		output_type = 'json'
+	if args.tsv is True:
+		output_type = 'tsv'
+
+	enumerator = SMBOSEnum(
+		worker_count = args.smb_worker_count, 
+		timeout = args.timeout,
+		show_pbar = args.progress, 
+		output_type = output_type, 
+		out_file = args.out_file,
+	)
 
 	notfile = []
 	if len(args.targets) == 0 and args.stdin is True:

@@ -251,8 +251,8 @@ class SMBConnection:
 			}
 		return None
 
-	async def __pending_task(self, message_id, timeout = 5):
-		await asyncio.sleep(timeout)
+	#async def __pending_task(self, message_id, timeout = 5):
+	#	await asyncio.sleep(timeout)
 		
 
 	async def __handle_smb_in(self):
@@ -336,7 +336,7 @@ class SMBConnection:
 					raise Exception('Encrypted SMBv2 message recieved, but encryption is not yet supported!')
 				
 				if msg.header.Status == NTStatus.PENDING:
-					self.pending_table[msg.header.MessageId] = SMBPendingMsg(msg.header.MessageId, self.OutstandingResponses, self.OutstandingResponsesEvent)
+					self.pending_table[msg.header.MessageId] = SMBPendingMsg(msg.header.MessageId, self.OutstandingResponses, self.OutstandingResponsesEvent, timeout = self.target.SMBPendingTimeout, max_renewal=self.target.SMBPendingMaxRenewal)
 					await self.pending_table[msg.header.MessageId].run()
 					continue
 

@@ -7,6 +7,9 @@ import json
 import ipaddress
 
 from aiosmb import logger
+from aiosmb.examples.scancommons.targetgens import *
+from aiosmb.examples.scancommons.internal import *
+from aiosmb.examples.scancommons.utils import *
 from aiosmb.commons.connection.url import SMBConnectionURL
 from aiosmb.commons.interfaces.machine import SMBMachine
 from aiosmb.commons.utils.univeraljson import UniversalEncoder
@@ -14,42 +17,17 @@ from aiosmb.commons.utils.univeraljson import UniversalEncoder
 
 from tqdm import tqdm
 
-# https://stackoverflow.com/questions/1094841/get-human-readable-version-of-file-size
-def sizeof_fmt(num, suffix='B'):
-	if num is None:
-		return ''
-	for unit in ['','Ki','Mi','Gi','Ti','Pi','Ei','Zi']:
-		if abs(num) < 1024.0:
-			return "%3.1f%s%s" % (num, unit, suffix)
-		num /= 1024.0
-	return "%.1f%s%s" % (num, 'Yi', suffix)
 
-class EnumResultStatus(enum.Enum):
-	RESULT = 'RESULT'
-	FINISHED = 'FINISED'
-	ERROR = 'ERROR'
 
-class EnumResult:
-	def __init__(self, target_id, target, result, error = None, status = EnumResultStatus.RESULT):
-		self.target_id = target_id
-		self.target = target
-		self.error = error
-		self.result = result
-		self.status = status
 
-class EnumProgress:
-	def __init__(self, total_targets, total_finished, gens_finished, current_finised):
-		self.total_targets = total_targets
-		self.total_finished = total_finished
-		self.gens_finished = gens_finished
-		self.current_finised = current_finised
-
-ENUMRESFINAL_TSV_HDR = ['otype', 'path', 'creationtime', 'size', 'sizefmt', 'sddl', 'err']
+ENUMRESFINAL_TSV_HDR = ['target', 'target_id', 'otype', 'path', 'creationtime', 'size', 'sizefmt', 'sddl', 'err']
 class EnumResultFinal:
-	def __init__(self, obj, otype, err):
+	def __init__(self, obj, otype, err, target, target_id):
 		self.obj = obj
 		self.otype = otype
 		self.err = err
+		self.target = target
+		self.target_id = target_id
 
 		self.creation_time = None
 		self.size = None
@@ -91,6 +69,8 @@ class EnumResultFinal:
 
 	def to_dict(self):
 		return {
+			'target' : self.target,
+			'target_id' : self.target_id,
 			'path' : self.unc_path,
 			'creationtime' : self.creation_time,
 			'size' : self.size,
@@ -113,45 +93,9 @@ class EnumResultFinal:
 		data = [ str(dd[x]) for x in hdrs ]
 		return '\t'.join(data)
 
-class FileTargetGen:
-	def __init__(self, filename):
-		self.filename = filename
-
-	async def generate(self):
-		try:
-			with open(self.filename, 'r') as f:
-				for line in f:
-					line = line.strip()
-					if line == '':
-						continue
-					yield str(uuid.uuid4()), line, None
-		except Exception as e:
-			yield None, None, e
-
-class ListTargetGen:
-	def __init__(self, targets):
-		self.targets = targets
-
-	async def generate(self):
-		try:
-			for target in self.targets:
-				target = target.strip()
-				try:
-					ip = ipaddress.ip_address(target)
-					yield str(uuid.uuid4()),str(ip), None
-				except:
-					try:
-						for ip in ipaddress.ip_network(target, strict = False):
-							yield  str(uuid.uuid4()),str(ip), None
-					except:
-						yield str(uuid.uuid4()), target, None
-		except Exception as e:
-			yield None, None, e
-			
-
 
 class SMBFileEnum:
-	def __init__(self, smb_url, worker_count = 10, depth = 3, enum_url = False, out_file = None, show_pbar = True, max_items = None, max_runtime = None, fetch_dir_sd = False, fetch_file_sd = False, task_q = None, res_q = None, output_type = 'str', exclude_share = [], exclude_dir = [], exclude_target = []):
+	def __init__(self, smb_url, worker_count = 10, depth = 3, enum_url = False, out_file = None, show_pbar = True, max_items = None, max_runtime = None, fetch_dir_sd = False, fetch_file_sd = False, task_q = None, res_q = None, output_type = 'str', exclude_share = [], exclude_dir = [], exclude_target = [], ext_result_q = None):
 		self.target_gens = []
 		self.smb_mgr = SMBConnectionURL(smb_url)
 		self.worker_count = worker_count
@@ -171,6 +115,7 @@ class SMBFileEnum:
 		self.exclude_share = exclude_share
 		self.exclude_dir = exclude_dir
 		self.exclude_target = exclude_target
+		self.ext_result_q = ext_result_q
 
 		self.__gens_finished = False
 		self.__total_targets = 0
@@ -251,8 +196,10 @@ class SMBFileEnum:
 						for key in pbar:
 							pbar[key].refresh()
 
+					if self.ext_result_q is not None:
+						out_buffer = []
 
-					if len(out_buffer) >= 1000 or final_iter:
+					if len(out_buffer) >= 1000 or final_iter and self.ext_result_q is None:
 						out_data = ''
 						if self.output_type == 'str':
 							out_data = '\r\n'.join([str(x) for x in out_buffer])
@@ -300,14 +247,18 @@ class SMBFileEnum:
 							pbar['targets'].update(1)
 
 						obj = EnumProgress(self.__total_targets, self.__total_finished, self.__gens_finished, er.target)
-						out_buffer.append(EnumResultFinal(obj, 'progress', None))
+						if self.ext_result_q is not None:
+							await self.ext_result_q.put(EnumResultFinal(obj, 'progress', None, er.target, er.target_id))
+						out_buffer.append(EnumResultFinal(obj, 'progress', None, er.target, er.target_id))
 						if self.__total_finished == self.__total_targets and self.__gens_finished is True:
 							final_iter = True
 							continue
 							
 					if er.result is not None:
 						obj, otype, err = er.result
-						out_buffer.append(EnumResultFinal(obj, otype, err))
+						if self.ext_result_q is not None:
+							await self.ext_result_q.put(EnumResultFinal(obj, otype, err, er.target, er.target_id))
+						out_buffer.append(EnumResultFinal(obj, otype, err, er.target, er.target_id))
 						if otype is not None:
 							if otype == 'file':
 								self.__total_files += 1
@@ -352,6 +303,9 @@ class SMBFileEnum:
 		except Exception as e:
 			logger.exception('result_processing')
 			asyncio.create_task(self.terminate())
+		finally:
+			if self.ext_result_q is not None:
+				await self.ext_result_q.put(EnumResultFinal(None, 'finished', None, None, None))
 
 	async def terminate(self):
 		for worker in self.workers:

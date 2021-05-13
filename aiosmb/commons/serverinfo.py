@@ -2,6 +2,9 @@
 from aiosmb.authentication.ntlm.structures.avpair import AVPAIRType
 from aiosmb.wintypes.dtyp.structures.filetime import FILETIME
 import datetime
+import json
+
+NTLMSERVERINFO_TSV_HDR = ['domainname', 'computername', 'dnsforestname', 'dnscomputername', 'dnsdomainname', 'local_time', 'os_major_version', 'os_minor_version', 'os_build', 'os_guess' ]
 
 class NTLMServerInfo:
 	def __init__(self):
@@ -67,6 +70,15 @@ class NTLMServerInfo:
 		if self.os_minor_version is not None:
 			t['os_minor_version'] = self.os_minor_version.name
 		return t
+
+	def to_tsv(self, separator = '\t'):
+		def vn(x):
+			if x is None:
+				return ''
+			return str(x)
+
+		d = self.to_dict()
+		return separator.join([ vn(d[x]) for x in NTLMSERVERINFO_TSV_HDR])
 		
 	def __str__(self):
 		t = '=== Server Info ====\r\n'
@@ -74,6 +86,9 @@ class NTLMServerInfo:
 			t += '%s: %s\r\n' % (k, self.__dict__[k]) 
 			
 		return t
+
+	def to_json(self):
+		return json.dumps(self.to_dict())
 
 	def to_grep(self):
 		t  = ''

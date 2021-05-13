@@ -61,6 +61,7 @@ setup(
 			'asmbprotocolenum = aiosmb.examples.smbprotocolenum:main',
 			'asmbosenum = aiosmb.examples.smbosenum:main',
 			'asmbgetfile = aiosmb.examples.smbgetfile:main',
+			'asmbadmincheck = aiosmb.examples.smbadmincheck:main',
 		],
 
 	}

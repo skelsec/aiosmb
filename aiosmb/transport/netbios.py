@@ -87,7 +87,7 @@ class NetBIOSTransport:
 			return
 			
 		except Exception as e:
-			logger.exception('NetBIOSTransport handle_incoming error')
+			logger.debug('NetBIOSTransport handle_incoming error. Reason: %s' % e)
 			await self.in_queue.put( (None, e) )
 			await self.stop()
 		

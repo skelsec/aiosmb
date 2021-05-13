@@ -61,7 +61,7 @@ class TCPSocket:
 					lasterror = e
 					break
 				except Exception as e:
-					logger.exception('[TCPSocket] handle_incoming %s' % str(e))
+					logger.debug('[TCPSocket] handle_incoming %s' % str(e))
 					lasterror = e
 					break
 			
@@ -110,11 +110,11 @@ class TCPSocket:
 				self.reader, self.writer = await asyncio.wait_for(con, int(self.settings.timeout))
 			except asyncio.TimeoutError:
 				logger.debug('[TCPSocket] Connection timeout')
-				raise SMBConnectionTimeoutException()
+				raise SMBConnectionTimeoutException('[TCPSocket] Connection timeout')
 				
 			except ConnectionRefusedError:
 				logger.debug('[TCPSocket] Connection refused')
-				raise SMBConnectionRefusedException()
+				raise SMBConnectionRefusedException('[TCPSocket] Connection refused')
 				
 			except asyncio.CancelledError:
 				#the SMB connection is terminating

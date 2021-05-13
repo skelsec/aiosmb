@@ -69,6 +69,8 @@ class SMBTarget:
 		self.MaxTransactSize = 0x100000
 		self.MaxReadSize = 0x100000
 		self.MaxWriteSize = 0x100000
+		self.SMBPendingTimeout = 5
+		self.SMBPendingMaxRenewal = None
 
 
 	def update_dialect(self, dialect):
@@ -107,6 +109,8 @@ class SMBTarget:
 		t.MaxTransactSize = self.MaxTransactSize
 		t.MaxReadSize = self.MaxReadSize
 		t.MaxWriteSize = self.MaxWriteSize
+		t.SMBPendingTimeout = self.SMBPendingTimeout
+		t.SMBPendingMaxRenewal = self.SMBPendingMaxRenewal
 
 		return t
 	
