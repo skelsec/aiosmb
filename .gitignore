@@ -106,3 +106,4 @@ venv.bak/
 # exe
 *.exe
 *.ccache
+*.pfx

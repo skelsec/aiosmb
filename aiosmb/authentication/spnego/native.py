@@ -225,8 +225,6 @@ class SPNEGO:
 								return None, False, None
 							if str(response['mechTypes'][0]) == '1.2.840.48018.1.2.2':
 								response['mechToken'] = KRB5Token(result).to_bytes()
-								
-								#response['mechToken'] = bytes.fromhex('2a864886f712010202') +  #???????
 							else:
 								raise Exception('NTLM as RPC GSSAPI not implemented!')
 					

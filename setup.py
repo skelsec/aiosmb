@@ -39,7 +39,7 @@ setup(
 	# long_description=open("README.txt").read(),
 	python_requires='>=3.7',
 	install_requires=[
-		'minikerberos>=0.2.11',
+		'minikerberos>=0.2.12',
 		'winsspi>=0.0.9',
 		'asysocks>=0.1.1',
 		'prompt-toolkit>=3.0.2',
@@ -47,13 +47,14 @@ setup(
 		'six',
 		'tqdm',
 		'colorama',
+		'asn1crypto',
 	],
 	
-	classifiers=(
+	classifiers=[
 		"Programming Language :: Python :: 3.7",
 		"License :: OSI Approved :: MIT License",
 		"Operating System :: OS Independent",
-	),
+	],
 	entry_points={
 		'console_scripts': [
 			'asmbclient = aiosmb.examples.smbclient:main',
