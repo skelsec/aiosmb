@@ -1,9 +1,0 @@
-
-extensions_data_notok = bytes.fromhex('01000000002000007e303fffe6bff25146addca4fbddf1b94f1634178eb4528fb2731c669ca23cde')
-extensions_data_ok    = bytes.fromhex('01000000002000007e303fffe6bff25146addca4fbddf1b94f1634178eb4528fb2731c669ca23cde')
-
-
-mine =  '40ee7ac8a8b09d9d7178d2c20f58862963c75261d4b9890152b421ef88b22d24'
-their = '40ee7ac8a8b09d9d7178d2c20f58862963c75261d4b9890152b421ef88b22d24'
-
-print(mine == their)
