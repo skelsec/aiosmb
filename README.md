@@ -21,7 +21,7 @@ This auth method uses the current user context. If you are NT/SYSTEM then it wil
 |-----------|------|----------|
 | Supported | Y    | Y        |
 
-### NEGOEXT
+### NEGOEX
 |           | Certificate (PFX) | Certstore (Windows)     |
 |-----------|-------------------|-------------------------|
 | Supported | Y                 | Y (using current user)  |
@@ -87,10 +87,10 @@ Socks4 proxy port : `9050`
 `smb+ntlm-password://TEST\victim:Passw0rd!1@10.10.10.2/?proxyhost=127.0.0.1&proxyport=9050`
 #### Example 8 - NTLM with password with timeout higher than normal (60s)
 `smb+ntlm-password://TEST\victim:Passw0rd!1@10.10.10.2/?timeout=60`
-#### Example 9 - Negoext certificate auth using PFX file. (eg. Azure P2P auth)
-`smb+negoext-certificate://certificate.pfx:certpass@10.10.10.2/`
-#### Example 10 - Negoext certstore auth using certificate from the current user's certstore (Windows only). (eg. Azure P2P auth)
-`smb+negoext-certstore://<subject CN of the certificate to use>@10.10.10.2/`
+#### Example 9 - Negoex certificate auth using PFX file. (eg. Azure P2P auth)
+`smb+negoex-certfile://certificate.pfx:certpass@10.10.10.2/`
+#### Example 10 - Negoex certstore auth using certificate from the current user's certstore (Windows only). (eg. Azure P2P auth)
+`smb+negoex-certstore://<subject CN of the certificate to use>@10.10.10.2/`
 
 # TODO
 - DCERPC:
@@ -102,4 +102,4 @@ Socks4 proxy port : `9050`
 # Kudos
 This project is heavily based on the [Impacket project](https://github.com/SecureAuthCorp/impacket) orignally by @agsolino.  
 The DCERPC strucutre definitions and DCERPC parsing in this project is almost identical to the Impacket project.  
-NEGOEXT protocol implementation was based on [this project](https://github.com/morRubin/AzureADJoinedMachinePTC) created by @rubin_mor
+NEGOEX protocol implementation was based on [this project](https://github.com/morRubin/AzureADJoinedMachinePTC) created by @rubin_mor
