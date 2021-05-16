@@ -26,7 +26,8 @@ class AuthenticatorBuilder:
 	@staticmethod
 	def to_spnego_cred(creds, target = None):
 		if creds.authentication_type == SMBAuthProtocol.NEGOEX:
-			settings = SPNEGOEXAuthHandlerSettings(creds.username, creds.secret, target, dh_params = None)
+			with_certstrore = creds.secret_type == SMBCredentialsSecretType.CERTSTORE
+			settings = SPNEGOEXAuthHandlerSettings(creds.username, creds.secret, target, dh_params = None, with_certstrore = with_certstrore)
 			handler = SPNEGOEXAuthHandler(settings)
 			
 			#setting up SPNEGO

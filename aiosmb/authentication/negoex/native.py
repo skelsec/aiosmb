@@ -1,16 +1,27 @@
+# Kudos:
+# Parts of this code was inspired by the following project by @rubin_mor
+# https://github.com/morRubin/AzureADJoinedMachinePTC
+# 
+
+# TODO: code needs cleanup, it is still in beta
+# TODO: add integrity checks and check certificate of the server
+# TODO: code currently supports RSA+DH+SHA1 , add support for other mechanisms
+
 import os
 import base64
 
 from aiosmb.authentication.negoex.protocol.messages import MESSAGE_TYPE, PKU2U_TOKEN_TYPE, generate_verify, generate_initiator_metadata, generate_init_nego, generate_ap_req, negoexts_parse_bytes
+from aiosmb.authentication.kerberos.gssapi import get_gssapi
 from minikerberos.pkinit import PKINIT
 
 
 class SPNEGOEXAuthHandlerSettings:
-	def __init__(self,pfx12_file, pfx12_file_pass, target, dh_params = None):
+	def __init__(self,pfx12_file, pfx12_file_pass, target, dh_params = None, with_certstrore = False):
 		self.pfx12_file = pfx12_file
 		self.pfx12_file_pass = pfx12_file_pass
 		self.target = target
 		self.dh_params = dh_params
+		self.with_certstrore = with_certstrore
 		if dh_params is None:
 			self.dh_params = {
 				'p' : int('00ffffffffffffffffc90fdaa22168c234c4c6628b80dc1cd129024e088a67cc74020bbea63b139b22514a08798e3404ddef9519b3cd3a431b302b0a6df25f14374fe1356d6d51c245e485b576625e7ec6f44c42e9a637ed6b0bff5cb6f406b7edee386bfb5a899fa5ae9f24117c4b1fe649286651ece65381ffffffffffffffff', 16),
@@ -22,6 +33,7 @@ class SPNEGOEXAuthHandler:
 		self.settings = settings #NTLMHandlerSettings
 		self.target = None
 		self.pkinit = None
+		self.gssapi = None
 
 		self._convid = os.urandom(16)
 		self._msgctr = 0
@@ -34,7 +46,10 @@ class SPNEGOEXAuthHandler:
 
 	def setup(self):
 		self.target = self.settings.target
-		self.pkinit = PKINIT.from_pfx(self.settings.pfx12_file, self.settings.pfx12_file_pass, dh_params = self.settings.dh_params)
+		if self.settings.with_certstrore is False:
+			self.pkinit = PKINIT.from_pfx(self.settings.pfx12_file, self.settings.pfx12_file_pass, dh_params = self.settings.dh_params)
+		else:
+			self.pkinit = PKINIT.from_windows_certstore(self.settings.pfx12_file, certstore_name = 'MY', cert_serial = None, dh_params = self.settings.dh_params)
 	
 	def get_session_key(self):
 		return self.session_key.contents
@@ -43,13 +58,13 @@ class SPNEGOEXAuthHandler:
 		return generate_initiator_metadata(self._msgctr, self._convid, self.pkinit.get_metadata(target = self.target.get_hostname_or_ip()))
 	
 	async def sign(self, data, message_no, direction = 'init'):
-		raise NotImplementedError()
+		return self.gssapi.GSS_GetMIC(data, message_no)	
 		
 	async def encrypt(self, data, message_no):
-		raise NotImplementedError()
+		return self.gssapi.GSS_Wrap(data, message_no)
 		
 	async def decrypt(self, data, message_no, direction='init', auth_data=None):
-		raise NotImplementedError()
+		return self.gssapi.GSS_Unwrap(data, message_no, direction=direction, auth_data=auth_data)
 	
 	async def authenticate(self, authData, flags = None, seq_number = 0, is_rpc = False):
 		if self.iteractions == 0:
@@ -130,26 +145,7 @@ class SPNEGOEXAuthHandler:
 			
 			cipher = _enctype_table[int(enc_part['subkey']['keytype'])]()
 			self.session_key = Key(cipher.enctype, enc_part['subkey']['keyvalue'])
+			self.gssapi = get_gssapi(self.session_key)
 
 			return None, False, None
 
-
-
-
-async def amain():
-	pfx12_file = 'C:\\Users\\testadmin\\Desktop\\CURRENT_USER_My_0_test@microsoft.onmicrosoft.com.pfx'
-	pfx12_file_pass = 'mimikatz' # i totally should implement certexport in pypykatz...
-	target = SMBTarget(ip='157.55.175.135')
-	settings = SPNEGOEXAuthHandlerSettings(pfx12_file, pfx12_file_pass, target)
-	handler = SPNEGOEXAuthHandler(settings)
-	msg = await handler.authenticate(None)
-	print(msg.hex())
-
-
-
-def main():
-	import asyncio
-	asyncio.run(amain())
-
-if __name__ == '__main__':
-	main()

@@ -36,6 +36,7 @@ class SMBCredentialsSecretType(enum.Enum):
 	KIRBI = 'KIRBI'
 	NONE = 'NONE'
 	CERTFILE = 'CERTFILE'
+	CERTSTORE = 'CERTSTORE'
 
 class SMBAuthProtocol(enum.Enum):
 	NTLM = 'NTLM'
