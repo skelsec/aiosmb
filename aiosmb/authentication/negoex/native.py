@@ -30,7 +30,7 @@ class SPNEGOEXAuthHandlerSettings:
 
 class SPNEGOEXAuthHandler:
 	def __init__(self, settings):
-		self.settings = settings #NTLMHandlerSettings
+		self.settings = settings
 		self.target = None
 		self.pkinit = None
 		self.gssapi = None
