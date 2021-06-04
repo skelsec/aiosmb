@@ -201,13 +201,13 @@ class SMBRemoteServieManager:
 		return True, None
 	
 	@red
-	async def create_service(self, service_name, display_name, command):
+	async def create_service(self, service_name, display_name, command, starttype = scmr.SERVICE_AUTO_START):
 		if not self.handle:
 			_, err = await self.open()
 			if err is not None:
 				return None, err
 
-		resp, err = await scmr.hRCreateServiceW(self.dce, self.handle, service_name + '\x00', display_name + '\x00', lpBinaryPathName=command + '\x00')
+		resp, err = await scmr.hRCreateServiceW(self.dce, self.handle, service_name + '\x00', display_name + '\x00', lpBinaryPathName=command + '\x00', dwStartType=starttype)
 		if err is not None:
 			return None, err
 		self.service_handles[service_name] = resp['lpServiceHandle']

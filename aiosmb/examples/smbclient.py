@@ -521,6 +521,38 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 		except Exception as e:
 			traceback.print_exc()
 			return None, e
+	
+	async def do_servicecmdexec(self, command):
+		"""Executes a shell command as a service and returns the result"""
+		try:
+			buffer = b''
+			async for data, err in self.machine.service_cmd_exec(command):
+				if err is not None:
+					raise err
+				if data is None:
+					break
+				
+				try:
+					print(data.decode())
+				except:
+					print(data)
+			return True, None
+
+		except SMBException as e:
+			logger.debug(traceback.format_exc())
+			print(e.pprint())
+			return None, e
+		except SMBMachineException as e:
+			logger.debug(traceback.format_exc())
+			print(str(e))
+			return None, e
+		except DCERPCException as e:
+			logger.debug(traceback.format_exc())
+			print(str(e))
+			return None, e
+		except Exception as e:
+			traceback.print_exc()
+			return None, e
 
 	async def do_servicedeploy(self, path_to_exec, remote_path):
 		"""Deploys a binary file from the local system as a service on the remote system"""
@@ -763,6 +795,22 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			return None, e
 		except Exception as e:
 			traceback.print_exc()
+			return None, e
+
+	async def do_lsass(self):
+		try:
+			res, err = await self.machine.task_dump_lsass()
+			if err is not None:
+				print(str(err))
+			print(res)
+
+			await res.close()
+		
+			return True, None
+		
+		except SMBException as e:
+			logger.debug(traceback.format_exc())
+			print(e.pprint())
 			return None, e
 
 	async def do_printerbug(self, attacker_ip):

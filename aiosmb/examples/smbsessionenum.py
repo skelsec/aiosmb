@@ -286,9 +286,6 @@ class SMBSessionEnum:
 					print('Target gen error! %s' % err)
 					break
 				
-				if target in self.exclude_target:
-					continue
-				
 				self.__total_targets += 1
 				await self.task_q.put((uid, target))
 				await asyncio.sleep(0)
