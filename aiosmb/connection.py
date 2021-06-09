@@ -233,7 +233,7 @@ class SMBConnection:
 		return self
 		
 	async def __aexit__(self, exc_type, exc, traceback):
-		await asyncio.wait_for(self.terminate(), timeout = 1)
+		await asyncio.wait_for(self.terminate(), timeout = 5)
 
 	def get_extra_info(self):
 		try:
