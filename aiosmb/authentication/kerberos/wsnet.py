@@ -15,7 +15,7 @@ from aiosmb.authentication.spnego.asn1_structs import KRB5Token
 from minikerberos.gssapi.gssapi import get_gssapi, GSSWrapToken
 from minikerberos.protocol.asn1_structs import AP_REQ, AP_REP, TGS_REP
 from minikerberos.protocol.encryption import Enctype, Key, _enctype_table
-from pyodidewsnet.clientauth import WSNETAuth
+from wsnet.clientauth import WSNETAuth
 
 import enum
 import io

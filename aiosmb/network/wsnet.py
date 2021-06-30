@@ -14,7 +14,7 @@ import ipaddress
 from aiosmb import logger
 from aiosmb.commons.exceptions import *
 
-from pyodidewsnet.client import WSNetworkTCP
+from wsnet.pyodide.client import WSNetworkTCP
 
 
 class WSNetProxyConnection:

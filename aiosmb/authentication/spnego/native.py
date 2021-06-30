@@ -258,7 +258,7 @@ class SPNEGO:
 				#everything is netotiated, but authentication needs more setps
 				neg_token_raw = NegotiationToken.load(token)
 				neg_token = neg_token_raw.native
-				if neg_token['negState'] == 'accept-completed':
+				if neg_token['negState'] == 'accept-completed' and neg_token['responseToken'] is None:
 					return None, True, None
 				response, to_continue, err = await self.process_ctx_authenticate(neg_token['responseToken'], flags = flags, seq_number = seq_number, is_rpc = is_rpc)
 				if err is not None:

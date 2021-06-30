@@ -32,7 +32,7 @@ def req_traceback(funct):
 	return wrapper
 
 class SMBClient(aiocmd.PromptToolkitCmd):
-	def __init__(self, url = None, silent = False):
+	def __init__(self, url = None, silent = False, no_dce = False):
 		aiocmd.PromptToolkitCmd.__init__(self, ignore_sigint=False) #Setting this to false, since True doesnt work on windows...
 		self.conn_url = None
 		if url is not None:
@@ -41,6 +41,7 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 		self.machine = None
 		self.is_anon = False
 		self.silent = silent
+		self.no_dce = no_dce # diables ANY use of the DCE protocol (eg. share listing) This is useful for new(er) windows servers where they forbid the users to use any form of DCE
 
 		self.shares = {} #name -> share
 		self.__current_share = None
@@ -90,6 +91,10 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 
 	async def _on_close(self):
 		await self.do_logout()
+
+	async def do_nodce(self):
+		"""Disables automatic share listing on login"""
+		self.no_dce = True
 
 	async def do_shares(self, show = True):
 		"""Lists available shares"""
@@ -240,7 +245,7 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 	async def do_use(self, share_name):
 		"""selects share to be used"""
 		try:
-			if self.is_anon is False:
+			if self.is_anon is False or self.no_dce:
 				#anonymous connection might not have access to IPC$ so we are skipping the check
 				if len(self.shares) == 0:
 					_, err = await self.do_shares(show = False)

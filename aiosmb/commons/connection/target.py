@@ -40,6 +40,7 @@ smb_negotiate_dialect_lookup = {
 class SMBConnectionProtocol(enum.Enum):
 	TCP = 'TCP'
 	UDP = 'UDP'
+	QUIC = 'QUIC'
 
 class SMBTarget:
 	"""

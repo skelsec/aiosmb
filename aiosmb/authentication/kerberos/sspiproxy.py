@@ -5,7 +5,7 @@ from aiosmb.authentication.spnego.asn1_structs import KRB5Token
 from minikerberos.gssapi.gssapi import get_gssapi, GSSWrapToken
 from minikerberos.protocol.asn1_structs import AP_REQ, AP_REP, TGS_REP
 from minikerberos.protocol.encryption import Enctype, Key, _enctype_table
-from pyodidewsnet.sspiproxyws import SSPIProxyWS
+from wsnet.operator.sspiproxy import WSNETSSPIProxy
 
 import enum
 import io
@@ -102,7 +102,7 @@ class SMBSSPIProxyKerberosAuth:
 		self.settings = settings
 		self.mode = 'CLIENT'
 		url = '%s://%s:%s' % (self.settings.proto, self.settings.host, self.settings.port)
-		self.ksspi = SSPIProxyWS(url, self.settings.agent_id)
+		self.ksspi = WSNETSSPIProxy(url, self.settings.agent_id)
 		self.client = None
 		self.target = None
 		self.gssapi = None

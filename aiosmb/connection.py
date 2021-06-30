@@ -96,7 +96,7 @@ class FileHandle:
 		return fh
 
 class SMBPendingMsg:
-	def __init__(self, message_id, OutstandingResponses, OutstandingResponsesEvent, timeout = 5, max_renewal = None):
+	def __init__(self, message_id, OutstandingResponses, OutstandingResponsesEvent, timeout = 5, max_renewal = 100):
 		self.message_id = message_id
 		self.max_renewal = max_renewal
 		self.timeout = timeout #different operations require different timeouts, even depending on dielacts!!!
@@ -115,6 +115,8 @@ class SMBPendingMsg:
 		return
 
 	async def update(self):
+		#print('PENDING update')
+		#print('PENDING max_renewal %s' % max_renewal)
 		if self.pending_task is not None:
 			self.pending_task.cancel()
 		
@@ -126,9 +128,11 @@ class SMBPendingMsg:
 
 
 	async def run(self):
+		#print('PENDING RUN')
 		self.pending_task = asyncio.create_task(self.__pending_waiter())
 
 	async def stop(self):
+		#print('PENDING STOP')
 		if self.pending_task is not None:
 			self.pending_task.cancel()
 
@@ -328,6 +332,7 @@ class SMBConnection:
 					
 
 				logger.log(1, '__handle_smb_in got new message with Id %s' % msg.header.MessageId)
+				#print(msg)
 				
 				if isinstance(msg, SMB2Transform):
 					#message is encrypted
@@ -867,7 +872,7 @@ class SMBConnection:
 			msg.header.CreditReq = 127
 		
 		message_id = msg.header.MessageId
-		
+		#print(msg)
 
 		if self.CompressionId is not None and self.EncryptionKey is not None:
 			if compression_cb is None:

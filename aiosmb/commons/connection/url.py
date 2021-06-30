@@ -87,7 +87,8 @@ class SMBConnectionURL:
 			timeout = self.timeout, 
 			dc_ip= self.dc_ip, 
 			domain = self.domain, 
-			proxy = self.get_proxy()
+			proxy = self.get_proxy(),
+			protocol=self.protocol,
 		)
 		t.update_dialect(self.dialect)
 		if self.fragment is not None:
@@ -237,6 +238,8 @@ class SMBConnectionURL:
 			self.port = url_e.port
 		elif self.protocol == SMBConnectionProtocol.TCP:
 			self.port = 445
+		elif self.protocol == SMBConnectionProtocol.QUIC:
+			self.port = 443
 		else:
 			raise Exception('Port must be provided!')
 
