@@ -19,11 +19,17 @@
 #   There are test cases for them too. 
 #
 
+import io
+from os import stat
+
 from aiosmb.dcerpc.v5.dtypes import ULONGLONG, UINT, USHORT, LPWSTR, DWORD, ULONG, NULL
 from aiosmb.dcerpc.v5.ndr import NDRCALL, NDRSTRUCT, NDRUNION, NDRPOINTER, NDRUniConformantArray
+from aiosmb.dcerpc.v5.ndr import NDRVaryingString
+
 from aiosmb.dcerpc.v5.rpcrt import DCERPCException
 from aiosmb.dcerpc.v5 import system_errors
 from aiosmb.dcerpc.v5.uuid import uuidtup_to_bin
+from aiosmb.dcerpc.v5.structure import Structure
 
 MSRPC_UUID_RPRN = uuidtup_to_bin(('12345678-1234-ABCD-EF00-0123456789AB', '1.0'))
 
@@ -139,6 +145,17 @@ PRINTER_ENUM_HIDE        = 0x01000000
 PRINTER_NOTIFY_CATEGORY_2D  = 0x00000000
 PRINTER_NOTIFY_CATEGORY_ALL = 0x00010000
 PRINTER_NOTIFY_CATEGORY_3D  = 0x00020000
+
+# 3.1.4.4.8 RpcAddPrinterDriverEx Values
+APD_STRICT_UPGRADE              = 0x00000001
+APD_STRICT_DOWNGRADE            = 0x00000002
+APD_COPY_ALL_FILES              = 0x00000004
+APD_COPY_NEW_FILES              = 0x00000008
+APD_COPY_FROM_DIRECTORY         = 0x00000010
+APD_DONT_COPY_FILES_TO_CLUSTER  = 0x00001000
+APD_COPY_TO_ALL_SPOOLERS        = 0x00002000
+APD_INSTALL_WARNED_DRIVER       = 0x00008000
+APD_RETURN_BLOCKING_STATUS_CODE = 0x00010000
 
 
 ################################################################################
@@ -272,6 +289,161 @@ class PRPC_V2_NOTIFY_OPTIONS(NDRPOINTER):
 		('Data', RPC_V2_NOTIFY_OPTIONS),
 	)
 
+# 2.2.1.5.1 DRIVER_INFO_1
+class DRIVER_INFO_1(NDRSTRUCT):
+	structure = (
+		('pName', STRING_HANDLE ),
+	)
+class PDRIVER_INFO_1(NDRPOINTER):
+	referent = (
+		('Data', DRIVER_INFO_1),
+	)
+
+# 2.2.1.5.2 DRIVER_INFO_2
+class DRIVER_INFO_2(NDRSTRUCT):
+	structure = (
+		('cVersion',DWORD),
+		('pName', STRING_HANDLE),
+		('pEnvironment', STRING_HANDLE),
+		('pDriverPath', STRING_HANDLE),
+		('pDataFile', STRING_HANDLE),
+		('pConfigFile', STRING_HANDLE),
+	)
+class PDRIVER_INFO_2(NDRPOINTER):
+	referent = (
+		('Data', DRIVER_INFO_2),
+	)
+
+class DRIVER_INFO_UNION(NDRUNION):
+	commonHdr = (
+		('tag', ULONG),
+	)
+	union = {
+		1 : ('pNotUsed', PDRIVER_INFO_1),
+		2 : ('Level2', PDRIVER_INFO_2),
+	}
+
+class DRIVER_CONTAINER(NDRSTRUCT):
+	structure =  (
+		('Level', DWORD),
+		('DriverInfo', DRIVER_INFO_UNION),
+	)
+
+################################################################################
+# Structure defs
+################################################################################
+class DRIVER_INFO_2_ENTRY:
+	def __init__(self):
+		self.Name = None
+		self.Environment = None
+		self.DriverPath = None
+		self.DataFile = None
+		self.ConfigFile = None
+	
+	def __str__(self):
+		t = "DRIVER_INFO_2_ENTRY\r\n"
+		t += "Name       : %s\r\n" % self.Name
+		t += "Environment: %s\r\n" % self.Environment
+		t += "DriverPath : %s\r\n" % self.DriverPath
+		t += "DataFile   : %s\r\n" % self.DataFile
+		t += "ConfigFile : %s\r\n" % self.ConfigFile
+		return t
+
+class DRIVER_INFO_2_ARRAY:
+	def __init__(self):
+		self.fixed = []
+		self.fixed_size = 24
+
+		self.drivers = []
+
+	@staticmethod
+	def from_bytes(data, elementNo):
+		return DRIVER_INFO_2_ARRAY.from_buffer(io.BytesIO(data), elementNo)
+	
+	@staticmethod
+	def from_buffer(buff, elementNo):
+		res = DRIVER_INFO_2_ARRAY()
+		for _ in range(elementNo):
+			res.fixed.append(DRIVER_INFO_2_FIXED.from_buffer(buff))
+		
+		
+		for i, fixed in enumerate(res.fixed):
+			res.drivers.append(fixed.read_data(buff, res.fixed_size*i))
+		
+		return res
+	
+	def __str__(self):
+		t = "DRIVER_INFO_2_ARRAY\r\n"
+		for x in self.fixed:
+			t += "FIXED: %s\r\n" % x
+			t += "DRIVER: %s\r\n" % x.driver
+		return t
+
+	
+class DRIVER_INFO_2_FIXED:
+	def __init__(self):
+		self.cVersion = None
+		self.NameOffset = None
+		self.EnvironmentOffset = None
+		self.DriverPathOffset = None
+		self.DataFileOffset = None
+		self.ConfigFileOffset = None
+
+		self.driver = None
+
+	@staticmethod
+	def read_utf16le(buff):
+		res = b''
+		while True:
+			res += buff.read(1)
+			if res[-3:] == b'\x00\x00\x00':
+				break
+		return res[:-2].decode('utf-16-le')
+
+	def read_data(self, buff, offset_delta):
+		self.driver = DRIVER_INFO_2_ENTRY()
+		buff.seek(self.ConfigFileOffset + offset_delta,0)
+		self.driver.ConfigFile = DRIVER_INFO_2_FIXED.read_utf16le(buff)
+
+		buff.seek(self.DataFileOffset + offset_delta,0)
+		self.driver.DataFile = DRIVER_INFO_2_FIXED.read_utf16le(buff)
+
+		buff.seek(self.DriverPathOffset + offset_delta,0)
+		self.driver.DriverPath = DRIVER_INFO_2_FIXED.read_utf16le(buff)
+
+		buff.seek(self.EnvironmentOffset + offset_delta,0)
+		self.driver.Environment = DRIVER_INFO_2_FIXED.read_utf16le(buff)
+
+		buff.seek(self.NameOffset + offset_delta,0)
+		self.driver.Name = DRIVER_INFO_2_FIXED.read_utf16le(buff)
+
+		return self.driver
+
+	@staticmethod
+	def from_bytes(data):
+		return DRIVER_INFO_2_FIXED.from_buffer(io.BytesIO(data))
+	
+	@staticmethod
+	def from_buffer(buff):
+		res = DRIVER_INFO_2_FIXED()
+		res.cVersion = int.from_bytes(buff.read(4), byteorder='little', signed=False)
+		res.NameOffset = int.from_bytes(buff.read(4), byteorder='little', signed=False)
+		res.EnvironmentOffset = int.from_bytes(buff.read(4), byteorder='little', signed=False)
+		res.DriverPathOffset = int.from_bytes(buff.read(4), byteorder='little', signed=False)
+		res.DataFileOffset = int.from_bytes(buff.read(4), byteorder='little', signed=False)
+		res.ConfigFileOffset = int.from_bytes(buff.read(4), byteorder='little', signed=False)
+		return res
+			
+
+	def __str__(self):
+		t = "DRIVER_INFO_2_FIXED\r\n"
+		t += "Version          : %s\r\n" % self.cVersion
+		t += "NameOffset       : %s\r\n" % self.NameOffset
+		t += "EnvironmentOffset: %s\r\n" % self.EnvironmentOffset
+		t += "DriverPathOffset : %s\r\n" % self.DriverPathOffset
+		t += "DataFileOffset   : %s\r\n" % self.DataFileOffset
+		t += "ConfigFileOffset : %s\r\n" % self.ConfigFileOffset
+		return t
 
 ################################################################################
 # RPC CALLS
@@ -357,12 +529,47 @@ class RpcOpenPrinterExResponse(NDRCALL):
 	   ('ErrorCode', ULONG),
 	)
 
+# 3.1.4.4.2 RpcEnumPrinterDrivers (Opnum 10)
+class RpcEnumPrinterDrivers(NDRCALL):
+	opnum = 10
+	structure = (
+	   ('pName', STRING_HANDLE),
+	   ('pEnvironment', LPWSTR),
+	   ('Level', DWORD),
+	   ('pDrivers', PBYTE_ARRAY),
+	   ('cbBuf', DWORD),
+	)
+
+class RpcEnumPrinterDriversResponse(NDRCALL):
+	structure = (
+	   ('pDrivers', PBYTE_ARRAY), # 
+	   ('pcbNeeded', DWORD),
+	   ('pcReturned', DWORD),
+	   ('ErrorCode', ULONG),
+	)
+
+# 3.1.4.4.8 RpcAddPrinterDriverEx (Opnum 89)
+class RpcAddPrinterDriverEx(NDRCALL):
+	opnum = 89
+	structure = (
+	   ('pName', STRING_HANDLE),
+	   ('pDriverContainer', DRIVER_CONTAINER),
+	   ('dwFileCopyFlags', DWORD),
+	)
+
+class RpcAddPrinterDriverExResponse(NDRCALL):
+	structure = (
+	   ('ErrorCode', ULONG),
+	)
+
+
 ################################################################################
 # OPNUMs and their corresponding structures
 ################################################################################
 OPNUMS = {
 	0  : (RpcEnumPrinters, RpcEnumPrintersResponse),
 	1  : (RpcOpenPrinter, RpcOpenPrinterResponse),
+	10 : (RpcEnumPrinterDrivers, RpcEnumPrinterDriversResponse),
 	29 : (RpcClosePrinter, RpcClosePrinterResponse),
 	65 : (RpcRemoteFindFirstPrinterChangeNotificationEx, RpcRemoteFindFirstPrinterChangeNotificationExResponse),
 	69 : (RpcOpenPrinterEx, RpcOpenPrinterExResponse),
@@ -524,3 +731,74 @@ async def hRpcEnumPrinters(dce, flags, name = NULL, level = 1):
 	request['cbBuf'] = bytesNeeded
 	request['pPrinterEnum'] = b'a' * bytesNeeded
 	return await dce.request(request)
+
+async def hRpcAddPrinterDriverEx(dce, pName, pDriverContainer, dwFileCopyFlags):
+	"""
+	RpcAddPrinterDriverEx installs a printer driver on the print server
+	Full Documentation: https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-rprn/b96cc497-59e5-4510-ab04-5484993b259b
+
+	:param DCERPC_v5 dce: a connected DCE instance.
+	:param pName
+	:param pDriverContainer
+	:param dwFileCopyFlags
+
+	:return: raises DCERPCSessionError on error.
+	"""
+	request = RpcAddPrinterDriverEx()
+	request['pName'] = checkNullString(pName)
+	request['pDriverContainer'] = pDriverContainer
+	request['dwFileCopyFlags'] = dwFileCopyFlags
+
+	#return request
+	return await dce.request(request)
+
+
+async def hRpcEnumPrinterDrivers(dce, pName, pEnvironment, Level):
+	"""
+	RpcEnumPrinterDrivers enumerates the printer drivers installed on a specified print server.
+	Full Documentation: https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-rprn/857d00ac-3682-4a0d-86ca-3d3c372e5e4a
+
+	:param DCERPC_v5 dce: a connected DCE instance.
+	:param pName
+	:param pEnvironment
+	:param Level
+	:param pDrivers
+	:param cbBuf
+	:param pcbNeeded
+	:param pcReturned
+
+	:return: raises DCERPCSessionError on error.
+	"""
+	# get value for cbBuf
+	request = RpcEnumPrinterDrivers()
+	request['pName']        = checkNullString(pName)
+	request['pEnvironment'] = pEnvironment
+	request['Level']        = Level
+	request['pDrivers']     = NULL
+	request['cbBuf']        = 0
+	try:
+		_, err = await dce.request(request)
+		if err is not None:
+			raise err
+	except DCERPCSessionError as e:
+		if str(e).find('ERROR_INSUFFICIENT_BUFFER') < 0:
+			raise
+		bytesNeeded = e.get_packet()['pcbNeeded']
+	except Exception as e:
+		return None, e
+
+	# now do RpcEnumPrinterDrivers again
+	request = RpcEnumPrinterDrivers()
+	request['pName']        = checkNullString(pName)
+	request['pEnvironment'] = pEnvironment
+	request['Level']        = Level
+	request['pDrivers']     = b'a' * bytesNeeded
+	request['cbBuf']        = bytesNeeded
+
+	#return request
+	data_raw, err = await dce.request(request)
+	if err is not None:
+		return None, err
+	
+	data = DRIVER_INFO_2_ARRAY.from_bytes(b''.join(data_raw['pDrivers']), data_raw['pcReturned'])
+	return data.drivers, err

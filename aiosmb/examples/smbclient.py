@@ -995,6 +995,58 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			traceback.print_exc()
 			return None, e
 
+	async def do_printerenumdrivers(self):
+		""" Enumerates all shares for all files and folders recursively """
+		try:
+			drivers, err = await self.machine.enum_printer_drivers()
+			if err is not None:
+				raise err
+			for driver in drivers:
+				print(driver)
+			return True, None
+		except SMBException as e:
+			logger.debug(traceback.format_exc())
+			print(e.pprint())
+			return None, e
+		except SMBMachineException as e:
+			logger.debug(traceback.format_exc())
+			print(str(e))
+			return None, e
+		except DCERPCException as e:
+			logger.debug(traceback.format_exc())
+			print(str(e))
+			return None, e
+		except Exception as e:
+			traceback.print_exc()
+			return None, e
+
+	async def do_printnightmare(self, share, driverpath = ''):
+		""" ? """
+		try:
+			if len(driverpath) == 0:
+				driverpath = None
+			_, err = await self.machine.printnightmare(share, driverpath)
+			if err is not None:
+				raise err
+			return True, None
+		except SMBException as e:
+			logger.debug(traceback.format_exc())
+			print(e.pprint())
+			return None, e
+		except SMBMachineException as e:
+			logger.debug(traceback.format_exc())
+			print(str(e))
+			return None, e
+		except DCERPCException as e:
+			logger.debug(traceback.format_exc())
+			print(str(e))
+			return None, e
+		except Exception as e:
+			traceback.print_exc()
+			return None, e
+
+			
+
 async def amain(args):
 	client = SMBClient(args.smb_url, silent = args.silent)
 	if len(args.commands) == 0:

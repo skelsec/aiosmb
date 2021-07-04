@@ -758,6 +758,15 @@ class SMBMachine:
 		))
 		print('got resp! %s' % resp)
 		return True, None
+	
+	@req_rprn
+	async def enum_printer_drivers(self, environments = "Windows x64", level = 2, name = ''):
+		return await self.rprn.enum_drivers(environments, level = level, name = name)
+
+	@req_rprn
+	async def printnightmare(self, share, driverpath, environments = "Windows x64"):
+		return await self.rprn.printnightmare(share, driverpath = driverpath, environments = environments)
+		
 
 	async def list_interfaces(self):
 		try:
