@@ -101,26 +101,18 @@ class TREE_CONNECT_REPLY():
 	def __init__(self):
 		self.StructureSize = 16
 		self.ShareType = None
-		self.Reserved = None
+		self.Reserved = 0
 		self.ShareFlags = None
 		self.Capabilities = None
 		self.MaximalAccess = None
-		
-		#high-level variable, not part of the spec!
-		self.Path = None
 
 	def to_bytes(self):
-		if self.Path:
-			self.Buffer = self.Path.encode('utf-16-le')
-		
-		self.PathLength = len(self.Buffer)
-		self.PathOffset = 64 + 2 + 2 + 2 + 2 
-		
-		t  = self.StructureSize.to_bytes(2, byteorder='little', signed = False)
-		t += self.Flags.to_bytes(2, byteorder='little', signed = False)
-		t += self.PathOffset.to_bytes(2, byteorder='little', signed = False)
-		t += self.PathLength.to_bytes(2, byteorder='little', signed = False)
-		t += self.Buffer
+		t =  self.StructureSize.to_bytes(2, byteorder='little')
+		t += self.ShareType.value.to_bytes(1, byteorder='little')
+		t += self.Reserved.to_bytes(1, byteorder='little')
+		t += self.ShareFlags.to_bytes(4, byteorder='little')
+		t += self.Capabilities.to_bytes(4, byteorder='little')
+		t += self.MaximalAccess.to_bytes(4, byteorder='little')
 		return t
 
 	@staticmethod

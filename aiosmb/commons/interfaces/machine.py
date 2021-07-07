@@ -16,6 +16,9 @@ from aiosmb.dcerpc.v5.interfaces.servicemanager import SMBRemoteServieManager
 from aiosmb.dcerpc.v5.interfaces.remoteregistry import RRP
 from aiosmb.dcerpc.v5.interfaces.rprnmgr import SMBRPRN
 from aiosmb.dcerpc.v5.interfaces.tschmgr import SMBTSCH
+from aiosmb.dcerpc.v5.interfaces.parmgr import SMBPAR
+
+
 
 from aiosmb.dcerpc.v5 import tsch, scmr
 
@@ -157,6 +160,21 @@ def req_rprn(funct):
 			raise e
 	return wrapper
 
+def req_par(funct):
+	async def wrapper(*args, **kwargs):
+		this = args[0]
+		try:
+			if 'PAR' in this.privtable:
+				if this.privtable['PAR'] == False:
+					raise SMBMachineException('PAR failed to open. Probably permission issues.')
+			if this.par is None:
+				await rr(this.connect_rpc('PAR'))
+			x = await funct(*args, **kwargs)
+			return x
+		except Exception as e:
+			raise e
+	return wrapper
+
 class SMBMachine:
 	def __init__(self, connection):
 		self.connection = connection
@@ -172,6 +190,7 @@ class SMBMachine:
 		self.rrp = None
 		self.rprn = None
 		self.tsch = None
+		self.par = None
 
 		self.filesystem = None
 		self.servicemanager = None
@@ -249,6 +268,11 @@ class SMBMachine:
 			self.privtable['TSCH'] = False
 			await rr(self.tsch.connect())
 			self.privtable['TSCH'] = True
+		elif service_name.upper() == 'PAR':
+			self.par = SMBPAR(self.connection)
+			self.privtable['PAR'] = False
+			await rr(self.par.connect(open=True))
+			self.privtable['PAR'] = True
 		else:
 			raise Exception('Unknown service name : %s' % service_name)
 		return True, None
@@ -766,7 +790,11 @@ class SMBMachine:
 	@req_rprn
 	async def printnightmare(self, share, driverpath, environments = "Windows x64"):
 		return await self.rprn.printnightmare(share, driverpath = driverpath, environments = environments)
-		
+	
+
+	@req_par
+	async def par_printnightmare(self, share, driverpath, environments = "Windows x64"):
+		return await self.par.printnightmare(share, driverpath = driverpath, environments = environments)
 
 	async def list_interfaces(self):
 		try:

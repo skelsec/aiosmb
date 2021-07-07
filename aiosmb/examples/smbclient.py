@@ -1044,6 +1044,31 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 		except Exception as e:
 			traceback.print_exc()
 			return None, e
+	
+	async def do_parprintnightmare(self, share, driverpath = ''):
+		""" ? """
+		try:
+			if len(driverpath) == 0:
+				driverpath = None
+			_, err = await self.machine.par_printnightmare(share, driverpath)
+			if err is not None:
+				raise err
+			return True, None
+		except SMBException as e:
+			logger.debug(traceback.format_exc())
+			print(e.pprint())
+			return None, e
+		except SMBMachineException as e:
+			logger.debug(traceback.format_exc())
+			print(str(e))
+			return None, e
+		except DCERPCException as e:
+			logger.debug(traceback.format_exc())
+			print(str(e))
+			return None, e
+		except Exception as e:
+			traceback.print_exc()
+			return None, e
 
 			
 

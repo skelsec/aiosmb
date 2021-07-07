@@ -84,7 +84,7 @@ class SPNEGO:
 		result, to_continue, err = await self.selected_authentication_context.authenticate(token_data, flags = flags, seq_number = seq_number, is_rpc = is_rpc)
 		if err is not None:
 			return None, None, err
-		if not result:
+		if result is None:
 			return None, False, None
 		response = {}
 		if include_negstate == True:
@@ -93,7 +93,8 @@ class SPNEGO:
 			else:
 				response['negState'] = NegState('accept-completed')
 		
-		response['responseToken'] = result
+		if result is not None and len(result) > 0:
+			response['responseToken'] = result
 		return response, to_continue, None
 		
 	def get_extra_info(self):
@@ -122,6 +123,7 @@ class SPNEGO:
 		"""
 		
 		if self.mode == 'SERVER':
+			negtoken = None
 			if self.selected_authentication_context is None:
 				gss = GSSAPI.load(token).native
 				negtoken = gss['value']
@@ -146,7 +148,20 @@ class SPNEGO:
 
 
 			if self.selected_authentication_context is not None:
-				response, to_continue, err = await self.process_ctx_authenticate(negtoken['mechToken'], flags = flags, seq_number = seq_number, is_rpc = is_rpc, include_negstate = True)
+				if negtoken is None:
+					if token[0] == 0x60:
+						gss = GSSAPI.load(token).native
+						negtoken = gss['value']
+					else:
+						neg_token_raw = NegotiationToken.load(token)
+						negtoken = neg_token_raw.native
+				print(token.hex())
+				if 'mechToken' in negtoken:
+					authdata = negtoken['mechToken']
+				else:
+					print(negtoken)
+					authdata = negtoken['responseToken']
+				response, to_continue, err = await self.process_ctx_authenticate(authdata, flags = flags, seq_number = seq_number, is_rpc = is_rpc, include_negstate = True)
 				if err is not None:
 					return None, None, err
 

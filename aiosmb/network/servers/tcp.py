@@ -1,10 +1,11 @@
 import enum
 import asyncio
+import copy
 
 from aiosmb import logger
-from aiosmb.exceptions import *
-from aiosmb.network.netbios import NetBIOSTransport
-from aiosmb.smbconnection_server import SMBServerConnection
+from aiosmb.commons.exceptions import *
+from aiosmb.transport.netbios import NetBIOSTransport
+from aiosmb.serverconnection import SMBServerConnection
 
 class TCPClient:
 	def __init__(self, raddr, rport, reader, writer):
@@ -33,18 +34,13 @@ class TCPServerSocket:
 		"""
 		Reads data bytes from the socket and dispatches it to the incoming queue
 		"""
-		while not self.shutdown_evt.is_set():			
-			data = await asyncio.gather(*[client.reader.read(4096)], return_exceptions = True)
-			
-			if isinstance(data[0], bytes):
-				await client.in_queue.put(data[0])
-			
-			elif isinstance(data[0], asyncio.CancelledError):
-				return
-				
-			elif isinstance(data[0], Exception):
-				logger.exception('[TCPSocket] handle_incoming %s' % str(data[0]))
-				return
+		try:
+			while not self.shutdown_evt.is_set():	
+				data = await client.reader.read(65535)
+				await client.in_queue.put((data, None))
+		except Exception as e:
+			await client.in_queue.put((None, e))
+			return
 		
 	async def handle_outgoing(self, client):
 		"""
@@ -70,10 +66,10 @@ class TCPServerSocket:
 		asyncio.ensure_future(self.handle_outgoing(client))
 		asyncio.ensure_future(self.handle_incoming(client))
 		nbtransport = NetBIOSTransport(client)
-		server = SMBServerConnection(self.server_settings, nbtransport)
+		server = SMBServerConnection(copy.deepcopy(self.server_settings), nbtransport)
 		
 		await nbtransport.run()
-		await server.main()
+		await server.run()
 		logger.info('SMB server terminated, closing client! %s:%s' % (raddr, rport))
 		
 		
@@ -86,5 +82,5 @@ class TCPServerSocket:
 		logger.info('TCP server terminated')	
 			
 	async def run(self):
-		return self.listen()
+		return await self.listen()
 		

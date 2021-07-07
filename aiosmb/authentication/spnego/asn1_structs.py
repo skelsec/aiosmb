@@ -84,7 +84,8 @@ class NegTokenResp(Sequence):
 
 class NegotiationToken(Choice):
 	_alternatives = [
-		('negTokenInit', NegTokenInit2, {'explicit': (CONTEXT, 0) } ),
+		#('negTokenInit', NegTokenInit2, {'explicit': (APPLICATION, 0) } ),
+		('negTokenInit', NegTokenInit2, {'explicit': (CONTEXT, 0) } ), 
 		('negTokenResp', NegTokenResp, {'explicit': (CONTEXT, 1) } ),
 ]
 

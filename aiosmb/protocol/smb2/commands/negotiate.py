@@ -148,6 +148,9 @@ class SMB2ContextType(enum.Enum):
 	ENCRYPTION_CAPABILITIES = 0x0002
 	COMPRESSION_CAPABILITIES = 0x0003 #The Data field contains a list of compression algorithms, as specified in section 2.2.3.1.3<13>.
 	NETNAME_NEGOTIATE_CONTEXT_ID = 0x0005 #The Data field contains the server name to which the client connects<14>.
+	TRANSPORT_CAPABILITIES = 0x0006 #The Data field contains transport capabilities, as specified in section 2.2.3.1.5.<15>
+	RDMA_TRANSFORM_CAPABILITIES = 0x0007 #The Data field contains a list of RDMA transforms, as specified in section 2.2.3.1.6.<16>
+	SMB2_SIGNING_CAPABILITIES = 0x0008
 
 
 class SMB2HashAlgorithm(enum.Enum):
@@ -174,8 +177,11 @@ class SMB2NegotiateContext:
 		elif ContextType == SMB2ContextType.COMPRESSION_CAPABILITIES:
 			return SMB2CompressionCapabilities.from_buffer(buff)
 
-		elif ContextType == SMB2ContextType.PREAUTH_INTEGRITY_CAPABILITIES:
+		elif ContextType == SMB2ContextType.NETNAME_NEGOTIATE_CONTEXT_ID:
 			return SMB2NetnameNegotiateContextID.from_buffer(buff)
+		elif ContextType == SMB2ContextType.TRANSPORT_CAPABILITIES:
+			return SMB2TransportCapabilities.from_buffer(buff)
+			
 
 		else:
 			raise Exception('Unknown contextype %s' % ContextType)
@@ -378,6 +384,43 @@ class SMB2CompressionCapabilities:
 
 		return t
 
+class SMB2TransportCapabilityFlags(enum.IntEnum):
+	NONE = 0x00000000
+	ACCEPT_TRANSPORT_LEVEL_SECURITY = 0x00000001   # Transport security is offered to skip SMB2 encryption on this connection.<18>
+
+class SMB2TransportCapabilities:
+	def __init__(self):
+		self.ContextType = SMB2ContextType.COMPRESSION_CAPABILITIES
+		self.DataLength  = None
+		self.Reserved    = 0
+
+		self.Flags = None
+
+	@staticmethod
+	def from_buffer(buff):
+		cap = SMB2CompressionCapabilities()
+		cap.ContextType = SMB2ContextType(int.from_bytes(buff.read(2), byteorder = 'little', signed = False))
+		cap.DataLength  = int.from_bytes(buff.read(2), byteorder = 'little', signed = False)
+		cap.Reserved    = int.from_bytes(buff.read(4), byteorder = 'little', signed = False)
+		cap.Flags = SMB2TransportCapabilityFlags(int.from_bytes(buff.read(4), byteorder = 'little', signed = False))
+		return cap
+
+	def to_bytes(self):
+		data = self.Flags.to_bytes(2, byteorder = 'little', signed=False)
+		
+		self.DataLength = len(data)
+		t = self.ContextType.value.to_bytes(2, byteorder = 'little', signed=False)
+		t += self.DataLength.to_bytes(2, byteorder = 'little', signed=False)
+		t += self.Reserved.to_bytes(4, byteorder = 'little', signed=False)
+		t += data
+
+		return t
+			
+	def __repr__(self):
+		t = '==== SMB2 Transport Capabilities ====\r\n'
+		t += 'Flags: %s\r\n' % self.Flags
+		return t
+
 class SMB2NetnameNegotiateContextID:
 	def __init__(self):
 		self.ContextType = SMB2ContextType.NETNAME_NEGOTIATE_CONTEXT_ID
@@ -425,6 +468,9 @@ class NEGOTIATE_REPLY:
 		self.Padding = None
 		self.NegotiateContextList = []
 
+		#helper
+		self.SecurityBuffer = None
+
 	@staticmethod
 	def from_bytes(bbuff):
 		return NEGOTIATE_REPLY.from_buffer(io.BytesIO(bbuff))
@@ -467,7 +513,7 @@ class NEGOTIATE_REPLY:
 
 	def to_bytes(self):
 		self.SecurityBufferOffset = 0x80
-		self.SecurityBufferLength = len(self.Buffer)
+		self.SecurityBufferLength = len(self.SecurityBuffer)
 
 		t  = self.StructureSize.to_bytes(2, byteorder = 'little', signed=False)
 		t += self.SecurityMode.to_bytes(2, byteorder = 'little', signed=False)
@@ -484,7 +530,7 @@ class NEGOTIATE_REPLY:
 		t += self.SecurityBufferOffset.to_bytes(2, byteorder = 'little', signed=False)
 		t += self.SecurityBufferLength.to_bytes(2, byteorder = 'little', signed=False)
 		t += self.NegotiateContextOffset.to_bytes(4, byteorder = 'little', signed=False)
-		t += self.Buffer
+		t += self.SecurityBuffer
 
 		if self.NegotiateContextCount > 0:
 			for ngctx in self.NegotiateContextList:

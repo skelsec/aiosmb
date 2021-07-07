@@ -3,6 +3,7 @@ import os
 import struct
 import hmac
 import copy
+import traceback
 
 from aiosmb.commons.connection.credential import SMBNTLMCredential
 from aiosmb.commons.serverinfo import NTLMServerInfo
@@ -287,29 +288,53 @@ class NTLMAUTHHandler:
 
 	async def authenticate(self, authData, flags = None, seq_number = 0, is_rpc = False):
 		if self.mode.upper() == 'SERVER':
-			if self.ntlmNegotiate is None:
-				###parse client NTLMNegotiate message
-				self.ntlmNegotiate = NTLMNegotiate.from_bytes(authData)
-				return self.ntlmChallenge.to_bytes(), True , None
+			print(authData)
+			try:
+				if self.ntlmNegotiate is None:
+					###parse client NTLMNegotiate message
+					self.ntlmNegotiate = NTLMNegotiate.from_bytes(authData)
+					return self.ntlmChallenge.to_bytes(), True, None
 
-			elif self.ntlmAuthenticate is None:
-				self.ntlmAuthenticate = NTLMAuthenticate.from_bytes(authData, self.use_NTLMv2)
-				creds = NTLMcredential.construct(self.ntlmNegotiate, self.ntlmChallenge, self.ntlmAuthenticate)
+				elif self.ntlmAuthenticate is None:
+					self.ntlmAuthenticate = NTLMAuthenticate.from_bytes(authData, True)
+					if self.ntlmAuthenticate.UserName == '':
+						if self.settings.credential.is_guest is True:
+							self.set_sign(False)
+							self.set_seal(False)
+							self.set_version(False)
+							self.set_kex(False)
+							return b'', False, None
+						else:
+							raise Exception('GUEST login not allowed!')
+					
 
-				# TODO: check when is sessionkey needed and check when is singing needed, and calculate the keys!
-				# self.calc_SessionBaseKey()
-				# self.calc_KeyExchangeKey()
-				auth_credential = creds[0]
-				#self.SessionBaseKey = auth_credential.calc_session_base_key()
-				#self.calc_key_exchange_key()
+					print(self.ntlmAuthenticate)
+					self.ntlm_credentials = netntlmv2.construct(self.ntlmChallenge.ServerChallenge, self.challenge, self.ntlmChallenge.TargetInfo, self.settings.credential, timestamp = self.timestamp)
+					print(self.ntlm_credentials)
+					self.KeyExchangeKey = self.ntlm_credentials.calc_key_exchange_key()						
+					self.setup_crypto()
 
-				if auth_credential.verify(self.credential):
-					return AuthResult.FAIL, auth_credential, None
+					return b'', False, None
+
+					#creds = NTLMcredential.construct(self.ntlmNegotiate, self.ntlmChallenge, self.ntlmAuthenticate)
+
+					# TODO: check when is sessionkey needed and check when is singing needed, and calculate the keys!
+					# self.calc_SessionBaseKey()
+					# self.calc_KeyExchangeKey()
+					#auth_credential = creds[0]
+					#self.SessionBaseKey = auth_credential.calc_session_base_key()
+					#self.calc_key_exchange_key()
+
+					#if auth_credential.verify(self.credential):
+					#	return AuthResult.FAIL, auth_credential, None
+					#else:
+					#	return AuthResult.FAIL, auth_credential, None
+
 				else:
-					return AuthResult.FAIL, auth_credential, None
-
-			else:
-				raise Exception('Too many calls to do_AUTH function!')
+					raise Exception('Too many calls to do_AUTH function!')
+			except Exception as err:
+				traceback.print_exc()
+				return None, False, err
 				
 		elif self.mode.upper() == 'CLIENT':
 			if self.iteration_cnt == 0:
