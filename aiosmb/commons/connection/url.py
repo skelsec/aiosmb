@@ -93,7 +93,6 @@ class SMBConnectionURL:
 		)
 		t.update_dialect(self.dialect)
 		t.compression = bool(self.compression)
-		print(t.compression)
 		if self.fragment is not None:
 			fs = 0x100000
 			if self.fragment == 5:
