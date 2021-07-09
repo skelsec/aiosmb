@@ -95,7 +95,7 @@ RC4  = getPreferredCipher('RC4')
 #TDES = getPreferredCipher('TDES')
 
 aesCCMEncrypt, aesCCMDecrypt = get_ccm_enc()
-aesGCMEncrypt, aesGCMDecrypt = get_gcm_enc()
+#aesGCMEncrypt, aesGCMDecrypt = get_gcm_enc()
 
 
 print(DES)

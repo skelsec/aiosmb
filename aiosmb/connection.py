@@ -36,7 +36,7 @@ from aiosmb.commons.smbcontainer import *
 from aiosmb.commons.connection.target import *
 
 from aiosmb.crypto.symmetric import aesCCMEncrypt, aesCCMDecrypt
-from aiosmb.crypto.symmetric import aesGCMEncrypt, aesGCMDecrypt
+#from aiosmb.crypto.symmetric import aesGCMEncrypt, aesGCMDecrypt
 from aiosmb.crypto.BASE import cipherMODE
 from aiosmb.crypto.from_impacket import KDF_CounterMode, AES_CMAC
 from aiosmb.crypto.compression.lznt1 import compress as lznt1_compress
@@ -290,27 +290,11 @@ class SMBConnection:
 					msg = SMB2Transform.from_bytes(msg_data)
 					
 					if msg.header.EncryptionAlgorithm == SMB2Cipher.AES_128_CCM:
-						dec_data = aesCCMDecrypt(msg.data, msg_data[20:], self.DecryptionKey, msg.header.Nonce[:11], msg.header.Signature)
-						#print('dec_data %s' % dec_data)
-						#cipher = AES(self.DecryptionKey, mode = cipherMODE.CCM, nonce = msg.header.Nonce[:11])
-						#cipher.update(msg_data[20:])
-						#dec_data = cipher.decrypt(msg.data)
-						#calc_signature = cipher.verify()
-
-
-						#cipher = AES.new(self.DecryptionKey, AES.MODE_CCM, msg.header.Nonce[:11])
-						#cipher.update(msg_data[20:])
-						#dec_data = cipher.decrypt(msg.data)
-						##calc_signature = cipher.verify()
-
-						# TODO: add signature checking!!!!!
-
-						msg_data = dec_data
+						msg_data = aesCCMDecrypt(msg.data, msg_data[20:], self.DecryptionKey, msg.header.Nonce[:11], msg.header.Signature)
 					
-					elif msg.header.EncryptionAlgorithm == SMB2Cipher.AES_128_GCM:
-						dec_data = aesGCMDecrypt(msg.data, msg_data[20:], self.DecryptionKey, msg.header.Nonce[:12], msg.header.Signature)
-						
-					
+					#elif msg.header.EncryptionAlgorithm == SMB2Cipher.AES_128_GCM:
+					#	msg_data = aesGCMDecrypt(msg.data, msg_data[20:], self.DecryptionKey, msg.header.Nonce[:12], msg.header.Signature)
+
 					else:
 						raise Exception('Common encryption algo is %s but it is not implemented!' % msg.header.EncryptionAlgorithm)
 
@@ -806,16 +790,16 @@ class SMBConnection:
 		if self.CipherId == SMB2Cipher.AES_128_CCM:
 			enc_data, hdr.Signature = aesCCMEncrypt(msg_data, hdr.to_bytes()[20:], self.EncryptionKey, nonce)
 
-		elif self.CipherId == SMB2Cipher.AES_128_GCM:
-			nonce = os.urandom(12)
-
-			hdr = SMB2Header_TRANSFORM()
-			hdr.Nonce = nonce + (b'\x00' * 4)
-			hdr.OriginalMessageSize = len(msg_data)
-
-			hdr.EncryptionAlgorithm = self.CipherId
-			hdr.SessionId = self.SessionId
-			enc_data, hdr.Signature = aesGCMEncrypt(msg_data, hdr.to_bytes()[20:], self.EncryptionKey, nonce)
+		#elif self.CipherId == SMB2Cipher.AES_128_GCM:
+		#	nonce = os.urandom(12)
+		#
+		#	hdr = SMB2Header_TRANSFORM()
+		#	hdr.Nonce = nonce + (b'\x00' * 4)
+		#	hdr.OriginalMessageSize = len(msg_data)
+		#
+		#	hdr.EncryptionAlgorithm = self.CipherId
+		#	hdr.SessionId = self.SessionId
+		#	enc_data, hdr.Signature = aesGCMEncrypt(msg_data, hdr.to_bytes()[20:], self.EncryptionKey, nonce)
 
 		return SMB2Transform(hdr, enc_data)
 
