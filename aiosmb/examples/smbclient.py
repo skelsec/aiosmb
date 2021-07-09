@@ -1021,7 +1021,7 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			return None, e
 
 	async def do_printnightmare(self, share, driverpath = ''):
-		""" ? """
+		""" printnightmare bug using the RPRN protocol """
 		try:
 			if len(driverpath) == 0:
 				driverpath = None
@@ -1046,7 +1046,7 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			return None, e
 	
 	async def do_parprintnightmare(self, share, driverpath = ''):
-		""" ? """
+		""" printnightmare bug using the PAR protocol """
 		try:
 			if len(driverpath) == 0:
 				driverpath = None
