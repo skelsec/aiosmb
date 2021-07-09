@@ -48,6 +48,7 @@ setup(
 		'tqdm',
 		'colorama',
 		'asn1crypto',
+		'pycryptodomex',
 	],
 	
 	classifiers=[
