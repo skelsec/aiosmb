@@ -50,9 +50,15 @@ class TCPSocket:
 		"""
 		try:
 			lasterror = None
+			msgsize = None
 			while not self.disconnected.is_set():	
 				try:
-					data = await self.reader.read(10240)
+					data = await self.reader.readexactly(4)
+					#print(data)
+					msgsize = int.from_bytes(data[1:], byteorder='big', signed = False)
+					#print(msgsize)
+					data = await self.reader.readexactly(msgsize)
+					#print(data)
 					await self.in_queue.put( (data, None) )
 					if data == b'':
 						return

@@ -35,6 +35,7 @@ class SMBConnectionURL:
 		self.server_ip = None
 		self.fragment = None
 		self.path = None
+		self.compression = False
 
 		#proxy
 		self.proxy= None
@@ -91,6 +92,8 @@ class SMBConnectionURL:
 			protocol=self.protocol,
 		)
 		t.update_dialect(self.dialect)
+		t.compression = bool(self.compression)
+		print(t.compression)
 		if self.fragment is not None:
 			fs = 0x100000
 			if self.fragment == 5:
@@ -270,6 +273,8 @@ class SMBConnectionURL:
 					self.fragment = int(query[k][0])
 				elif k == 'dns':
 					self.dns = query[k] #multiple dns can be set, so not trimming here
+				elif k == 'compress':
+					self.compression = int(query[k][0])
 				elif k.startswith('auth'):
 					self.auth_settings[k[len('auth'):]] = query[k]
 				elif k.startswith('same'):

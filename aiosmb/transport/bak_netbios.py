@@ -1,4 +1,3 @@
-from aiosmb.network.tcp import TCPSocket
 import asyncio
 import io
 
@@ -21,8 +20,6 @@ class NetBIOSTransport:
 		
 		self.outgoing_task = None
 		self.incoming_task = None
-
-		self.__total_size = -1
 		
 	async def stop(self):
 		"""
@@ -39,39 +36,32 @@ class NetBIOSTransport:
 		Starts the input and output processing
 		"""
 		try:
-			if isinstance(self.network_transport, TCPSocket):
-				self.incoming_task = asyncio.create_task(self.handle_incoming_noparse())
-			else:
-				self.incoming_task = asyncio.create_task(self.handle_incoming())
+			self.incoming_task = asyncio.create_task(self.handle_incoming())
 			self.outgoing_task = asyncio.create_task(self.handle_outgoing())
 			return True, None
 		except Exception as e:
 			return False, e
-
-	async def handle_incoming_noparse(self):
+		
+	async def parse_buffer(self, buffer, total_size = None):
 		"""
-		Reads data bytes from the socket_in_queue and parses the NetBIOS messages and the SMBv1/2 messages.
-		Dispatches the SMBv1/2 message objects.
+		Parses the incoming bytes buffer, dispatches SMBv1 or SMBv2 messages to the in_queue
+		Returns a bytes array with the remaining data
 		"""
-		try:
-			while True:
-				data, err = await self.socket_in_queue.get()
-				#if err is not None:
-				#	raise err
-				
-				await self.in_queue.put( (data, err) )
-
+		if len(buffer) > 4:
+			if not total_size:
+				total_size = int.from_bytes(buffer[1:4], byteorder='big', signed = False) + 4
 			
-			raise Exception('Remote end terminated the connection')
-
-		except asyncio.CancelledError:
-			#the SMB connection is terminating
-			return
-			
-		except Exception as e:
-			logger.debug('NetBIOSTransport handle_incoming error. Reason: %s' % e)
-			await self.in_queue.put( (None, e) )
-			await self.stop()
+			if len(buffer) >= total_size:
+				msg_data = buffer[:total_size][4:]
+				buffer = buffer[total_size:]
+				total_size = None
+					
+				#print('%s nbmsg! ' % (self.network_transport.writer.get_extra_info('peername')[0], ))
+				#print('[NetBIOS] MSG dispatched')
+				await self.in_queue.put( (msg_data, None) )
+				await self.parse_buffer(buffer, total_size)
+		
+		return buffer
 		
 	async def handle_incoming(self):
 		"""
@@ -80,37 +70,17 @@ class NetBIOSTransport:
 		"""
 		try:
 			buffer = b''
-			lastcall = False
-			while not lastcall:
-				if self.__total_size == -1:
-					if len(buffer) > 5:
-						self.__total_size = int.from_bytes(buffer[1:4], byteorder='big', signed = False) + 4
-
-				while self.__total_size > -1 and len(buffer) >= self.__total_size:
-					if self.__total_size > -1 and len(buffer) >= self.__total_size:
-						msg_data = buffer[:self.__total_size][4:]
-						buffer = buffer[self.__total_size:]
-						self.__total_size = -1
-						if len(buffer) > 5:
-							self.__total_size = int.from_bytes(buffer[1:4], byteorder='big', signed = False) + 4
-								
-						#print('%s nbmsg! ' % (self.network_transport.writer.get_extra_info('peername')[0], ))
-						#print('[NetBIOS] MSG dispatched')
-						await self.in_queue.put( (msg_data, None) )
-				
-
-				
+			while True:
 				data, err = await self.socket_in_queue.get()
 				if err is not None:
 					raise err
-
 				if data == b'':
-					lastcall = True
-					
-				
+					buffer = await self.parse_buffer(buffer)
+					raise Exception('Remote end terminated the connection')
+
+				#parse
 				buffer += data
-			
-			raise Exception('Remote end terminated the connection')
+				buffer = await self.parse_buffer(buffer)
 
 		except asyncio.CancelledError:
 			#the SMB connection is terminating

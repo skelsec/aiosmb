@@ -67,6 +67,18 @@ def get_ccm_enc():
 		from aiosmb.crypto.pure.AES.AESCCM import aesCCMEncrypt, aesCCMDecrypt
 		return (aesCCMEncrypt, aesCCMDecrypt)
 
+def get_gcm_enc():
+	return None, None
+	#if 'pyCryptodome' in available_modules:
+	#	from aiosmb.crypto.AESGCM_dome import aesGCMEncrypt, aesGCMEncrypt
+	#	print('pyCryptodome')
+	#	return (aesGCMEncrypt, aesGCMEncrypt)
+	#
+	#else:
+	#	from aiosmb.crypto.pure.AES.AESGCM import aesGCMEncrypt, aesGCMDecrypt
+	#	return (aesGCMEncrypt, aesGCMDecrypt)
+
+
 #import ciphers
 # TODO: fix the dynamic imports, currently only supporting pure-python ciphers for two reasons:
 # 1. dynamic import messes up some scripts like pyinstaller/nuitka/py2exe
@@ -83,6 +95,8 @@ RC4  = getPreferredCipher('RC4')
 #TDES = getPreferredCipher('TDES')
 
 aesCCMEncrypt, aesCCMDecrypt = get_ccm_enc()
+aesGCMEncrypt, aesGCMDecrypt = get_gcm_enc()
+
 
 print(DES)
 print(AES)

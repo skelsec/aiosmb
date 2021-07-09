@@ -72,6 +72,7 @@ class SMBTarget:
 		self.MaxWriteSize = 0x100000
 		self.SMBPendingTimeout = 5
 		self.SMBPendingMaxRenewal = None
+		self.compression = False
 
 
 	def update_dialect(self, dialect):
