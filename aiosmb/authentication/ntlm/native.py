@@ -288,7 +288,6 @@ class NTLMAUTHHandler:
 
 	async def authenticate(self, authData, flags = None, seq_number = 0, is_rpc = False):
 		if self.mode.upper() == 'SERVER':
-			print(authData)
 			try:
 				if self.ntlmNegotiate is None:
 					###parse client NTLMNegotiate message

@@ -5,10 +5,9 @@ import importlib.util
 ##key = name of the cipher, value=list of module names, in order of preference
 preftable = {
 	'DES' : ['pyCryptodome','pyCrypto','pure'], 
-	'TDES': ['pyCrypto','pure'], 
-	'AES' : ['cryptography','pyCrypto','pure'], 
-	'RC4' : ['cryptography', 'pyCryptodome','pyCrypto','pure'],
-
+	'TDES': ['pyCryptodome','pyCrypto','pure'], 
+	'AES' : ['pyCryptodome','cryptography','pyCrypto','pure'], 
+	'RC4' : ['pyCryptodome','cryptography','pyCrypto','pure'],
 }
 
 #
@@ -26,7 +25,8 @@ if importlib.util.find_spec("Cryptodome") is not None:
 	#print('Found cryptography package!')
 	available_modules.append("pyCryptodome")
 
-#print(available_modules)
+print(available_modules)
+
 #https://stackoverflow.com/questions/8790003/dynamically-import-a-method-in-a-file-from-a-string
 def import_from(module, name):
 	module = __import__(module, fromlist=[name])
@@ -84,6 +84,9 @@ RC4  = getPreferredCipher('RC4')
 
 aesCCMEncrypt, aesCCMDecrypt = get_ccm_enc()
 
+print(DES)
+print(AES)
+print(RC4)
 
 #from aiosmb.crypto.AES import pureAES
 #from aiosmb.crypto.DES import pureDES

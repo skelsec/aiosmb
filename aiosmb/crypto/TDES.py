@@ -19,6 +19,12 @@ try:
 except:
 	pass
 
+try:
+	from Cryptodome.Cipher import DES3 as _pyCryptodomeTDES
+except:
+	pass
+
+
 class pureTDES(symmetricBASE):
 	def __init__(self, key, mode = cipherMODE.ECB, IV = None, pad = None, padMode = None):
 		symmetricBASE.__init__(self)
@@ -77,7 +83,7 @@ class cryptographyTDES(symmetricBASE):
 		if not isinstance(key, bytes):
 			raise Exception('Key needs to be bytes!')
 		self.IV = IV
-		if mode == cipherMode.ECB:
+		if mode == cipherMODE.ECB:
 			self.IV = modes.ECB()
 		elif mode == cipherMODE.CBC:
 			self.IV = modes.CBC(IV)
@@ -106,3 +112,23 @@ class cryptographyTDES(symmetricBASE):
 	def decrypt(self, data):
 		return self.decryptor.update(data)
 
+
+class pyCryptodomeTDES(symmetricBASE):
+	def __init__(self, key, mode = cipherMODE.ECB, IV = None):
+		self.key = key
+		self.mode = mode
+		self.IV = IV
+		symmetricBASE.__init__(self)
+
+	def setup_cipher(self):
+		if self.mode == cipherMODE.ECB:
+			self._cipher = _pyCryptodomeTDES.new(self.key, _pyCryptodomeTDES.MODE_ECB)
+		elif self.mode == cipherMODE.CBC:
+			self._cipher = _pyCryptodomeTDES.new(self.key, _pyCryptodomeTDES.MODE_CBC, iv=self.IV)
+		else:
+			raise Exception('Unknown cipher mode!')
+		
+	def encrypt(self, data):
+		return self._cipher.encrypt(data)
+	def decrypt(self, data):
+		return self._cipher.decrypt(data)

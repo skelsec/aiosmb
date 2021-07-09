@@ -136,7 +136,7 @@ class SMBServerConnection:
 		self.activity_at = None
 		
 		self.selected_dialect = None
-		self.signing_required = False
+		self.signing_required = True #False
 		self.encryption_required = False
 		
 		self.status = SMBConnectionStatus.NEGOTIATING
@@ -581,6 +581,8 @@ class SMBServerConnection:
 				print(reply.header.Status)
 				
 				if to_continue is False:
+					self.SessionKey = self.gssapi.get_session_key()[:16]
+					reply.header.Flags |= SMB2HeaderFlag.SMB2_FLAGS_SIGNED
 					reply.header.CreditReq = 127
 					self.status = SMBConnectionStatus.RUNNING
 				
@@ -685,6 +687,8 @@ class SMBServerConnection:
 		
 	def sign_message(self, msg):
 		if self.selected_dialect in [NegotiateDialects.SMB202, NegotiateDialects.SMB210]:
+			print(self.SessionKey)
+
 			if self.SessionKey:
 				msg.header.Flags = msg.header.Flags ^ SMB2HeaderFlag.SMB2_FLAGS_SIGNED ##maybe move this flag settings to sendsmb since singing is determined there?
 				digest = hmac.new(self.SessionKey, msg.to_bytes(), hashlib.sha256).digest()
@@ -767,7 +771,8 @@ class SMBServerConnection:
 				return message_id, msg
 			return message_id
 				
-
+		print('RUNNING')
+		print(self.signing_required)
 		if msg.header.Command is not SMB2Command.CANCEL:
 			msg.header.MessageId = self.SequenceWindow
 			self.SequenceWindow += 1
@@ -1259,10 +1264,10 @@ if __name__ == '__main__':
 	port = 445
 	credential = SMBNTLMCredential()
 	credential.username = 'alma'
-	credential.domain = 'alma'
+	credential.domain = ''
 	credential.workstation = None
 	credential.is_guest = False
-	credential.password = 'alma'				
+	credential.password = 'alma'			
 	authsettings = NTLMHandlerSettings(credential, mode = 'SERVER', template_name = 'Windows2003', custom_template = None)
 	ctx = NTLMAUTHHandler(authsettings)
 	gssapi = SPNEGO('SERVER')

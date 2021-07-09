@@ -19,6 +19,11 @@ try:
 except:
 	pass
 
+try:
+	from Cryptodome.Cipher import AES as _pyCryptodomeAES
+except:
+	pass
+
 class pureAES(symmetricBASE):
 	def __init__(self, key, mode = cipherMODE.ECB, IV = None, nonce = None, pad = None, padMode = None, segment_size = 8):
 		self.key = key
@@ -124,3 +129,26 @@ class cryptographyAES(symmetricBASE):
 
 	def decrypt(self, data):
 		return self.decryptor.update(data)
+
+
+class pyCryptodomeAES(symmetricBASE):
+	def __init__(self, key, mode = cipherMODE.ECB, IV = None):
+		self.key = key
+		self.mode = mode
+		self.IV = IV
+		symmetricBASE.__init__(self)
+
+	def setup_cipher(self):
+		if self.mode == cipherMODE.ECB:
+			self._cipher = _pyCryptodomeAES.new(self.key, _pyCryptodomeAES.MODE_ECB) #_pyCryptodomeDES.new(self.key, _pyCryptodomeDES.MODE_ECB)
+		elif self.mode == cipherMODE.CBC:
+			self._cipher = _pyCryptodomeAES.new(self.key, _pyCryptodomeAES.MODE_CBC, iv=self.IV)
+		elif self.mode == cipherMODE.CTR:
+			self._cipher = _pyCryptodomeAES.new(self.key, _pyCryptodomeAES.MODE_CTR, iv=self.IV)
+		else:
+			raise Exception('Unknown cipher mode!')
+		
+	def encrypt(self, data):
+		return self._cipher.encrypt(data)
+	def decrypt(self, data):
+		return self._cipher.decrypt(data)
