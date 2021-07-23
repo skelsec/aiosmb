@@ -286,7 +286,7 @@ class SMBMachine:
 		return True, None
 
 	@req_srvs_gen
-	async def list_shares(self):
+	async def list_shares(self, fetch_share_sd = False):
 		try:
 			async for name, share_type, remark, err in self.srvs.list_shares():
 				if err is not None:
@@ -298,6 +298,9 @@ class SMBMachine:
 					remark = remark, 
 					fullpath = '\\\\%s\\%s' % (self.connection.target.get_hostname_or_ip(), name)
 				)
+				if fetch_share_sd is True:
+					await share.get_security_descriptor(self.connection)
+
 				yield share, None
 		except Exception as e:
 			yield None, e
@@ -366,9 +369,9 @@ class SMBMachine:
 		for entry in directory.get_console_output():
 			yield entry
 
-	async def enum_all_recursively(self, depth = 3, maxentries = None, exclude_share=['print$', 'PRINT$'], exclude_dir=[], fetch_dir_sd = False, fetch_file_sd = False):
+	async def enum_all_recursively(self, depth = 3, maxentries = None, exclude_share=['print$', 'PRINT$'], exclude_dir=[], fetch_share_sd = False, fetch_dir_sd = False, fetch_file_sd = False):
 		shares = {}
-		async for share, err in self.list_shares():
+		async for share, err in self.list_shares(fetch_share_sd):
 			if err is not None:
 				raise err
 			if share.name.upper() == 'IPC$':

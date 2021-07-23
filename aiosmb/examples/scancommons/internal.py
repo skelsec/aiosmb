@@ -16,8 +16,8 @@ class EnumResult:
 		self.status = status
 
 class EnumProgress:
-	def __init__(self, total_targets, total_finished, gens_finished, current_finised):
+	def __init__(self, total_targets, total_finished, gens_finished, current_finished):
 		self.total_targets = total_targets
 		self.total_finished = total_finished
 		self.gens_finished = gens_finished
-		self.current_finised = current_finised
+		self.current_finished = current_finished
