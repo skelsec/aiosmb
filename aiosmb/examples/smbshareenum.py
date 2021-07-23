@@ -217,8 +217,15 @@ class SMBFileEnum:
 
 						if self.out_file is not None:
 							with open(self.out_file, 'a+', newline = '') as f:
-								f.write(out_data)
-						
+								try:
+									f.write(out_data)
+								except:
+									for line in out_data.split('\r\n'):
+										try:
+											f.write(line + '\r\n')
+										except:
+											logger.debug('Encoding issue, skipping a line')
+											continue
 						else:
 							print(out_data)
 						

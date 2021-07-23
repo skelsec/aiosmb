@@ -52,7 +52,9 @@ class SMBShare:
 			try:
 				tree_id = self.tree_id
 				if tree_id is None:
-					await self.connect(connection)
+					_, err = await self.connect(connection)
+					if err is not None:
+						raise err
 					tree_id = self.tree_id
 				if tree_id is not None:
 					desired_access = FileAccessMask.READ_CONTROL
