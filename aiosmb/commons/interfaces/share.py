@@ -1,4 +1,7 @@
 from aiosmb.commons.interfaces.directory import SMBDirectory
+from aiosmb.wintypes.access_mask import *
+from aiosmb.protocol.smb2.commands import *
+from aiosmb.wintypes.fscc.structures.fileinfoclass import FileInfoClass
 
 
 class SMBShare:
@@ -12,6 +15,7 @@ class SMBShare:
 		self.capabilities = None
 		self.maximal_access = None
 		self.tree_id = None
+		self.security_descriptor = None
 		
 		self.files = {}
 		self.subdirs = {}
@@ -41,6 +45,46 @@ class SMBShare:
 			
 		except Exception as e:
 			return None, e
+
+	async def get_security_descriptor(self, connection):
+		if self.security_descriptor is None:
+			file_id = None
+			try:
+				tree_id = self.tree_id
+				if tree_id is None:
+					await self.connect(connection)
+					tree_id = self.tree_id
+				if tree_id is not None:
+					desired_access = FileAccessMask.READ_CONTROL
+					share_mode = ShareAccess.FILE_SHARE_READ
+					create_options = CreateOptions.FILE_DIRECTORY_FILE | CreateOptions.FILE_SYNCHRONOUS_IO_NONALERT
+					file_attrs = 0
+					create_disposition = CreateDisposition.FILE_OPEN
+					file_id, err = await connection.create(tree_id, "", desired_access, share_mode,
+														   create_options, create_disposition, file_attrs)
+					if err is not None:
+						raise err
+
+					self.security_descriptor, err = await connection.query_info(
+						tree_id,
+						file_id,
+						info_type=QueryInfoType.SECURITY,
+						information_class=FileInfoClass.NONE,
+						additional_information=SecurityInfo.ATTRIBUTE_SECURITY_INFORMATION | SecurityInfo.DACL_SECURITY_INFORMATION | SecurityInfo.OWNER_SECURITY_INFORMATION | SecurityInfo.GROUP_SECURITY_INFORMATION,
+						flags=0,
+					)
+					if err is not None:
+						raise err
+			except Exception as e:
+				return None, e
+
+			finally:
+				if file_id is not None:
+					await connection.close(tree_id, file_id)
+				if tree_id is not None and self.tree_id is None:
+					await connection.tree_disconnect(tree_id)
+
+		return self.security_descriptor, None
 		
 	def __str__(self):
 		t = '===== SHARE =====\r\n'

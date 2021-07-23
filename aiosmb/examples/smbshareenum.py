@@ -38,8 +38,9 @@ class EnumResultFinal:
 
 		if self.otype != 'progress':
 			self.unc_path = self.obj.unc_path
-			if self.otype == 'dir' or self.otype == 'file':
-				self.creation_time = self.obj.creation_time
+			if self.otype == 'dir' or self.otype == 'file' or self.otype == 'share':
+				if self.otype == 'dir' or self.otype == 'file':
+					self.creation_time = self.obj.creation_time
 				self.security_descriptor = self.obj.security_descriptor
 				self.security_descriptor_sddl = '' if self.security_descriptor is None else self.security_descriptor.to_sddl()
 
@@ -59,7 +60,7 @@ class EnumResultFinal:
 			return '[D] %s | %s | %s' % (self.unc_path, self.creation_time, self.security_descriptor_sddl)
 	
 		elif self.otype == 'share':
-			return '[S] %s' % self.unc_path
+			return '[S] %s | %s' % (self.unc_path, self.security_descriptor_sddl)
 
 		elif self.otype == 'progress':
 			return '[P][%s/%s][%s] %s' % (self.obj.total_targets, self.obj.total_finished, str(self.obj.gens_finished), self.obj.current_finised)
@@ -95,7 +96,7 @@ class EnumResultFinal:
 
 
 class SMBFileEnum:
-	def __init__(self, smb_url, worker_count = 10, depth = 3, enum_url = False, out_file = None, show_pbar = True, max_items = None, max_runtime = None, fetch_dir_sd = False, fetch_file_sd = False, task_q = None, res_q = None, output_type = 'str', exclude_share = [], exclude_dir = [], exclude_target = [], ext_result_q = None):
+	def __init__(self, smb_url, worker_count = 10, depth = 3, enum_url = False, out_file = None, show_pbar = True, max_items = None, max_runtime = None, fetch_share_sd = False, fetch_dir_sd = False, fetch_file_sd = False, task_q = None, res_q = None, output_type = 'str', exclude_share = [], exclude_dir = [], exclude_target = [], ext_result_q = None):
 		self.target_gens = []
 		self.smb_mgr = SMBConnectionURL(smb_url)
 		self.worker_count = worker_count
@@ -109,6 +110,7 @@ class SMBFileEnum:
 		self.show_pbar = show_pbar
 		self.max_items = max_items
 		self.max_runtime = max_runtime
+		self.fetch_share_sd = fetch_share_sd
 		self.fetch_dir_sd = fetch_dir_sd
 		self.fetch_file_sd = fetch_file_sd
 		self.output_type = output_type
@@ -137,7 +139,7 @@ class SMBFileEnum:
 					raise err
 
 				machine = SMBMachine(connection)
-				async for obj, otype, err in machine.enum_all_recursively(depth = self.depth, maxentries = self.max_items, fetch_dir_sd = self.fetch_dir_sd, fetch_file_sd = self.fetch_file_sd, exclude_share = self.exclude_share, exclude_dir = self.exclude_dir):
+				async for obj, otype, err in machine.enum_all_recursively(depth = self.depth, maxentries = self.max_items, fetch_share_sd= self.fetch_share_sd, fetch_dir_sd = self.fetch_dir_sd, fetch_file_sd = self.fetch_file_sd, exclude_share = self.exclude_share, exclude_dir = self.exclude_dir):
 					er = EnumResult(tid, target, (obj, otype, err))
 					await self.res_q.put(er)
 
@@ -389,6 +391,7 @@ Output legend:
 	parser.add_argument('--max-runtime', type = int, default=None, help='Stop enumeration of a host after N seconds')
 	parser.add_argument('--url', help='Connection URL base, target can be set to anything. Owerrides all parameter based connection settings! Example: "smb2+ntlm-password://TEST\\victim@test"')
 	parser.add_argument('--progress', action='store_true', help='Show progress bar')
+	parser.add_argument('--sharesd', action='store_true', help='Fetch share security descriptor')
 	parser.add_argument('--dirsd', action='store_true', help='Fetch directory security descriptor')
 	parser.add_argument('--filesd', action='store_true', help='Fetch file security descriptor')
 	parser.add_argument('--json', action='store_true', help='Output in JSON format')
@@ -440,6 +443,7 @@ Output legend:
 		out_file = args.out_file,
 		show_pbar = args.progress,
 		max_items = args.max_items,
+		fetch_share_sd = args.sharesd,
 		fetch_dir_sd = args.dirsd,
 		fetch_file_sd = args.filesd,
 		output_type = output_type,
