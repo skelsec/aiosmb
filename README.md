@@ -5,9 +5,9 @@ Fully asynchronous SMB library written in pure python. Python 3.7+ ONLY
 
 ## Authentication
 ### Kerberos
-|           | Kirbi                 | CCACHE | AES/RC4/DES keys | NT hash | Password | Certificate |
-|-----------|-----------------------|--------|------------------|---------|----------|-------------|
-| Supported | Y (convert to CCACHE) | Y      | Y                | Y       | Y        | Y           |
+|           | Kirbi | CCACHE | AES/RC4/DES keys | NT hash | Password | Certificate |
+|-----------|-------|--------|------------------|---------|----------|-------------|
+| Supported | Y     | Y      | Y                | Y       | Y        | Y           |
 
 ### NTLM
 |           | LM hash | NT hash | Password |
