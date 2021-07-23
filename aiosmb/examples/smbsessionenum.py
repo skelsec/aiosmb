@@ -45,7 +45,7 @@ class EnumResultFinal:
 			return '[S] %s | %s | %s | %s ' % (self.target, self.target_id, self.username, self.ip_addr)
 
 		elif self.otype == 'progress':
-			return '[P][%s/%s][%s] %s' % (self.obj.total_targets, self.obj.total_finished, str(self.obj.gens_finished), self.obj.current_finised)
+			return '[P][%s/%s][%s] %s' % (self.obj.total_targets, self.obj.total_finished, str(self.obj.gens_finished), self.obj.current_finished)
 
 		else:
 			return '[UNK]'

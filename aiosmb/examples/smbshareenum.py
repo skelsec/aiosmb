@@ -63,7 +63,7 @@ class EnumResultFinal:
 			return '[S] %s | %s' % (self.unc_path, self.security_descriptor_sddl)
 
 		elif self.otype == 'progress':
-			return '[P][%s/%s][%s] %s' % (self.obj.total_targets, self.obj.total_finished, str(self.obj.gens_finished), self.obj.current_finised)
+			return '[P][%s/%s][%s] %s' % (self.obj.total_targets, self.obj.total_finished, str(self.obj.gens_finished), self.obj.current_finished)
 
 		else:
 			return '[UNK]'
