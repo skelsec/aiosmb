@@ -32,7 +32,7 @@ class EnumResultFinal:
 		self.interface = None
 
 		if self.otype == 'interface':
-			self.interface = self.obj
+			self.interface = self.obj['address']
 
 
 	def __str__(self):
@@ -40,7 +40,7 @@ class EnumResultFinal:
 			return '[E] %s | %s' % (self.unc_path, self.err)
 
 		elif self.otype == 'interface':
-			return '[I] %s | %s | %s ' % (self.target, self.target_id, self.interface['address'])
+			return '[I] %s | %s | %s ' % (self.target, self.target_id, self.interface)
 
 		elif self.otype == 'progress':
 			return '[P][%s/%s][%s] %s' % (self.obj.total_targets, self.obj.total_finished, str(self.obj.gens_finished), self.obj.current_finised)
@@ -52,8 +52,7 @@ class EnumResultFinal:
 		return {
 			'target' : self.target,
 			'target_id' : self.target_id,
-			'username' : self.username,
-			'ip_addr' : self.ip_addr,
+			'interface' : self.interface,
 			'otype' : self.otype,
 			'err' : self.err,
 		}
