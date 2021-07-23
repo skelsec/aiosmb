@@ -256,7 +256,7 @@ class SMBDirectory:
 			
 			if otype == 'dir' and obj.name not in exclude_dir:
 				obj.tree_id = self.tree_id
-				async for e,t,err in obj.list_r(connection, depth, maxentries = maxentries, exclude_dir = exclude_dir):
+				async for e,t,err in obj.list_r(connection, depth, maxentries = maxentries, fetch_dir_sd = fetch_dir_sd, fetch_file_sd = fetch_file_sd, exclude_dir = exclude_dir):
 					yield e,t,err
 					await asyncio.sleep(0)
 
