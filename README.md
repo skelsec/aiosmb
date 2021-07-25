@@ -55,7 +55,6 @@ It looks like this:
   
 `dialect` fomat:  `smbX/smbXXX`  
 Where `version`: `2` for any `SBM2` `3` for any `SMB3` dialects, or specific 3 character code like `200` or `201` or `300`...  
-At the moment use only `smb` as this feature is not implemented.
   
 `network` format: `tcp` or `quic` (leave empty for TCP)  
 
