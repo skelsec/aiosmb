@@ -8,7 +8,7 @@ from aiosmb.commons.exceptions import *
 from aioquic.asyncio.client import connect
 from aioquic.asyncio.protocol import QuicConnectionProtocol
 from aioquic.quic.configuration import QuicConfiguration
-from aioquic.quic.events import DatagramFrameReceived, QuicEvent, StreamDataReceived
+from aioquic.quic.events import ConnectionTerminated, QuicEvent, StreamDataReceived
 from typing import Optional, cast
 
 
@@ -17,6 +17,7 @@ class QuicTransportClient(QuicConnectionProtocol):
 		super().__init__(*args, **kwargs)
 		self._ack_waiter: Optional[asyncio.Future[None]] = None
 		self.in_queue: asyncio.Queue = None
+		self.disconnected_evt = None
 		self.stream_id = None
 
 	def connection_made(self, transport: asyncio.BaseTransport) -> None:
@@ -34,10 +35,11 @@ class QuicTransportClient(QuicConnectionProtocol):
 
 
 	def quic_event_received(self, event: QuicEvent) -> None:
-		#print('quic_event_received')
-		#print(type(event))
-		if isinstance(event, StreamDataReceived): # and event.data == b"quack-ack":
+		if isinstance(event, StreamDataReceived):
 			self.in_queue.put_nowait( (event.data, None) )
+		if isinstance(event, ConnectionTerminated):
+			self.in_queue.put_nowait( (None, None) )
+		
 			
 
 class QUICSocket:
@@ -52,7 +54,7 @@ class QUICSocket:
 		self.out_queue = asyncio.Queue()
 		self.in_queue = asyncio.Queue()
 		
-		self.disconnected = asyncio.Event()
+		self.disconnected_evt = asyncio.Event()
 		
 	async def disconnect(self):
 		"""
@@ -68,18 +70,16 @@ class QUICSocket:
 			async with connect(self.settings.hostname, self.settings.port, configuration=self.configuration, create_protocol=QuicTransportClient) as client:
 				client = cast(QuicTransportClient, client)
 				client.in_queue = self.in_queue
-				#print(1)
+				client.disconnected_evt = self.disconnected_evt
 				while not self.disconnected.is_set():
-					#print(2)
 					data = await self.out_queue.get()
-					#print(3)
 					await client.send(data)
 		except asyncio.CancelledError:
 			#the SMB connection is terminating
 			return
 			
 		except Exception as e:
-			logger.exception('[TCPSocket] handle_outgoing %s' % str(e))
+			logger.exception('[QUICSocket] handle_outgoing')
 			await self.disconnect()
 
 			
@@ -104,6 +104,7 @@ class QUICSocket:
 
 			return True, None
 		except Exception as e:
+			logger.exception('[QUICSocket] main')
 			return False, e
 
 			

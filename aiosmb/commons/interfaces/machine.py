@@ -541,6 +541,17 @@ class SMBMachine:
 			return None, err
 		res, err = await self.rrp.SaveKey(key_handle, remote_path)
 		return res, err
+
+	@req_rrp
+	async def reg_list_users(self):
+		"""
+		Lists user SIDs available in the HKLM\\USERS hive
+		"""
+		users, err = await self.rrp.ListUsers()
+		if err is not None:
+			return None, err
+		return users, err
+		
 	
 	@req_servicemanager
 	async def service_dump_lsass(self, lsass_file_name = None, silent = False):

@@ -674,6 +674,35 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			traceback.print_exc()
 			return None, e
 
+	async def do_reglistusers(self):
+		"""Saves a registry hive to a file on remote share"""
+		try:
+			users, err = await self.machine.reg_list_users()
+			if err is not None:
+				raise err
+			for user in users:
+				print(user)
+			return True, None
+		
+		except SMBException as e:
+			logger.debug(traceback.format_exc())
+			print(e.pprint())
+			return None, e
+		except SMBMachineException as e:
+			logger.debug(traceback.format_exc())
+			print(str(e))
+			return None, e
+		except DCERPCException as e:
+			logger.debug(traceback.format_exc())
+			print(str(e))
+			return None, e
+		except Exception as e:
+			traceback.print_exc()
+			return None, e
+
+
+	
+
 
 	async def do_get(self, file_name):
 		"""Download a file from the remote share to the current folder"""

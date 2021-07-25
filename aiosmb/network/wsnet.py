@@ -7,9 +7,7 @@
 #
 
 
-import enum
 import asyncio
-import ipaddress
 
 from aiosmb import logger
 from aiosmb.commons.exceptions import *

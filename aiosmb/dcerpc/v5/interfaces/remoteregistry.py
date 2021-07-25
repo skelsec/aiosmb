@@ -102,7 +102,7 @@ class RRP:
 	
 	async def connect(self):
 		try:
-			rpctransport = SMBDCEFactory(self.connection,  filename=r'\winreg')
+			rpctransport = SMBDCEFactory(self.connection, filename=r'\winreg')
 			self.dce = rpctransport.get_dce_rpc()
 			_, err = await self.dce.connect()
 			if err is not None:
@@ -385,7 +385,27 @@ class RRP:
 				return None, None, OSError(e.get_error_code(), system_errors.ERROR_MESSAGES[e.get_error_code()][1])
 			return None, e
 
+	######### custom methods
 
+	async def ListUsers(self, users_handle = None):
+		try:
+			if users_handle is None:
+				users_handle, err = await self.ConnectRegistry(HKEY.USERS)
+				if err is not None:
+					raise err
+			
+			users = []
+			for i in range(255):
+				res, err = await self.EnumKey(users_handle, i)
+				if err is not None:
+					if err.errno == 259: #no more data is available
+						break
+					raise err
+				if res.startswith('S-1-5-') is True:
+					users.append(res)
+			return users, None
+		except Exception as e:
+			return None, e
 
 
 ################## CUT HERE
@@ -478,7 +498,7 @@ async def amain():
 	from aiosmb.connection import SMBConnection
 	import traceback
 
-	url = 'smb2+kerberos-password://TEST\\Administrator:QLFbT8zkiFGlJuf0B3Qq@win2019ad.test.corp?serverip=10.10.10.2&dc=10.10.10.2'
+	url = 'smb2+ntlm-password://TEST\\Administrator:Passw0rd!1@10.10.10.2'
 	su = SMBConnectionURL(url)
 	conn = su.get_connection()
 
@@ -495,7 +515,23 @@ async def amain():
 		return
 	print('RRP Connected!')
 
+	users_handle, err = await rs.ConnectRegistry(HKEY.USERS)
+	if err is not None:
+		print('users error! %s' % err)
+		return
 
+	print('users_handle %s' % users_handle)
+	for i in range(10):
+		res, err = await rs.EnumKey(users_handle, i)
+		if err is not None:
+			if err.errno == 259: #no more data is available
+				break
+			print(err)
+			print(traceback.format_tb(err.__traceback__))
+		print(res)
+
+	"""
+	
 	await ConnectRegistryTest(rs)
 
 
@@ -543,6 +579,7 @@ async def amain():
 	if err is not None:
 		print(err)
 	print(res)
+	"""
 
 if __name__ == '__main__':
 	asyncio.run(amain())
