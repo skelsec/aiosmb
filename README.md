@@ -103,11 +103,9 @@ Socks4 proxy port : `9050`
 `smb+negoex-certstore://<subject CN of the certificate to use>@10.10.10.2/`
 
 # TODO
-- DCERPC:
-  - Not going to lie, I'm ripping off impacket for this one. The whole DCERPC is a mess as a protocol. A word for whoever designed it: you are a bad person.
-  - Interface for controlling services: object is ready and stable, but missing a lot of functionalities
-  - Interface for controlling registry: object is ready and stable, but missing a lot of functionalities
-  - Any other RPC interfaces: some implemented, some not.
+- DCERPC: in progress, lot of features working already
+- VSS mountpoint operations
+- a lot of other things
 
 # Kudos
 This project is heavily based on the [Impacket project](https://github.com/SecureAuthCorp/impacket) orignally by @agsolino.  
