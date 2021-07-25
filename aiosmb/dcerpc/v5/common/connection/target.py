@@ -88,7 +88,7 @@ class DCERPCSMBTarget(DCERPCTarget):
 		DCERPCTarget.__init__(self, connection_string, DCERPCTargetType.SMB, timeout = timeout)
 		self.ip = ip
 		self.pipe = pipe
-		self.smb_connection = smb_connection #storing the smb connection is already exists...
+		self.smb_connection = smb_connection #storing the smb connection if already exists...
 
 class DCERPCHTTPTarget(DCERPCTarget):
 	def __init__(self, connection_string, ip, port, timeout = 1):

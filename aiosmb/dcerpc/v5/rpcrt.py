@@ -17,24 +17,10 @@
 #	 more SSP (e.g. NETLOGON)
 # 
 
-import asyncio
-import logging
-import socket
-import sys
-from binascii import unhexlify
-
-from aiosmb.crypto.symmetric import RC4
-
-from aiosmb import logger as LOG
-
-
-from aiosmb.dcerpc.v5.structure import Structure,pack,unpack
-from aiosmb.dcerpc.v5 import uuid
-from aiosmb.dcerpc.v5.uuid import uuidtup_to_bin, generate, stringver_to_bin, bin_to_uuidtup
+from aiosmb.dcerpc.v5.structure import Structure
+from aiosmb.dcerpc.v5.uuid import uuidtup_to_bin
 from aiosmb.dcerpc.v5.dtypes import UCHAR, ULONG, USHORT
 from aiosmb.dcerpc.v5.ndr import NDRSTRUCT
-from aiosmb.dcerpc.v5 import hresult_errors
-from minikerberos.gssapi import *
 
 
 # MS/RPC Constants

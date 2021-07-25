@@ -1,10 +1,7 @@
 from aiosmb.dcerpc.v5.epm import *
-from aiosmb.dcerpc.v5.common.connection.connectionstring import DCERPCStringBinding
 from aiosmb.dcerpc.v5.connection import DCERPC5Connection
 from aiosmb.dcerpc.v5.common.connection.target import DCERPCTarget
 from aiosmb.dcerpc.v5.common.connection.authentication import DCERPCAuth
-
-from aiosmb.commons.utils.decorators import red, rr
 
 """
 EPM is a bit special interface, as it seems it doesn't require authentication?
@@ -37,8 +34,12 @@ class EPM:
 			dcerpc_target_str = r'%s:%s[%s]' % (self.protocol, self.smb_connection.target.ip, self.port)
 			self.dce = self.get_connection_from_stringbinding(dcerpc_target_str)
 
-			await rr(self.dce.connect())
-			await rr(self.dce.bind(MSRPC_UUID_PORTMAP))
+			_, err = await self.dce.connect()
+			if err is not None:
+				raise err
+			_, err = await self.dce.bind(MSRPC_UUID_PORTMAP)
+			if err is not None:
+				raise err
 
 			return True,None
 		except Exception as e:
@@ -75,8 +76,7 @@ class EPM:
 				portAddr['IpPort'] = 0
 
 				hostAddr = EPMHostAddr()
-				import socket
-				hostAddr['Ip4addr'] = socket.inet_aton('0.0.0.0')
+				hostAddr['Ip4addr'] = b'\x00\x00\x00\x00' #socket.inet_aton('0.0.0.0')
 				transportData = portAddr.getData() + hostAddr.getData()
 			elif self.protocol == 'ncacn_http':
 				portAddr = EPMPortAddr()
@@ -84,8 +84,7 @@ class EPM:
 				portAddr['IpPort'] = 0
 
 				hostAddr = EPMHostAddr()
-				import socket
-				hostAddr['Ip4addr'] = socket.inet_aton('0.0.0.0')
+				hostAddr['Ip4addr'] = b'\x00\x00\x00\x00' #socket.inet_aton('0.0.0.0')
 				transportData = portAddr.getData() + hostAddr.getData()
 
 			else:
@@ -129,31 +128,36 @@ class EPM:
 		except Exception as e:
 			return None, e
 
-	@red
+	
 	async def lookup(self, inquiry_type = RPC_C_EP_ALL_ELTS, objectUUID = NULL, ifId = NULL, vers_option = RPC_C_VERS_ALL,  entry_handle = ept_lookup_handle_t(), max_ents = 499):
-		request = ept_lookup()
-		request['inquiry_type'] = inquiry_type
-		request['object'] = objectUUID
-		if ifId != NULL:
-			request['Ifid']['Uuid'] = ifId[:16]
-			request['Ifid']['VersMajor'] = ifId[16:][:2]
-			request['Ifid']['VersMinor'] = ifId[18:]
-		else:
-			request['Ifid'] = ifId
-		request['vers_option'] = vers_option
-		request['entry_handle'] = entry_handle
-		request['max_ents'] = max_ents
-		
-		resp, _ = await rr(self.dce.request(request))
+		try:
+			request = ept_lookup()
+			request['inquiry_type'] = inquiry_type
+			request['object'] = objectUUID
+			if ifId != NULL:
+				request['Ifid']['Uuid'] = ifId[:16]
+				request['Ifid']['VersMajor'] = ifId[16:][:2]
+				request['Ifid']['VersMinor'] = ifId[18:]
+			else:
+				request['Ifid'] = ifId
+			request['vers_option'] = vers_option
+			request['entry_handle'] = entry_handle
+			request['max_ents'] = max_ents
+			
+			resp, err = await self.dce.request(request)
+			if err is not None:
+				raise err
 
-		entries = []
-		for i in range(resp['num_ents']):
-			tmpEntry = {}
-			entry = resp['entries'][i]
-			tmpEntry['object'] = entry['object'] 
-			tmpEntry['annotation'] = b''.join(entry['annotation'])
-			tmpEntry['tower'] = EPMTower(b''.join(entry['tower']['tower_octet_string']))
-			entries.append(tmpEntry)
+			entries = []
+			for i in range(resp['num_ents']):
+				tmpEntry = {}
+				entry = resp['entries'][i]
+				tmpEntry['object'] = entry['object'] 
+				tmpEntry['annotation'] = b''.join(entry['annotation'])
+				tmpEntry['tower'] = EPMTower(b''.join(entry['tower']['tower_octet_string']))
+				entries.append(tmpEntry)
 
-		return entries, None
+			return entries, None
+		except Exception as e:
+			return None, e
 	

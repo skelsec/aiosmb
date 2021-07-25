@@ -18,7 +18,7 @@
 #   Helper functions start with "h"<name of the call>.
 #   There are test cases for them too. 
 #
-import socket
+
 from struct import unpack
 from six import b
 

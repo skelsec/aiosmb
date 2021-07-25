@@ -2,14 +2,15 @@ import asyncio
 import traceback
 
 from aiosmb.dcerpc.v5.transport.selector import DCERPCTransportSelector
-from aiosmb.dcerpc.v5.structure import Structure,pack,unpack
-from aiosmb.dcerpc.v5 import uuid
+from aiosmb.dcerpc.v5.structure import unpack
 from aiosmb.dcerpc.v5.uuid import uuidtup_to_bin, generate, stringver_to_bin, bin_to_uuidtup
-from aiosmb.dcerpc.v5.dtypes import UCHAR, ULONG, USHORT
-from aiosmb.dcerpc.v5.ndr import NDRSTRUCT
 from aiosmb.dcerpc.v5.rpcrt import *
 from aiosmb.commons.utils.decorators import red, rr
 from minikerberos.gssapi.gssapi import GSSAPIFlags
+from aiosmb.dcerpc.v5 import hresult_errors
+from aiosmb.crypto.symmetric import RC4
+import sys
+
 
 class DCERPC5Connection:
 	def __init__(self, gssapi, target):
