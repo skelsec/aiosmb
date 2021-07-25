@@ -26,7 +26,16 @@ This auth method uses the current user context. If you are NT/SYSTEM then it wil
 |-----------|-------------------|-------------------------|
 | Supported | Y                 | Y (using current user)  |
 
-## Proxy
+## Connection
+This library also supports QUIC connection to Azure hosts
+
+| Protocol | Supproted |
+|----------|-----------|
+| UDP      | N         |
+| TCP      | Y         |
+| QUIC     | Y         |
+
+### Proxy
 Supports Socks4 and Socks5 natively. Socks5 currently not supporting authentication.  
 Bear in mind, that proxy support doesnt always play well with all auth methods, see this table below.
 
@@ -35,22 +44,24 @@ Bear in mind, that proxy support doesnt always play well with all auth methods, 
 | NTLM     | Y                      | Y       | Y                    |
 | Kerberos | N (incompatible)       | Y       | Y                    |
 | SSPI     | Y (only local users)   | Y (only local users)      | Y (only local users) |
+| NEGOEX   | Y                      | Y       | Y                    |
 
 
 # Connection url
 I managed to condense all information needed to specify an SMB connection into an URL format.  
 It looks like this:  
   
-`dialect+authmethod://user:secret@target:port/?param1=value1`  
+`dialect-network+authmethod://user:secret@target:port/?param1=value1&param2=value2`  
   
-`dialect` fomat:  `smbX_version`  
-Where `X`: `1` or `2`  
-Where `version`: `200` or `201` or `300`...  
+`dialect` fomat:  `smbX/smbXXX`  
+Where `version`: `2` for any `SBM2` `3` for any `SMB3` dialects, or specific 3 character code like `200` or `201` or `300`...  
 At the moment use only `smb` as this feature is not implemented.
   
+`network` format: `tcp` or `quic` (leave empty for TCP)  
+
 `authmethod` format: `auth-type`  
-Where `auth`: `ntlm` or `kerberos` or `sspi`  
-Where `type`: `password` or `nt` or `aes` or `rc4` or `ccache` ...  
+Where `auth`: `ntlm` or `kerberos` or `sspi` or `negext`
+Where `type`: `password` or `nt` or `aes` or `rc4` or `kirbi` ...  
   
 `user` format: `DOMAIN\username`  
 Where `DOMAIN`: your domain  
