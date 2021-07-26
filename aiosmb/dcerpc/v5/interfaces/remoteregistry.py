@@ -402,7 +402,7 @@ class RRP:
 						break
 					raise err
 				if res.startswith('S-1-5-') is True:
-					users.append(res)
+					users.append(res[:-1])
 			return users, None
 		except Exception as e:
 			return None, e
