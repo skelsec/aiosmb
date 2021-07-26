@@ -876,7 +876,7 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 	async def do_tasks(self):
 		"""List scheduled tasks """
 		try:
-			async for taskname, err in await self.machine.tasks_list():
+			async for taskname, err in self.machine.tasks_list():
 				if err is not None:
 					raise err
 				print(taskname)

