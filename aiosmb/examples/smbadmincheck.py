@@ -199,7 +199,9 @@ class SMBAdminCheck:
 							out_data = '\r\n'.join([str(x) for x in out_buffer])
 						elif self.output_type == 'tsv':
 							for res in out_buffer:
-								out_data += '%s\r\n' % res.to_tsv()
+								x = res.to_tsv()
+								if x is not None and len(x) > 0:
+									out_data += '%s\r\n' % x
 						elif self.output_type == 'json':
 							for res in out_buffer:
 								out_data += '%s\r\n' % res.to_json()
