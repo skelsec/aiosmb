@@ -1238,7 +1238,8 @@ class SMBConnection:
 
 		rply = await self.recvSMB(message_id)
 		if rply.header.Status == NTStatus.SUCCESS:
-			del self.FileHandleTable[file_id]
+			if file_id in self.FileHandleTable:
+				del self.FileHandleTable[file_id]
 			
 			
 	async def flush(self, tree_id, file_id):
