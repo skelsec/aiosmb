@@ -203,9 +203,27 @@ class CREATE_REPLY:
 		self.CreateContext = None
 
 	def to_bytes(self):
-		# TODO	
-		#return t
-		pass
+		t = self.StructureSize.to_bytes(2, byteorder='little', signed = False)
+		t += self.OplockLevel.value.to_bytes(1, byteorder='little', signed = False)
+		t += self.Flags.value.to_bytes(1, byteorder='little', signed = False)
+		t += self.CreateAction.value.to_bytes(4, byteorder = 'little', signed = False)
+		
+		t += self.CreationTime.to_bytes(8, byteorder = 'little', signed = False)
+		t += self.LastAccessTime.to_bytes(8, byteorder = 'little', signed = False)
+		t += self.LastWriteTime.to_bytes(8, byteorder = 'little', signed = False)
+		t += self.ChangeTime.to_bytes(8, byteorder = 'little', signed = False)
+		t += self.AllocationSize.to_bytes(8, byteorder = 'little', signed = False)
+		t += self.EndofFile.to_bytes(8, byteorder = 'little', signed = False)
+		t += self.FileAttributes.value.to_bytes(4, byteorder = 'little', signed = False)
+		t += self.Reserved2.to_bytes(4, byteorder = 'little', signed = False)
+		t += self.FileId.to_bytes(16, byteorder = 'little', signed = False)
+		t += self.CreateContextsOffset.to_bytes(4, byteorder = 'little', signed = False)
+		t += self.CreateContextsLength.to_bytes(4, byteorder = 'little', signed = False)
+		
+		if self.CreateContextsLength > 0 or self.CreateContext is not None:
+			raise NotImplementedError()
+		
+		return t
 
 	@staticmethod
 	def from_bytes(bbuff):

@@ -30,6 +30,10 @@ from aiosmb.wintypes.fscc.FileAttributes import FileAttributes
 from aiosmb.protocol.smb2.commands.negotiate import SMB2ContextType, SMB2PreauthIntegrityCapabilities, SMB2HashAlgorithm, SMB2Cipher, SMB2CompressionType, SMB2CompressionFlags, SMB2EncryptionCapabilities, SMB2CompressionCapabilities
 from aiosmb.protocol.smb2.commands.sessionsetup import SessionSetupCapabilities
 from aiosmb.protocol.smb2.commands.tree_connect import ShareType
+from aiosmb.protocol.smb2.commands.ioctl import VALIDATE_NEGOTIATE_INFO_REPLY, IOCTL_REPLY
+from aiosmb.protocol.smb2.commands.create import CreateAction
+from aiosmb.dcerpc.v5.servers.transport.smbtransport import DCERPCServerSMBTransport
+
 
 
 from aiosmb.crypto.symmetric import aesCCMEncrypt, aesCCMDecrypt
@@ -113,6 +117,8 @@ class SMBServerSettings:
 		self.MaxWriteSize = 0x100000
 		self.ServerGuid = GUID.random()
 		self.RequireSigning = False
+
+		self.shares = {} #share_name -> path on disk
 	
 
 class SMBServerConnection:
@@ -132,12 +138,12 @@ class SMBServerConnection:
 		self.incoming_task = None
 		self.keepalive_task = None
 		# TODO: turn it back on 
-		self.supress_keepalive = False
 		self.activity_at = None
 		
 		self.selected_dialect = None
-		self.signing_required = True #False
+		self.signing_required = self.settings.RequireSigning
 		self.encryption_required = False
+		self.last_treeid = 10
 		
 		self.status = SMBConnectionStatus.NEGOTIATING
 		
@@ -158,7 +164,6 @@ class SMBServerConnection:
 		self.MaxReadSize = self.settings.MaxReadSize
 		self.MaxWriteSize = self.settings.MaxWriteSize
 		self.ServerGuid = self.settings.ServerGuid
-		self.RequireSigning = self.settings.RequireSigning
 		#self.ServerName = None
 		self.ClientGUID = None
 
@@ -173,7 +178,9 @@ class SMBServerConnection:
 		self.ClientCapabilities = 0
 		self.ServerCapabilities = NegotiateCapabilities.DFS | NegotiateCapabilities.LARGE_MTU
 		self.ClientSecurityMode = 0
-		self.ServerSecurityMode = NegotiateSecurityMode.SMB2_NEGOTIATE_SIGNING_ENABLED | NegotiateSecurityMode.SMB2_NEGOTIATE_SIGNING_REQUIRED
+		self.ServerSecurityMode = NegotiateSecurityMode.SMB2_NEGOTIATE_SIGNING_ENABLED
+		if self.signing_required is True:
+			self.ServerSecurityMode |= NegotiateSecurityMode.SMB2_NEGOTIATE_SIGNING_REQUIRED
 		
 		
 		self.SessionId = 0
@@ -305,6 +312,8 @@ class SMBServerConnection:
 							await self.tree_connect(msg)
 						elif msg.header.Command == SMB2Command.CREATE:
 							await self.create(msg)
+						elif msg.header.Command == SMB2Command.IOCTL:
+							await self.ioctl(msg)
 
 							
 
@@ -822,14 +831,21 @@ class SMBServerConnection:
 				reply.command = TREE_CONNECT_REPLY()
 				reply.command.ShareType = ShareType.PIPE
 				reply.command.ShareFlags = ShareFlags.SMB2_SHAREFLAG_NO_CACHING
-				reply.command.Capabilities = TreeCapabilities.SMB2_SHARE_CAP_ASYMMETRIC
+				reply.command.Capabilities = TreeCapabilities.SMB2_SHARE_CAP_NONE
 				reply.command.MaximalAccess = FileAccessMask.GENERIC_ALL
 					
 				reply.header = SMB2Header_SYNC()
 				reply.header.Command  = SMB2Command.TREE_CONNECT
 				reply.header.Flags = SMB2HeaderFlag.SMB2_FLAGS_SERVER_TO_REDIR
-				#reply.header.CreditReq = 0
+				reply.header.TreeId = self.last_treeid
+				self.last_treeid += 1
+				
+				te = TreeEntry.from_tree_reply(reply, path.upper())
+				self.TreeConnectTable_id[reply.header.TreeId] = te
+				self.TreeConnectTable_share[path.upper()] = te
+				
 				await self.sendSMB(reply)
+
 			return
 			
 			if rply.header.Status == NTStatus.SUCCESS:
@@ -857,8 +873,58 @@ class SMBServerConnection:
 			print(msg)
 			print(msg.header)
 			print(msg.command)
+			print(self.TreeConnectTable_id)
 			if msg.header.TreeId not in self.TreeConnectTable_id:
 				raise Exception('Unknown Tree ID!')
+			
+			tree_entry = self.TreeConnectTable_id[msg.header.TreeId]
+			print(tree_entry)
+			if tree_entry.share_name == 'IPC$':
+
+				if msg.command.Name.lower() == 'srvsvc':
+					
+					from aiosmb.dcerpc.v5.servers.srvsvc import SRVSVCServer
+					in_q = asyncio.Queue()
+					out_q = asyncio.Queue()
+					transport = DCERPCServerSMBTransport(in_q, out_q)
+					server = SRVSVCServer(transport, self.settings.shares)
+					await server.run()
+
+
+				else:
+					raise NotImplementedError()
+
+				#self.FileHandleTable
+					
+				reply = SMB2Message()
+				reply.command = CREATE_REPLY()
+				reply.command.OplockLevel = OplockLevel.SMB2_OPLOCK_LEVEL_NONE
+				reply.command.Flags = CreateOptions.FILE_DIRECTORY_FILE
+				reply.command.CreateAction = CreateAction.FILE_OPENED
+				reply.command.CreationTime = 0
+				reply.command.LastAccessTime = 0
+				reply.command.LastWriteTime = 0
+				reply.command.ChangeTime = 0
+				reply.command.AllocationSize = 4096
+				reply.command.EndofFile = 0
+				reply.command.FileAttributes = FileAttributes.FILE_ATTRIBUTE_NORMAL
+				reply.command.Reserved2 = 0
+				reply.command.FileId = None
+				reply.command.CreateContextsOffset = 0
+				reply.command.CreateContextsLength = 0
+						
+				reply.header = SMB2Header_SYNC()
+				reply.header.Command  = SMB2Command.CREATE
+				reply.header.Flags = SMB2HeaderFlag.SMB2_FLAGS_SERVER_TO_REDIR
+				reply.header.TreeId = msg.header.TreeId
+					
+				await self.sendSMB(reply)
+			
+			
+			else:
+				share_path = self.settings.shares[tree_entry.share_name]
+				print(share_path)
+
 			
 		
 		except Exception as e:
@@ -1079,26 +1145,50 @@ class SMBServerConnection:
 		except Exception as e:
 			return None, e
 
-	async def ioctl(self, tree_id, file_id, ctlcode, data = None, flags = IOCTLREQFlags.IS_IOCTL):
+	async def ioctl(self, message:SMB2Message):
 		try:
-			command = IOCTL_REQ()
-			command.CtlCode  = ctlcode
-			command.FileId  = file_id
-			command.Flags = flags
-			command.Buffer = data
-			
-			header = SMB2Header_SYNC()
-			header.Command  = SMB2Command.IOCTL
-			header.TreeId = tree_id
-			
-			msg = SMB2Message(header, command)
-			message_id = await self.sendSMB(msg)
+			## IOCTL commands not implemented!!!!
+			reply = SMB2Message()
+			reply.header = SMB2Header_SYNC()
+			reply.header.Command  = SMB2Command.IOCTL
+			reply.header.Flags = SMB2HeaderFlag.SMB2_FLAGS_SERVER_TO_REDIR
+			reply.header.CreditReq = 64
+			reply.header.Status = NTStatus.NOT_SUPPORTED
+			reply.command = ERROR_REPLY()
+			await self.sendSMB(reply)
+			return
 
-			rply = await self.recvSMB(message_id)
+			if message.command.CtlCode == CtlCode.FSCTL_VALIDATE_NEGOTIATE_INFO:
+				print(message.command.Buffer)
 
-			return rply.command.Buffer, None
+				
 
+				data = VALIDATE_NEGOTIATE_INFO_REPLY()
+				data.Guid = self.ServerGuid
+				data.SecurityMode = self.ServerSecurityMode #NegotiateSecurityMode.SMB2_NEGOTIATE_SIGNING_ENABLED #NegotiateSecurityMode.SMB2_NEGOTIATE_SIGNING_ENABLED | NegotiateSecurityMode.SMB2_NEGOTIATE_SIGNING_REQUIRED # self.ServerSecurityMode
+				data.Capabilities = self.ServerCapabilities
+				data.Dialect = self.selected_dialect
+
+				reply = SMB2Message()
+				reply.command = IOCTL_REPLY()
+				reply.command.Buffer = data.to_bytes()
+				reply.command.CtlCode  = CtlCode.FSCTL_VALIDATE_NEGOTIATE_INFO #CtlCode MUST be set to FSCTL_VALIDATE_NEGOTIATE_INFO.
+				reply.command.FileId  = b'\xFF'*16 #FileId MUST be set to { 0xFFFFFFFFFFFFFFFF, 0xFFFFFFFFFFFFFFFF }.
+				reply.command.Flags = 0 #Flags MUST be set to zero.
+				reply.command.InputOffset =  64+48# InputOffset SHOULD be set to the offset, in bytes, from the beginning of the SMB2 header to the Buffer[] field of the response.
+				reply.command.InputCount = 0 #InputCount SHOULD be set to zero.
+				reply.command.OutputOffset = reply.command.InputOffset + reply.command.InputCount #OutputOffset MUST be set to InputOffset + InputCount, rounded up to a multiple of 8.
+				reply.command.OutputCount =  len(reply.command.Buffer) # OutputCount MUST be set to the size of the VALIDATE_NEGOTIATE_INFO response that is constructed as above.
+				
+				reply.header = SMB2Header_SYNC()
+				reply.header.Command  = SMB2Command.IOCTL
+				reply.header.Flags = SMB2HeaderFlag.SMB2_FLAGS_SERVER_TO_REDIR
+				reply.header.CreditReq = 64
+				await self.sendSMB(reply)
+			else:
+				raise NotImplementedError()
 		except Exception as e:
+			traceback.print_exc()
 			return None, e
 			
 	async def close(self, tree_id, file_id, flags = CloseFlag.NONE):
@@ -1263,16 +1353,20 @@ if __name__ == '__main__':
 	ip = '0.0.0.0'
 	port = 445
 	credential = SMBNTLMCredential()
-	credential.username = 'alma'
-	credential.domain = ''
+	credential.username = 'WIN2019AD$'
+	credential.domain = 'TEST'
 	credential.workstation = None
 	credential.is_guest = False
-	credential.password = 'alma'			
+	credential.nt_hash = '933ad76b9665fb9d9cac27e2197c62c9'			
 	authsettings = NTLMHandlerSettings(credential, mode = 'SERVER', template_name = 'Windows2003', custom_template = None)
 	ctx = NTLMAUTHHandler(authsettings)
 	gssapi = SPNEGO('SERVER')
 	gssapi.add_auth_context('NTLMSSP - Microsoft NTLM Security Support Provider', ctx)
 	server_settings = SMBServerSettings(gssapi)
+	server_settings.RequireSigning = False
+	server_settings.shares = {
+		'shared' : '/home/devel/Desktop'
+	}
 
 	server = TCPServerSocket(ip, server_settings, port)
 	asyncio.run(server.run())

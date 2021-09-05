@@ -394,6 +394,23 @@ class netntlmv2:
 	# https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-nlmp/d86303b5-b29e-4fb9-b119-77579c761370
 	def calc_key_exchange_key(self):				
 		return self.SessionBaseKey
+	
+	def calc_key_exhange_key_server(self, credentials):
+		if not credentials.nt_hash and not credentials.password:
+			raise Exception('Password or NT hash must be supplied!')
+			
+		if credentials.password:
+			nt_hash_v2 = NTOWFv2(credentials.password, credentials.username, credentials.domain)
+		else:
+			nt_hash_v2 = NTOWFv2(None, credentials.username, credentials.domain, bytes.fromhex(credentials.nt_hash))
+		
+		response = self.NTResponse.Response
+		if isinstance(self.NTResponse.Response, str):
+			response = bytes.fromhex(self.NTResponse.Response)
+
+		hm = hmac_md5(nt_hash_v2)
+		hm.update(response)
+		return hm.digest()
 		
 	@staticmethod
 	def construct(server_challenge, client_challenge, server_details, credentials, timestamp = None):

@@ -88,6 +88,7 @@ class ShareFlags(enum.IntFlag):
 	SMB2_SHAREFLAG_IDENTITY_REMOTING = 0x00040000 # The share supports identity remoting. The client can request remoted identity access for the share via the SMB2_REMOTED_IDENTITY_TREE_CONNECT context as specified in section 2.2.9.2.1.
 
 class TreeCapabilities(enum.IntFlag):
+	SMB2_SHARE_CAP_NONE = 0x0
 	SMB2_SHARE_CAP_DFS = 0x00000008 #The specified share is present in a DFS tree structure. The server MUST set the SMB2_SHARE_CAP_DFS bit in the Capabilities field if the per-share property Share.IsDfs is TRUE.
 	SMB2_SHARE_CAP_CONTINUOUS_AVAILABILITY = 0x00000010 #The specified share is continuously available. This flag is only valid for the SMB 3.x dialect family.
 	SMB2_SHARE_CAP_SCALEOUT = 0x00000020 #The specified share is present on a server configuration which facilitates faster recovery of durable handles. This flag is only valid for the SMB 3.x dialect family.

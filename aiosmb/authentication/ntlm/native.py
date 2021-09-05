@@ -269,17 +269,24 @@ class NTLMAUTHHandler:
 			return self.SignKey_server
 		
 	def setup_crypto(self):
-		if not self.RandomSessionKey:
-			self.RandomSessionKey = os.urandom(16)
-		
-		if self.mode.upper() != 'MANUAL':
-			#this check is here to provide the option to load the messages + the sessionbasekey manually
-			#then you will be able to use the sign and seal functions provided by this class
-			if self.settings.credential.is_guest == False:
-				self.SessionBaseKey = self.ntlm_credentials.SessionBaseKey
-		
+		if self.mode.upper() == 'SERVER':
+			self.EncryptedRandomSessionKey = self.ntlmAuthenticate.EncryptedRandomSession
+			print('self.EncryptedRandomSessionKey %s' % self.EncryptedRandomSessionKey)
 			rc4 = RC4(self.KeyExchangeKey)
-			self.EncryptedRandomSessionKey = rc4.encrypt(self.RandomSessionKey)
+			self.RandomSessionKey = rc4.decrypt(self.EncryptedRandomSessionKey)
+
+		else:
+			if not self.RandomSessionKey:
+				self.RandomSessionKey = os.urandom(16)
+			
+			if self.mode.upper() != 'MANUAL':
+				#this check is here to provide the option to load the messages + the sessionbasekey manually
+				#then you will be able to use the sign and seal functions provided by this class
+				if self.settings.credential.is_guest == False:
+					self.SessionBaseKey = self.ntlm_credentials.SessionBaseKey
+			
+				rc4 = RC4(self.KeyExchangeKey)
+				self.EncryptedRandomSessionKey = rc4.encrypt(self.RandomSessionKey)
 		
 		self.calc_sealkey('Client')
 		self.calc_sealkey('Server')
@@ -308,9 +315,13 @@ class NTLMAUTHHandler:
 					
 
 					print(self.ntlmAuthenticate)
-					self.ntlm_credentials = netntlmv2.construct(self.ntlmChallenge.ServerChallenge, self.challenge, self.ntlmChallenge.TargetInfo, self.settings.credential, timestamp = self.timestamp)
-					print(self.ntlm_credentials)
-					self.KeyExchangeKey = self.ntlm_credentials.calc_key_exchange_key()						
+					#self.ntlm_credentials = netntlmv2.construct(self.ntlmChallenge.ServerChallenge, self.ntlmAuthenticate.NTChallenge.ChallengeFromClinet, self.ntlmChallenge.TargetInfo, self.settings.credential, timestamp = self.timestamp)
+					#print(self.ntlm_credentials)
+					self.ntlm_credentials = netntlmv2()
+					self.ntlm_credentials.ServerChallenge = self.ntlmChallenge.ServerChallenge
+					self.ntlm_credentials.NTResponse = self.ntlmAuthenticate.NTChallenge
+					self.ntlm_credentials.LMResponse = self.ntlmAuthenticate.LMChallenge
+					self.KeyExchangeKey = self.ntlm_credentials.calc_key_exhange_key_server(self.settings.credential)						
 					self.setup_crypto()
 
 					return b'', False, None

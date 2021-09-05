@@ -142,9 +142,12 @@ class SMBConnection:
 	Connection class for network connectivity and SMB messages management (sending/recieveing/singing/encrypting).
 	"""
 	#def __init__(self, gssapi, target, dialects = [NegotiateDialects.SMB202]):
-	def __init__(self, gssapi, target):
+	def __init__(self, gssapi, target, preserve_gssapi = True, nosign = False):
+		self.nosign = nosign
 		self.gssapi = gssapi
-		self.original_gssapi = copy.deepcopy(gssapi) #preserving a copy of the original
+		self.original_gssapi = None
+		if preserve_gssapi is True:
+			self.original_gssapi = copy.deepcopy(gssapi) #preserving a copy of the original
 		
 		self.target = target
 		
@@ -200,7 +203,9 @@ class SMBConnection:
 		self.SupportsEncryption = False
 		self.ClientCapabilities = 0
 		self.ServerCapabilities = 0
-		self.ClientSecurityMode = NegotiateSecurityMode.SMB2_NEGOTIATE_SIGNING_ENABLED | NegotiateSecurityMode.SMB2_NEGOTIATE_SIGNING_REQUIRED
+		self.ClientSecurityMode = NegotiateSecurityMode.NONE
+		if nosign is False:
+			self.ClientSecurityMode = NegotiateSecurityMode.SMB2_NEGOTIATE_SIGNING_ENABLED | NegotiateSecurityMode.SMB2_NEGOTIATE_SIGNING_REQUIRED
 		self.ServerSecurityMode = 0
 		
 		
@@ -610,6 +615,8 @@ class SMBConnection:
 			self.selected_dialect = rply.command.DialectRevision
 			self.ServerSecurityMode = rply.command.SecurityMode
 			self.signing_required = NegotiateSecurityMode.SMB2_NEGOTIATE_SIGNING_ENABLED in rply.command.SecurityMode
+			if self.nosign is True:
+				self.signing_required = False
 			
 					
 			if NegotiateCapabilities.ENCRYPTION in rply.command.Capabilities:
@@ -663,7 +670,7 @@ class SMBConnection:
 						if self.gssapi.selected_authentication_context is not None and self.gssapi.selected_authentication_context.ntlmChallenge is not None:
 							return True, None
 				except Exception as e:
-					logger.exception('GSSAPI auth failed!')
+					#logger.exception('GSSAPI auth failed!')
 					#TODO: Clear this up, kerberos lib needs it's own exceptions!
 					if str(e).find('Preauth') != -1:
 						raise SMBKerberosPreauthFailed()
@@ -673,6 +680,8 @@ class SMBConnection:
 				
 				command.Flags = 0
 				command.SecurityMode = NegotiateSecurityMode.SMB2_NEGOTIATE_SIGNING_ENABLED
+				if self.nosign is True:
+					command.SecurityMode = NegotiateSecurityMode.NONE
 				command.Capabilities = 0 #self.ClientCapabilities
 				command.Channel      = 0
 				command.PreviousSessionId    = 0

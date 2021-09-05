@@ -3,7 +3,7 @@ import enum
 # https://msdn.microsoft.com/en-us/library/cc236650.aspx
 class NegotiateFlags(enum.IntFlag):
 	NEGOTIATE_56   = 0x80000000
-	NEGOTIATE_KEY_EXCH   = 0x40000000
+	NEGOTIATE_KEY_EXCH   = 0x40000000 # needed for encryption/singing key
 	NEGOTIATE_128   = 0x20000000
 	r1  = 0x10000000
 	r2  = 0x8000000

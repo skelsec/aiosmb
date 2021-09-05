@@ -128,6 +128,9 @@ class NetBIOSTransport:
 		try:
 			while True:
 				smb_msg_data = await self.out_queue.get()
+				if smb_msg_data is None:
+					await self.stop()
+					return
 				data  = b'\x00'
 				data += len(smb_msg_data).to_bytes(3, byteorder='big', signed = False)
 				data += smb_msg_data

@@ -95,7 +95,7 @@ class NTLMv2Response:
 	@staticmethod
 	def from_buffer(buff):
 		t = NTLMv2Response()
-		t.Response = buff.read(16).hex()
+		t.Response = buff.read(16)
 		pos = buff.tell()
 		t.ChallengeFromClinet = NTLMv2ClientChallenge.from_buffer(buff)
 
@@ -103,7 +103,7 @@ class NTLMv2Response:
 
 	def __repr__(self):
 		t  = '== NTLMv2Response ==\r\n'
-		t += 'Response           : %s\r\n' % repr(self.Response)
+		t += 'Response           : %s\r\n' % repr(self.Response.hex())
 		t += 'ChallengeFromClinet: %s\r\n' % repr(self.ChallengeFromClinet)
 		return t
 

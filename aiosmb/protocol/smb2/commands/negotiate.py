@@ -10,6 +10,7 @@ from aiosmb.wintypes.dtyp.constrcuted_security.guid import *
 
 # https://msdn.microsoft.com/en-us/library/cc246543.aspx
 class NegotiateSecurityMode(enum.IntFlag):
+	NONE = 0x0000
 	SMB2_NEGOTIATE_SIGNING_ENABLED  = 0x0001
 	SMB2_NEGOTIATE_SIGNING_REQUIRED = 0x0002
 

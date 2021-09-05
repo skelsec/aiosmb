@@ -1,6 +1,10 @@
 import io
 import enum
 import ipaddress
+from os import stat
+
+from aiosmb.protocol.smb2.commands.negotiate import NegotiateSecurityMode, NegotiateCapabilities
+from aiosmb.protocol.common import NegotiateDialects
 
 class CtlCode(enum.Enum):
 	FSCTL_DFS_GET_REFERRALS = 0x00060194
@@ -74,7 +78,7 @@ class IOCTL_REQ:
 		msg.StructureSize = int.from_bytes(buff.read(2), byteorder='little')
 		assert msg.StructureSize == 57
 		msg.Reserved = int.from_bytes(buff.read(2), byteorder='little')
-		msg.CtlCode = int.from_bytes(buff.read(4), byteorder='little')
+		msg.CtlCode = CtlCode(int.from_bytes(buff.read(4), byteorder='little'))
 		msg.FileId = int.from_bytes(buff.read(16), byteorder='little')
 		msg.InputOffset = int.from_bytes(buff.read(4), byteorder='little')
 		msg.InputCount = int.from_bytes(buff.read(4), byteorder='little')
@@ -86,8 +90,14 @@ class IOCTL_REQ:
 		msg.Reserved2 = int.from_bytes(buff.read(4), byteorder='little')
 
 		if msg.InputCount > 0:
-			raise NotImplementedError()
+			if msg.CtlCode == CtlCode.FSCTL_VALIDATE_NEGOTIATE_INFO:
+				buff.seek(msg.InputOffset)
+				data = buff.read(msg.InputCount)
+				msg.Buffer = VALIDATE_NEGOTIATE_INFO_REQ.from_bytes(data)
+			else:
+				raise NotImplementedError()
 		
+
 		return msg
 
 	def __repr__(self):
@@ -154,16 +164,61 @@ class NETWORK_RESILIENCY_REQUEST:
 		self.Reserved = 0 # 4 bytes zero
 
 # https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-smb2/261ec397-d692-4e3e-8bcd-c96ce02bb969
-# TODO
-class VALIDATE_NEGOTIATE_INFO:
+class VALIDATE_NEGOTIATE_INFO_REQ:
 	def __init__(self):
 		self.Capabilities = None
 		self.Guid = None
 		self.SecurityMode = None
 		self.DialectCount = None
-		self.Dialects = None
+		self.Dialects = []
+	
+	@staticmethod
+	def from_bytes(data):
+		return VALIDATE_NEGOTIATE_INFO_REQ.from_buffer(io.BytesIO(data))
+	
+	@staticmethod
+	def from_buffer(buff):
+		res = VALIDATE_NEGOTIATE_INFO_REQ()
+		res.Capabilities = NegotiateCapabilities(int.from_bytes(buff.read(4), byteorder='little'))
+		res.Guid = buff.read(16)
+		res.SecurityMode = NegotiateSecurityMode(int.from_bytes(buff.read(2), byteorder='little'))
+		res.DialectCount = int.from_bytes(buff.read(2), byteorder='little')
+		for _ in range(res.DialectCount):
+			res.Dialects.append(NegotiateDialects(int.from_bytes(buff.read(2), byteorder='little')))
+		
+		return res
 
+# https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-smb2/9ace71ad-a6c1-4565-83d8-4cd9c9a92ea4
+class VALIDATE_NEGOTIATE_INFO_REPLY:
+	def __init__(self):
+		self.Capabilities = None #The Capabilities of the server.
+		self.Guid = None #The ServerGuid of the server.
+		self.SecurityMode = None #The SecurityMode of the server.
+		self.Dialect = None #The SMB2 dialect in use by the server on the connection.
+	
+	def to_bytes(self):
+		t = self.Capabilities.to_bytes(4, byteorder='little', signed = False)
+		t += self.Guid.to_bytes()
+		t += self.SecurityMode.value.to_bytes(2, byteorder='little', signed = False)
+		t += self.Dialect.value.to_bytes(2, byteorder='little', signed = False)
 
+		return t
+
+	@staticmethod
+	def from_bytes(data):
+		return VALIDATE_NEGOTIATE_INFO_REPLY.from_buffer(io.BytesIO(data))
+	
+	@staticmethod
+	def from_buffer(buff):
+		res = VALIDATE_NEGOTIATE_INFO_REPLY()
+		res.Capabilities = NegotiateCapabilities(int.from_bytes(buff.read(4), byteorder='little'))
+		res.Guid = buff.read(16)
+		res.SecurityMode = NegotiateSecurityMode(int.from_bytes(buff.read(2), byteorder='little'))
+		res.Dialect = NegotiateDialects(int.from_bytes(buff.read(2), byteorder='little'))
+		
+		return res
+
+# https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-smb2/f70eccb6-e1be-4db8-9c47-9ac86ef18dbb
 class IOCTL_REPLY:
 	def __init__(self):
 		self.StructureSize = 49
@@ -172,14 +227,27 @@ class IOCTL_REPLY:
 		self.FileId  = None #bytes
 		self.InputOffset  = 0
 		self.InputCount   = 0
-		self.MaxInputResponse    = 0
 		self.OutputOffset = 0
 		self.OutputCount = 0
-		self.MaxOutputResponse = 0
 		self.Flags = 0
 		self.Reserved2 = 0
 		
 		self.Buffer = None
+
+	def to_bytes(self):
+		t = self.StructureSize.to_bytes(2, byteorder='little', signed = False)
+		t += self.Reserved.to_bytes(2, byteorder='little', signed = False)
+		t += self.CtlCode.value.to_bytes(4, byteorder='little', signed = False)
+		t += self.FileId
+		t += self.InputOffset.to_bytes(4, byteorder='little', signed = False)
+		t += self.InputCount.to_bytes(4, byteorder='little', signed = False)
+		t += self.OutputOffset.to_bytes(4, byteorder='little', signed = False)
+		t += self.OutputCount.to_bytes(4, byteorder='little', signed = False)
+		t += self.Flags.to_bytes(4, byteorder='little', signed = False)
+		t += self.Reserved2.to_bytes(4, byteorder='little', signed = False)
+		t += self.Buffer
+		return t
+
 
 	@staticmethod
 	def from_bytes(bbuff):
