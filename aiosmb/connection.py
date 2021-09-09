@@ -146,7 +146,7 @@ class SMBConnection:
 		self.gssapi = gssapi
 		self.original_gssapi = copy.deepcopy(gssapi) #preserving a copy of the original
 		
-		self.target = target
+		self.target = copy.deepcopy(target)
 		
 		#######DONT CHANGE THIS
 		#use this for smb2 > self.supported_dialects = [NegotiateDialects.WILDCARD, NegotiateDialects.SMB202, NegotiateDialects.SMB210]
