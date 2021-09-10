@@ -3,7 +3,10 @@ import logging
 from aiosmb import logger
 import traceback
 
-#from aiosmb.dtyp.constrcuted_security.guid import GUID
+from aiosmb.dcerpc.v5.common.connection.authentication import DCERPCAuth
+from aiosmb.dcerpc.v5.common.connection.target import DCERPCTarget
+from aiosmb.connection import SMBConnection
+from aiosmb.dcerpc.v5.connection import DCERPC5Connection
 from aiosmb.dcerpc.v5.common.secrets import SMBUserSecrets
 from aiosmb.wintypes.dtyp.structures.filetime import FILETIME
 from aiosmb.wintypes.dtyp.constrcuted_security.sid import SID
@@ -12,14 +15,16 @@ from aiosmb.dcerpc.v5.uuid import string_to_bin
 from aiosmb.dcerpc.v5 import drsuapi, samr
 from aiosmb.dcerpc.v5.interfaces.endpointmgr import EPM
 from aiosmb.dcerpc.v5.interfaces.servicemanager import *
-from aiosmb.dcerpc.v5.rpcrt import RPC_C_AUTHN_LEVEL_PKT_INTEGRITY, RPC_C_AUTHN_LEVEL_PKT_PRIVACY, DCERPCException, RPC_C_AUTHN_GSS_NEGOTIATE
+from aiosmb.dcerpc.v5.rpcrt import RPC_C_AUTHN_LEVEL_PKT_INTEGRITY,\
+	RPC_C_AUTHN_LEVEL_PKT_PRIVACY,\
+	RPC_C_AUTHN_LEVEL_CONNECT, DCERPCException, RPC_C_AUTHN_GSS_NEGOTIATE
 
 from aiosmb.commons.utils.decorators import red, rr
 
-class SMBDRSUAPI:
-	def __init__(self, connection, domainname = None):
-		self.connection = connection	
+class DRSUAPIRPC:
+	def __init__(self, domainname = None):
 		self.domainname = domainname
+		self.service_uuid = drsuapi.MSRPC_UUID_DRSUAPI
 		
 		self.dce = None
 		self.handle = None
@@ -63,46 +68,75 @@ class SMBDRSUAPI:
 	async def __aenter__(self):
 		return self
 	
-	@red
 	async def __aexit__(self, exc_type, exc, traceback):
 		await self.close()
 		return True,None
-		
 	
-	async def connect(self, open = False):
+	@staticmethod
+	async def from_rpcconnection(connection:DCERPC5Connection, domain = None, auth_level = None, open:bool = True, perform_dummy:bool = False):
 		try:
-			epm = EPM(self.connection, protocol = 'ncacn_ip_tcp')
+			service = DRSUAPIRPC(domainname=domain)
+			service.dce = connection
+			
+			service.dce.set_auth_level(auth_level)
+			if auth_level is None:
+				service.dce.set_auth_level(RPC_C_AUTHN_LEVEL_PKT_PRIVACY) #must be this value!
+			
+			_, err = await service.dce.connect()
+			if err is not None:
+				raise err
+			
+			_, err = await service.dce.bind(DRSUAPIRPC().service_uuid)
+			if err is not None:
+				raise err
+			
+			if open is True:
+				_, err = await service.open()
+				if err is not None:
+					raise err
+
+				
+			return service, None
+		except Exception as e:
+			return False, e
+	
+	@staticmethod
+	async def from_smbconnection(connection:SMBConnection, domain = None, auth_level = None, open:bool = True, perform_dummy:bool = False):
+		"""
+		Creates the connection to the service using an established SMBConnection.
+		This connection will use the given SMBConnection as transport layer.
+		"""
+		try:
+			if auth_level is None:
+				#for SMB connection no extra auth needed
+				auth_level = RPC_C_AUTHN_LEVEL_PKT_PRIVACY
+			
+			epm = EPM.from_smbconnection(connection)
 			_, err = await epm.connect()
 			if err is not None:
 				raise err
-			stringBinding, _ = await rr(epm.map(drsuapi.MSRPC_UUID_DRSUAPI))
-			self.dce = epm.get_connection_from_stringbinding(stringBinding)
 
-			#the line below must be set!
-			self.dce.set_auth_level(RPC_C_AUTHN_LEVEL_PKT_PRIVACY)
-
-			_, err = await self.dce.connect()
+			constring, err = await epm.map(DRSUAPIRPC().service_uuid)
+			if err is not None:
+				raise err
+			
+			target = DCERPCTarget.from_connection_string(constring, smb_connection = connection)
+			dcerpc_auth = DCERPCAuth.from_smb_gssapi(connection.gssapi)
+			rpc_connection = DCERPC5Connection(dcerpc_auth, target)
+			
+			service, err = await DRSUAPIRPC.from_rpcconnection(rpc_connection, domain=domain, auth_level=auth_level, open=open, perform_dummy = perform_dummy)	
 			if err is not None:
 				raise err
 
-			
-			if open == True:
-				_, err = await self.open()
-				if err is not None:
-					raise err
-			return True, None
+			return service, None
 		except Exception as e:
-			return False, e
+			return None, e
 		finally:
 			if epm is not None:
 				await epm.disconnect()
 		
 	async def open(self):
-		try:
-			if not self.dce:
-				await rr(self.connect())
-			
-			await rr(self.dce.bind(drsuapi.MSRPC_UUID_DRSUAPI))
+		try:			
 			request = drsuapi.DRSBind()
 			request['puuidClientDsa'] = drsuapi.NTDSAPI_CLIENT_GUID
 			drs = drsuapi.DRS_EXTENSIONS_INT()
@@ -118,8 +152,10 @@ class SMBDRSUAPI:
 			drs['dwExtCaps'] = 0xffffffff
 			request['pextClient']['cb'] = len(drs)
 			request['pextClient']['rgb'] = list(drs.getData())
-			resp,_ = await rr(self.dce.request(request))
-			
+			resp, err = await self.dce.request(request)
+			if err is not None:
+				raise err
+
 			# Let's dig into the answer to check the dwReplEpoch. This field should match the one we send as part of
 			# DRSBind's DRS_EXTENSIONS_INT(). If not, it will fail later when trying to sync data.
 			drsExtensionsInt = drsuapi.DRS_EXTENSIONS_INT()
@@ -137,12 +173,16 @@ class SMBDRSUAPI:
 				drs['dwReplEpoch'] = drsExtensionsInt['dwReplEpoch']
 				request['pextClient']['cb'] = len(drs)
 				request['pextClient']['rgb'] = list(drs.getData())
-				resp,_ = await rr(self.dce.request(request))
+				resp, err = await self.dce.request(request)
+				if err is not None:
+					raise err
 
 			self.handle = resp['phDrs']
 
 			# Now let's get the NtdsDsaObjectGuid UUID to use when querying NCChanges
-			resp, _ = await rr(drsuapi.hDRSDomainControllerInfo(self.dce, self.handle, self.domainname, 2))
+			resp, err = await drsuapi.hDRSDomainControllerInfo(self.dce, self.handle, self.domainname, 2)
+			if err is not None:
+				raise err
 			if logger.level == logging.DEBUG:
 				logger.debug('DRSDomainControllerInfo() answer %s' % resp.dump())
 
@@ -172,13 +212,13 @@ class SMBDRSUAPI:
 			}
 			formatOffered = drsuapi.DS_NT4_ACCOUNT_NAME_SANS_DOMAIN
 			
-			crackedName, _ = await rr(
-				self.DRSCrackNames(
+			crackedName, err = await self.DRSCrackNames(
 					formatOffered,
 					drsuapi.DS_NAME_FORMAT.DS_UNIQUE_ID_NAME,
 					name=username
 				)
-			)
+			if err is not None:
+				raise err
 			
 			###### TODO: CHECKS HERE
 			
@@ -353,20 +393,16 @@ class SMBDRSUAPI:
 		except Exception as e:
 			return None, e
 			
-	@red
 	async def DRSCrackNames(self, formatOffered=drsuapi.DS_NAME_FORMAT.DS_DISPLAY_NAME, formatDesired=drsuapi.DS_NAME_FORMAT.DS_FQDN_1779_NAME, name=''):
-		if self.handle is None:
-			await rr(self.open())
-
-		logger.debug('Calling DRSCrackNames for %s' % name)
-		resp, _ = await rr(drsuapi.hDRSCrackNames(self.dce, self.handle, 0, formatOffered, formatDesired, (name,)))
-		return resp, None
+		try:
+			logger.debug('Calling DRSCrackNames for %s' % name)
+			resp, err = await drsuapi.hDRSCrackNames(self.dce, self.handle, 0, formatOffered, formatDesired, (name,))
+			return resp, None
+		except Exception as e:
+			return None, e
 	
 	async def DRSGetNCChanges(self, guid, req_attributes = {}):
 		try:
-			if self.handle is None:
-				await rr(self.open())
-
 			logger.debug('Calling DRSGetNCChanges for %s ' % guid)
 			request = drsuapi.DRSGetNCChanges()
 			request['hDrs'] = self.handle
@@ -411,33 +447,32 @@ class SMBDRSUAPI:
 			data, err = await self.dce.request(request)
 			return data, err
 		except Exception as e:
-			print('err!')
 			return None, e
 
 
 	async def DRSGetNT4ChangeLog(self):
-		if self.handle is None:
-			await rr(self.open())
-
 		try:
 			logger.debug('Calling DRSGetNT4ChangeLog')
-			resp, _ = await rr(drsuapi.hDRSGetNT4ChangeLog(self.dce, self.handle))
+			resp, err = await drsuapi.hDRSGetNT4ChangeLog(self.dce, self.handle)
+			if err is not None:
+				raise err
 			return resp, None
 		except Exception as e:
 			return None, e
 
-	
-	@red
 	async def close(self):
-		if self.handle:
-			try:
-				await rr(drsuapi.hDRSUnbind(self.dce, self.handle))
-			except:
-				pass
-		if self.dce:
-			try:
-				await rr(self.dce.disconnect())
-			except:
-				pass
-		
-		return True,None
+		try:
+			if self.handle:
+				try:
+					await drsuapi.hDRSUnbind(self.dce, self.handle)
+				except:
+					pass
+			if self.dce:
+				try:
+					await self.dce.disconnect()
+				except:
+					pass
+			
+			return True,None
+		except Exception as e:
+			return None, e

@@ -1,11 +1,11 @@
 import asyncio
 import traceback
 
+from aiosmb.dcerpc.v5.ndr import NDRCALL
 from aiosmb.dcerpc.v5.transport.selector import DCERPCTransportSelector
 from aiosmb.dcerpc.v5.structure import unpack
 from aiosmb.dcerpc.v5.uuid import uuidtup_to_bin, generate, stringver_to_bin, bin_to_uuidtup
 from aiosmb.dcerpc.v5.rpcrt import *
-from aiosmb.commons.utils.decorators import red, rr
 from minikerberos.gssapi.gssapi import GSSAPIFlags
 from aiosmb.dcerpc.v5 import hresult_errors
 from aiosmb.crypto.symmetric import RC4
@@ -18,10 +18,13 @@ class DCERPC5Connection:
 		self.gssapi = gssapi
 
 		self.transport = None
-
-		self.auth_type = RPC_C_AUTHN_WINNT
-		if self.gssapi.kerberos is not None:
-			self.auth_type = RPC_C_AUTHN_GSS_NEGOTIATE
+		
+		if gssapi is None:
+			self.auth_type = RPC_C_AUTHN_NONE
+		else:
+			self.auth_type = RPC_C_AUTHN_WINNT
+			if self.gssapi.kerberos is not None:
+				self.auth_type = RPC_C_AUTHN_GSS_NEGOTIATE
 		
 		self.auth_level = RPC_C_AUTHN_LEVEL_NONE
 		self.ctx = 0
@@ -53,25 +56,30 @@ class DCERPC5Connection:
 	def set_auth_type(self, auth_type):
 		self.auth_type = auth_type
 
-	@red
 	async def disconnect(self):
-		if self.transport is not None:
-			await self.transport.disconnect()
+		try:
+			if self.transport is not None:
+				await self.transport.disconnect()
 
-		return True, None
+			return True, None
+		except Exception as e:
+			return None, e
 
-	@red
 	async def connect(self):
 		"""
 		Selects the correct transport layer based on the self.target and starts it
 		"""
-		selector = DCERPCTransportSelector()
-		self.transport = await selector.select(self.target)
-		await rr(self.transport.connect())
-		
-		return True, None
+		try:
+			selector = DCERPCTransportSelector()
+			self.transport = await selector.select(self.target)
+			_, err = await self.transport.connect()
+			if err is not None:
+				raise err
 
-	@red
+			return True, None
+		except Exception as e:
+			return None, e	
+
 	async def bind(self, iface_uuid, alter = 0, bogus_binds = 0, transfer_syntax = ('8a885d04-1ceb-11c9-9fe8-08002b104860', '2.0')):
 		"""
 		Performs bind operation. Does authentication and sets up the keys for further communication
@@ -151,9 +159,14 @@ class DCERPC5Connection:
 				packet['sec_trailer'] = sec_trailer
 				packet['auth_data'] = auth
 
-			_,_ = await rr(self.transport.send(packet.get_packet()))
+			_, err = await self.transport.send(packet.get_packet())
+			if err is not None:
+				raise err
 			
-			data, _ = await rr(self.recv_one())
+			data, err = await self.recv_one()
+			if err is not None:
+				raise err
+			
 			resp = MSRPCHeader(data)
 
 			if resp['type'] == MSRPC_BINDACK or resp['type'] == MSRPC_ALTERCTX_R:
@@ -260,10 +273,14 @@ class DCERPC5Connection:
 						alter_ctx['sec_trailer'] = sec_trailer
 						alter_ctx['auth_data'] = response
 						
-						await rr(self.transport.send(alter_ctx.get_packet(), forceWriteAndx = 1))
+						_, err = await self.transport.send(alter_ctx.get_packet(), forceWriteAndx = 1)
+						if err is not None:
+							raise err
 						
 						self.__sequence = 0
-						await rr(self.recv_one()) #recieving the result of alter_context command
+						data, err = await self.recv_one() #recieving the result of alter_context command
+						if err is not None:
+							raise err
 
 						self.__sequence = self.gssapi.gssapi.selected_authentication_context.seq_number
 					else:
@@ -281,7 +298,9 @@ class DCERPC5Connection:
 						# Use the same call_id
 						self.callid = resp['call_id']
 						auth3['call_id'] = self.callid
-						await rr(self.transport.send(auth3.get_packet(), forceWriteAndx = 1))
+						_, err = await self.transport.send(auth3.get_packet(), forceWriteAndx = 1)
+						if err is not None:
+							raise err
 
 				self.callid += 1
 			return resp, None	 # means packet is signed, if verifier is wrong it fails
@@ -289,376 +308,409 @@ class DCERPC5Connection:
 		except Exception as e:
 			return False, e
 
-	@red
+	
 	async def request(self, request, uuid=None, checkError=True):
 		"""
 		Creates a requests then dispateches it to _transport.send for singing/encryption asn sending
 		"""
-		if self.transfer_syntax == self.NDR64Syntax:
-			request.changeTransferSyntax(self.NDR64Syntax)
-			isNDR64 = True
-		else:
-			isNDR64 = False
-		
-		await rr(self.call(request.opnum, request, uuid))
-		answer, _ = await rr(self.recv())
-		
-		__import__(request.__module__)
-		module = sys.modules[request.__module__]
-		respClass = getattr(module, request.__class__.__name__ + 'Response')
-
-		if answer[-4:] != b'\x00\x00\x00\x00' and checkError is True:
-			error_code = unpack('<L', answer[-4:])[0]
-			if error_code in rpc_status_codes:
-				
-				# This is an error we can handle
-				exception = DCERPCException(error_code = error_code)
-			else:	
-				
-				sessionErrorClass = getattr(module, 'DCERPCSessionError')
-				try:
-					# Try to unpack the answer, even if it is an error, it works most of the times
-					response =  respClass(answer, isNDR64 = isNDR64)
-				except:
-					# No luck :(
-					exception = sessionErrorClass(error_code = error_code)
-				else:
-					exception = sessionErrorClass(packet = response, error_code = error_code)
-			return None, exception
-		else:
-			response =  respClass(answer, isNDR64 = isNDR64)
-			return response, None
-
-
-	@red
-	async def send(self, data):
-		if isinstance(data, MSRPCHeader) is not True:
-			# Must be an Impacket, transform to structure
-			data = DCERPC_RawCall(data.OP_NUM, data.get_packet())
-
 		try:
-			if data['uuid'] != b'':
-				data['flags'] |= PFC_OBJECT_UUID
-		except:
-			# Structure doesn't have uuid
-			pass
-		data['ctx_id'] = self.ctx
-		data['call_id'] = self.callid
-		data['alloc_hint'] = len(data['pduData'])
-		# We should fragment PDUs if:
-		# 1) Payload exceeds __max_xmit_size received during BIND response
-		# 2) We'e explicitly fragmenting packets with lower values
-		should_fragment = False
-
-		# Let's decide what will drive fragmentation for this request
-		if self._max_user_frag > 0:
-			# User set a frag size, let's compare it with the max transmit size agreed when binding the interface
-			fragment_size = min(self._max_user_frag, self.__max_xmit_size)
-		else:
-			fragment_size = self.__max_xmit_size
-
-		# Sanity check. Fragmentation can't be too low, otherwise sec_trailer won't fit
-
-		if self.auth_level in [RPC_C_AUTHN_LEVEL_PKT_INTEGRITY, RPC_C_AUTHN_LEVEL_PKT_PRIVACY]:
-			if fragment_size <= 8:
-				# Minimum pdu fragment size is 8, important when doing PKT_INTEGRITY/PRIVACY. We need a minimum size of 8
-				# (Kerberos)
-				fragment_size = 8
-
-		# ToDo: Better calculate the size needed. Now I'm setting a number that surely is enough for Kerberos and NTLM
-		# ToDo: trailers, both for INTEGRITY and PRIVACY. This means we're not truly honoring the user's frag request.
-		if len(data['pduData']) + 128 > fragment_size:
-			should_fragment = True
-			if fragment_size+128 > self.__max_xmit_size:
-				fragment_size = self.__max_xmit_size - 128
-
-		if should_fragment:
-			packet = data['pduData']
-			offset = 0
-
-			while 1:
-				toSend = packet[offset:offset+fragment_size]
-				if not toSend:
-					break
-				if offset == 0:
-					data['flags'] |= PFC_FIRST_FRAG
-				else:
-					data['flags'] &= (~PFC_FIRST_FRAG)
-				offset += len(toSend)
-				if offset >= len(packet):
-					data['flags'] |= PFC_LAST_FRAG
-				else:
-					data['flags'] &= (~PFC_LAST_FRAG)
-				data['pduData'] = toSend
-				await rr(self._transport_send(data, forceWriteAndx = 1, forceRecv =data['flags'] & PFC_LAST_FRAG))
-		else:
-			await rr(self._transport_send(data))
-		self.callid += 1
-		return True, None
-
-	@red
-	async def recv(self):
-		finished = False
-		retAnswer = b''
-		while not finished:
-			# At least give me the MSRPCRespHeader, especially important for 
-			# TCP/UDP Transports
-			response_data, _ = await rr(self.transport.recv(1))
-			response_header = MSRPCRespHeader(response_data)
-
-			off = response_header.get_header_size()
-			
-			if response_header['type'] == MSRPC_FAULT and response_header['frag_len'] >= off+4:
-				status_code = unpack("<L",response_data[off:off+4])[0]
-				if status_code in rpc_status_codes:
-					raise DCERPCException(rpc_status_codes[status_code])
-				elif status_code & 0xffff in rpc_status_codes:
-					raise DCERPCException(rpc_status_codes[status_code & 0xffff])
-				else:
-					if status_code in hresult_errors.ERROR_MESSAGES:
-						error_msg_short = hresult_errors.ERROR_MESSAGES[status_code][0]
-						error_msg_verbose = hresult_errors.ERROR_MESSAGES[status_code][1] 
-						raise DCERPCException('%s - %s' % (error_msg_short, error_msg_verbose))
-					else:
-						raise DCERPCException('Unknown DCE RPC fault status code: %.8x' % status_code)
-
-			if response_header['flags'] & PFC_LAST_FRAG:
-				# No need to reassembly DCERPC
-				finished = True
+			if self.transfer_syntax == self.NDR64Syntax:
+				request.changeTransferSyntax(self.NDR64Syntax)
+				isNDR64 = True
 			else:
-				# Forcing Read Recv, we need more packets!
-				forceRecv = 1
+				isNDR64 = False
 			
-			answer = response_data[off:]
-			auth_len = response_header['auth_len']
-			if auth_len:
-				auth_len += 8
-				auth_data = answer[-auth_len:]
-				sec_trailer = SEC_TRAILER(data = auth_data)
-				answer = answer[:-auth_len]
-				
-				if sec_trailer['auth_level'] == RPC_C_AUTHN_LEVEL_PKT_PRIVACY:
-					if self.auth_type == RPC_C_AUTHN_WINNT:
-						if self.gssapi.ntlm.is_extended_security() == True:
-							# TODO: FIX THIS, it's not calculating the signature well
-							# Since I'm not testing it we don't care... yet
-							answer, signature = self.gssapi.ntlm.SEAL(
-														self.__serverSigningKey,
-														self.__serverSealingKey,
-														answer,
-														answer,
-														self.__sequence,
-														self.__serverSealingHandle
-													)
-
-						else:
-							answer, signature = self.gssapi.ntlm.SEAL(
-														self.__serverSigningKey,
-														self.__serverSealingKey,
-														answer,
-														answer,
-														self.__sequence,
-														self.__serverSealingHandle
-													)
-
-							self.__sequence += 1
-					elif self.auth_type == RPC_C_AUTHN_NETLOGON:
-						raise Exception('RPC_C_AUTHN_NETLOGON is not implemented!')
-						#from impacket.dcerpc.v5 import nrpc
-						#answer, cfounder = nrpc.UNSEAL(answer, 
-						#	   auth_data[len(sec_trailer):],
-						#	   self.__sessionKey, 
-						#	   False)
-						#self.__sequence += 1
-					elif self.auth_type == RPC_C_AUTHN_GSS_NEGOTIATE:
-						if self.__sequence > 0:
-							answer, cfounder = await self.gssapi.gssapi.decrypt(answer, self.__sequence, direction='init', auth_data=auth_data)
-																	
-
-				elif sec_trailer['auth_level'] == RPC_C_AUTHN_LEVEL_PKT_INTEGRITY:
-					if self.auth_type == RPC_C_AUTHN_WINNT:
-						ntlmssp = auth_data[12:]
-						
-						if self.gssapi.ntlm.is_extended_security() == True:
-							#TODO:
-							signature =  self.gssapi.ntlm.SIGN(
-								self.__serverSigningKey, 
-								answer, 
-								self.__sequence, 
-								self.__serverSealingHandle
-							)
-						else:
-							signature = self.gssapi.ntlm.SIGN(
-								self.__serverSigningKey, 
-								ntlmssp, 
-								self.__sequence, 
-								self.__serverSealingHandle
-							)
-							
-							# Yes.. NTLM2 doesn't increment sequence when receiving
-							# the packet :P
-							self.__sequence += 1
-					elif self.auth_type == RPC_C_AUTHN_NETLOGON:
-						raise Exception('RPC_C_AUTHN_NETLOGON is not implemented!')
-						#from impacket.dcerpc.v5 import nrpc
-						#ntlmssp = auth_data[12:]
-						#signature = nrpc.SIGN(ntlmssp, 
-						#	   self.__confounder, 
-						#	   self.__sequence, 
-						#	   self.__sessionKey, 
-						#	   False)
-						#self.__sequence += 1
-					elif self.auth_type == RPC_C_AUTHN_GSS_NEGOTIATE:
-						# Do NOT increment the sequence number when Signing Kerberos
-						#self.__sequence += 1
-						pass
-
-				
-				if sec_trailer['auth_pad_len']:
-					answer = answer[:-sec_trailer['auth_pad_len']]
+			_, err = await self.call(request.opnum, request, uuid)
+			if err is not None:
+				raise err
 			
-			retAnswer += answer
-		
-		return retAnswer, None
+			answer, err = await self.recv()
+			if err is not None:
+				raise err
+			
+			__import__(request.__module__)
+			module = sys.modules[request.__module__]
+			respClass = getattr(module, request.__class__.__name__ + 'Response')
 
-	@red
-	async def recv_one(self):
-		finished = False
-		forceRecv = 0
-		retAnswer = b''
-		while not finished:
-			# At least give me the MSRPCRespHeader, especially important for 
-			# TCP/UDP Transports
-
-			response_data, err = await self.transport.recv(1) #test
-			response_header = MSRPCRespHeader(response_data)
-
-			off = response_header.get_header_size()
-
-			if response_header['type'] == MSRPC_FAULT and response_header['frag_len'] >= off+4:
-				status_code = unpack("<L",response_data[off:off+4])[0]
-				if status_code in rpc_status_codes:
-					return None, DCERPCException(rpc_status_codes[status_code])
-				elif status_code & 0xffff in rpc_status_codes:
-					return None,  DCERPCException(rpc_status_codes[status_code & 0xffff])
-				else:
-					if status_code in hresult_errors.ERROR_MESSAGES:
-						error_msg_short = hresult_errors.ERROR_MESSAGES[status_code][0]
-						error_msg_verbose = hresult_errors.ERROR_MESSAGES[status_code][1] 
-						return None,  DCERPCException('%s - %s' % (error_msg_short, error_msg_verbose))
+			if answer[-4:] != b'\x00\x00\x00\x00' and checkError is True:
+				error_code = unpack('<L', answer[-4:])[0]
+				if error_code in rpc_status_codes:
+					
+					# This is an error we can handle
+					exception = DCERPCException(error_code = error_code)
+				else:	
+					
+					sessionErrorClass = getattr(module, 'DCERPCSessionError')
+					try:
+						# Try to unpack the answer, even if it is an error, it works most of the times
+						response =  respClass(answer, isNDR64 = isNDR64)
+					except:
+						# No luck :(
+						exception = sessionErrorClass(error_code = error_code)
 					else:
-						return None,  DCERPCException('Unknown DCE RPC fault status code: %.8x' % status_code)
-
-			if response_header['flags'] & PFC_LAST_FRAG:
-				# No need to reassembly DCERPC
-				finished = True
+						exception = sessionErrorClass(packet = response, error_code = error_code)
+				return None, exception
 			else:
-				# Forcing Read Recv, we need more packets!
-				forceRecv = 1
-				
-		return response_data, None
+				response =  respClass(answer, isNDR64 = isNDR64)
+				return response, None
+		except Exception as e:
+			return None, e
+
+
+	async def send(self, data):
+		try:
+			if isinstance(data, MSRPCHeader) is not True:
+				# Must be an Impacket, transform to structure
+				data = DCERPC_RawCall(data.OP_NUM, data.get_packet())
+
+			try:
+				if data['uuid'] != b'':
+					data['flags'] |= PFC_OBJECT_UUID
+			except:
+				# Structure doesn't have uuid
+				pass
+			data['ctx_id'] = self.ctx
+			data['call_id'] = self.callid
+			data['alloc_hint'] = len(data['pduData'])
+			# We should fragment PDUs if:
+			# 1) Payload exceeds __max_xmit_size received during BIND response
+			# 2) We'e explicitly fragmenting packets with lower values
+			should_fragment = False
+
+			# Let's decide what will drive fragmentation for this request
+			if self._max_user_frag > 0:
+				# User set a frag size, let's compare it with the max transmit size agreed when binding the interface
+				fragment_size = min(self._max_user_frag, self.__max_xmit_size)
+			else:
+				fragment_size = self.__max_xmit_size
+
+			# Sanity check. Fragmentation can't be too low, otherwise sec_trailer won't fit
+
+			if self.auth_level in [RPC_C_AUTHN_LEVEL_PKT_INTEGRITY, RPC_C_AUTHN_LEVEL_PKT_PRIVACY]:
+				if fragment_size <= 8:
+					# Minimum pdu fragment size is 8, important when doing PKT_INTEGRITY/PRIVACY. We need a minimum size of 8
+					# (Kerberos)
+					fragment_size = 8
+
+			# ToDo: Better calculate the size needed. Now I'm setting a number that surely is enough for Kerberos and NTLM
+			# ToDo: trailers, both for INTEGRITY and PRIVACY. This means we're not truly honoring the user's frag request.
+			if len(data['pduData']) + 128 > fragment_size:
+				should_fragment = True
+				if fragment_size+128 > self.__max_xmit_size:
+					fragment_size = self.__max_xmit_size - 128
+
+			if should_fragment:
+				packet = data['pduData']
+				offset = 0
+
+				while 1:
+					toSend = packet[offset:offset+fragment_size]
+					if not toSend:
+						break
+					if offset == 0:
+						data['flags'] |= PFC_FIRST_FRAG
+					else:
+						data['flags'] &= (~PFC_FIRST_FRAG)
+					offset += len(toSend)
+					if offset >= len(packet):
+						data['flags'] |= PFC_LAST_FRAG
+					else:
+						data['flags'] &= (~PFC_LAST_FRAG)
+					data['pduData'] = toSend
+					_, err = await self._transport_send(data, forceWriteAndx = 1, forceRecv =data['flags'] & PFC_LAST_FRAG)
+					if err is not None:
+						raise err
+
+			else:
+				_, err = await self._transport_send(data)
+				if err is not None:
+					raise err
+			
+			self.callid += 1
+			return True, None
+		except Exception as e:
+			return None, e
+
 	
+	async def recv(self):
+		try:
+			finished = False
+			retAnswer = b''
+			while not finished:
+				# At least give me the MSRPCRespHeader, especially important for 
+				# TCP/UDP Transports
+				response_data, err = await self.transport.recv(1)
+				if err is not None:
+					raise err
 
-	@red
+				response_header = MSRPCRespHeader(response_data)
+
+				off = response_header.get_header_size()
+				
+				if response_header['type'] == MSRPC_FAULT and response_header['frag_len'] >= off+4:
+					status_code = unpack("<L",response_data[off:off+4])[0]
+					if status_code in rpc_status_codes:
+						raise DCERPCException(rpc_status_codes[status_code])
+					elif status_code & 0xffff in rpc_status_codes:
+						raise DCERPCException(rpc_status_codes[status_code & 0xffff])
+					else:
+						if status_code in hresult_errors.ERROR_MESSAGES:
+							error_msg_short = hresult_errors.ERROR_MESSAGES[status_code][0]
+							error_msg_verbose = hresult_errors.ERROR_MESSAGES[status_code][1] 
+							raise DCERPCException('%s - %s' % (error_msg_short, error_msg_verbose))
+						else:
+							raise DCERPCException('Unknown DCE RPC fault status code: %.8x' % status_code)
+
+				if response_header['flags'] & PFC_LAST_FRAG:
+					# No need to reassembly DCERPC
+					finished = True
+				else:
+					# Forcing Read Recv, we need more packets!
+					forceRecv = 1
+				
+				answer = response_data[off:]
+				auth_len = response_header['auth_len']
+				if auth_len:
+					auth_len += 8
+					auth_data = answer[-auth_len:]
+					sec_trailer = SEC_TRAILER(data = auth_data)
+					answer = answer[:-auth_len]
+					
+					if sec_trailer['auth_level'] == RPC_C_AUTHN_LEVEL_PKT_PRIVACY:
+						if self.auth_type == RPC_C_AUTHN_WINNT:
+							if self.gssapi.ntlm.is_extended_security() == True:
+								# TODO: FIX THIS, it's not calculating the signature well
+								# Since I'm not testing it we don't care... yet
+								answer, signature = self.gssapi.ntlm.SEAL(
+															self.__serverSigningKey,
+															self.__serverSealingKey,
+															answer,
+															answer,
+															self.__sequence,
+															self.__serverSealingHandle
+														)
+
+							else:
+								answer, signature = self.gssapi.ntlm.SEAL(
+															self.__serverSigningKey,
+															self.__serverSealingKey,
+															answer,
+															answer,
+															self.__sequence,
+															self.__serverSealingHandle
+														)
+
+								self.__sequence += 1
+						elif self.auth_type == RPC_C_AUTHN_NETLOGON:
+							raise Exception('RPC_C_AUTHN_NETLOGON is not implemented!')
+							#from impacket.dcerpc.v5 import nrpc
+							#answer, cfounder = nrpc.UNSEAL(answer, 
+							#	   auth_data[len(sec_trailer):],
+							#	   self.__sessionKey, 
+							#	   False)
+							#self.__sequence += 1
+						elif self.auth_type == RPC_C_AUTHN_GSS_NEGOTIATE:
+							if self.__sequence > 0:
+								answer, cfounder = await self.gssapi.gssapi.decrypt(answer, self.__sequence, direction='init', auth_data=auth_data)
+																		
+
+					elif sec_trailer['auth_level'] == RPC_C_AUTHN_LEVEL_PKT_INTEGRITY:
+						if self.auth_type == RPC_C_AUTHN_WINNT:
+							ntlmssp = auth_data[12:]
+							
+							if self.gssapi.ntlm.is_extended_security() == True:
+								#TODO:
+								signature =  self.gssapi.ntlm.SIGN(
+									self.__serverSigningKey, 
+									answer, 
+									self.__sequence, 
+									self.__serverSealingHandle
+								)
+							else:
+								signature = self.gssapi.ntlm.SIGN(
+									self.__serverSigningKey, 
+									ntlmssp, 
+									self.__sequence, 
+									self.__serverSealingHandle
+								)
+								
+								# Yes.. NTLM2 doesn't increment sequence when receiving
+								# the packet :P
+								self.__sequence += 1
+						elif self.auth_type == RPC_C_AUTHN_NETLOGON:
+							raise Exception('RPC_C_AUTHN_NETLOGON is not implemented!')
+							#from impacket.dcerpc.v5 import nrpc
+							#ntlmssp = auth_data[12:]
+							#signature = nrpc.SIGN(ntlmssp, 
+							#	   self.__confounder, 
+							#	   self.__sequence, 
+							#	   self.__sessionKey, 
+							#	   False)
+							#self.__sequence += 1
+						elif self.auth_type == RPC_C_AUTHN_GSS_NEGOTIATE:
+							# Do NOT increment the sequence number when Signing Kerberos
+							#self.__sequence += 1
+							pass
+
+					
+					if sec_trailer['auth_pad_len']:
+						answer = answer[:-sec_trailer['auth_pad_len']]
+				
+				retAnswer += answer
+			
+			return retAnswer, None
+		except Exception as e:
+			return None, e
+
+	
+	async def recv_one(self):
+		try:
+			finished = False
+			forceRecv = 0
+			retAnswer = b''
+			while not finished:
+				# At least give me the MSRPCRespHeader, especially important for 
+				# TCP/UDP Transports
+
+				response_data, err = await self.transport.recv(1) #test
+				response_header = MSRPCRespHeader(response_data)
+
+				off = response_header.get_header_size()
+
+				if response_header['type'] == MSRPC_FAULT and response_header['frag_len'] >= off+4:
+					status_code = unpack("<L",response_data[off:off+4])[0]
+					if status_code in rpc_status_codes:
+						return None, DCERPCException(rpc_status_codes[status_code])
+					elif status_code & 0xffff in rpc_status_codes:
+						return None,  DCERPCException(rpc_status_codes[status_code & 0xffff])
+					else:
+						if status_code in hresult_errors.ERROR_MESSAGES:
+							error_msg_short = hresult_errors.ERROR_MESSAGES[status_code][0]
+							error_msg_verbose = hresult_errors.ERROR_MESSAGES[status_code][1] 
+							return None,  DCERPCException('%s - %s' % (error_msg_short, error_msg_verbose))
+						else:
+							return None,  DCERPCException('Unknown DCE RPC fault status code: %.8x' % status_code)
+
+				if response_header['flags'] & PFC_LAST_FRAG:
+					# No need to reassembly DCERPC
+					finished = True
+				else:
+					# Forcing Read Recv, we need more packets!
+					forceRecv = 1
+					
+			return response_data, None
+		except Exception as e:
+			return None, e
+	
 	async def _transport_send(self, rpc_packet, forceWriteAndx = 0, forceRecv = 0):
 		"""
 		This function does the signing and ecryption on the data we want to send out.
 		Keys are set up during bind
 		"""
+		try:
+			rpc_packet['ctx_id'] = self.ctx
+			rpc_packet['sec_trailer'] = b''
+			rpc_packet['auth_data'] = b''
 
-		rpc_packet['ctx_id'] = self.ctx
-		rpc_packet['sec_trailer'] = b''
-		rpc_packet['auth_data'] = b''
+			if self.auth_level in [RPC_C_AUTHN_LEVEL_PKT_INTEGRITY, RPC_C_AUTHN_LEVEL_PKT_PRIVACY]:
+				# Dummy verifier, just for the calculations
+				sec_trailer = SEC_TRAILER()
+				sec_trailer['auth_type'] = self.auth_type
+				sec_trailer['auth_level'] = self.auth_level
+				sec_trailer['auth_pad_len'] = 0
+				sec_trailer['auth_ctx_id'] = self.ctx + 79231 
 
-		if self.auth_level in [RPC_C_AUTHN_LEVEL_PKT_INTEGRITY, RPC_C_AUTHN_LEVEL_PKT_PRIVACY]:
-			# Dummy verifier, just for the calculations
-			sec_trailer = SEC_TRAILER()
-			sec_trailer['auth_type'] = self.auth_type
-			sec_trailer['auth_level'] = self.auth_level
-			sec_trailer['auth_pad_len'] = 0
-			sec_trailer['auth_ctx_id'] = self.ctx + 79231 
+				pad = (4 - (len(rpc_packet.get_packet()) % 4)) % 4
+				if pad != 0:
+					rpc_packet['pduData'] += b'\xBB'*pad
+					sec_trailer['auth_pad_len']=pad
 
-			pad = (4 - (len(rpc_packet.get_packet()) % 4)) % 4
-			if pad != 0:
-				rpc_packet['pduData'] += b'\xBB'*pad
-				sec_trailer['auth_pad_len']=pad
+				rpc_packet['sec_trailer'] = sec_trailer.getData()
+				rpc_packet['auth_data'] = b' '*16
 
-			rpc_packet['sec_trailer'] = sec_trailer.getData()
-			rpc_packet['auth_data'] = b' '*16
+				plain_data = rpc_packet['pduData']
+				if self.auth_level == RPC_C_AUTHN_LEVEL_PKT_PRIVACY:
+					if self.auth_type == RPC_C_AUTHN_WINNT:
+						if self.gssapi.ntlm.is_extended_security() == True:
+							sealedMessage, signature = self.gssapi.ntlm.SEAL(
+								self.__clientSigningKey, 
+								self.__clientSealingKey,
+								rpc_packet.get_packet()[:-16],
+								plain_data,
+								self.__sequence,
+								self.__clientSealingHandle
+							)
+						else:
+							sealedMessage, signature = self.gssapi.ntlm.SEAL(
+								self.__clientSigningKey, 
+								self.__clientSealingKey,
+								plain_data,
+								plain_data,
+								self.__sequence,
+								self.__clientSealingHandle
+							)
+						
+					elif self.auth_type == RPC_C_AUTHN_NETLOGON:
+						raise Exception('RPC_C_AUTHN_NETLOGON is not implemented!')
+						#from impacket.dcerpc.v5 import nrpc
+						#sealedMessage, signature = nrpc.SEAL(plain_data, self.__confounder, self.__sequence, self.__sessionKey, False)
+					elif self.auth_type == RPC_C_AUTHN_GSS_NEGOTIATE:
+						sealedMessage, signature = await self.gssapi.gssapi.encrypt(plain_data, self.__sequence)
 
-			plain_data = rpc_packet['pduData']
-			if self.auth_level == RPC_C_AUTHN_LEVEL_PKT_PRIVACY:
-				if self.auth_type == RPC_C_AUTHN_WINNT:
-					if self.gssapi.ntlm.is_extended_security() == True:
-						sealedMessage, signature = self.gssapi.ntlm.SEAL(
-							self.__clientSigningKey, 
-							self.__clientSealingKey,
-							rpc_packet.get_packet()[:-16],
-							plain_data,
-							self.__sequence,
-							self.__clientSealingHandle
-						)
-					else:
-						sealedMessage, signature = self.gssapi.ntlm.SEAL(
-							self.__clientSigningKey, 
-							self.__clientSealingKey,
-							plain_data,
-							plain_data,
-							self.__sequence,
-							self.__clientSealingHandle
-						)
-					
-				elif self.auth_type == RPC_C_AUTHN_NETLOGON:
-					raise Exception('RPC_C_AUTHN_NETLOGON is not implemented!')
-					#from impacket.dcerpc.v5 import nrpc
-					#sealedMessage, signature = nrpc.SEAL(plain_data, self.__confounder, self.__sequence, self.__sessionKey, False)
-				elif self.auth_type == RPC_C_AUTHN_GSS_NEGOTIATE:
-					sealedMessage, signature = await self.gssapi.gssapi.encrypt(plain_data, self.__sequence)
+					rpc_packet['pduData'] = sealedMessage
 
-				rpc_packet['pduData'] = sealedMessage
+				elif self.auth_level == RPC_C_AUTHN_LEVEL_PKT_INTEGRITY: 
+					if self.auth_type == RPC_C_AUTHN_WINNT:
+						if self.gssapi.ntlm.is_extended_security() == True:
+							# Interesting thing.. with NTLM2, what is is signed is the 
+							# whole PDU, not just the data
+							signature =  self.gssapi.ntlm.SIGN(self.__clientSigningKey, 
+								rpc_packet.get_packet()[:-16], 
+								self.__sequence, 
+								self.__clientSealingHandle)
+						else:
+							signature =  self.gssapi.ntlm.SIGN(self.__clientSigningKey, 
+								plain_data, 
+								self.__sequence, 
+								self.__clientSealingHandle)
+					elif self.auth_type == RPC_C_AUTHN_NETLOGON:
+						raise Exception('RPC_C_AUTHN_NETLOGON is not implemented!')
+						#from impacket.dcerpc.v5 import nrpc
+						#signature = nrpc.SIGN(plain_data, 
+						#	   self.__confounder, 
+						#	   self.__sequence, 
+						#	   self.__sessionKey, 
+						#	   False)
+					elif self.auth_type == RPC_C_AUTHN_GSS_NEGOTIATE:
+						#signature = self.__gss.GSS_GetMIC(self.__sessionKey, plain_data, self.__sequence)
+						signature = await self.gssapi.gssapi.sign(plain_data, self.__sequence)
 
-			elif self.auth_level == RPC_C_AUTHN_LEVEL_PKT_INTEGRITY: 
-				if self.auth_type == RPC_C_AUTHN_WINNT:
-					if self.gssapi.ntlm.is_extended_security() == True:
-						# Interesting thing.. with NTLM2, what is is signed is the 
-						# whole PDU, not just the data
-						signature =  self.gssapi.ntlm.SIGN(self.__clientSigningKey, 
-							rpc_packet.get_packet()[:-16], 
-							self.__sequence, 
-							self.__clientSealingHandle)
-					else:
-						signature =  self.gssapi.ntlm.SIGN(self.__clientSigningKey, 
-							plain_data, 
-							self.__sequence, 
-							self.__clientSealingHandle)
-				elif self.auth_type == RPC_C_AUTHN_NETLOGON:
-					raise Exception('RPC_C_AUTHN_NETLOGON is not implemented!')
-					#from impacket.dcerpc.v5 import nrpc
-					#signature = nrpc.SIGN(plain_data, 
-					#	   self.__confounder, 
-					#	   self.__sequence, 
-					#	   self.__sessionKey, 
-					#	   False)
-				elif self.auth_type == RPC_C_AUTHN_GSS_NEGOTIATE:
-					#signature = self.__gss.GSS_GetMIC(self.__sessionKey, plain_data, self.__sequence)
-					signature = await self.gssapi.gssapi.sign(plain_data, self.__sequence)
+				rpc_packet['sec_trailer'] = sec_trailer.getData()
+				rpc_packet['auth_data'] = signature
 
-			rpc_packet['sec_trailer'] = sec_trailer.getData()
-			rpc_packet['auth_data'] = signature
+				self.__sequence += 1
 
-			self.__sequence += 1
+			_, err = await self.transport.send(rpc_packet.get_packet(), forceWriteAndx = forceWriteAndx, forceRecv = forceRecv)
+			if err is not None:
+				raise err
+			return True, None
+		except Exception as e:
+			return None, e
 
-		await rr(self.transport.send(rpc_packet.get_packet(), forceWriteAndx = forceWriteAndx, forceRecv = forceRecv))
-		return True, None
-
-	@red
 	async def call(self, function, body, uuid=None):
-		if hasattr(body, 'getData'):
-			t, _ = await rr(self.send(DCERPC_RawCall(function, body.getData(), uuid)))
-			return t, None
-		else:
-			t, _ = await rr(self.send(DCERPC_RawCall(function, body, uuid)))
-			return t, None
+		try:
+			if hasattr(body, 'getData'):
+				t, err = await self.send(DCERPC_RawCall(function, body.getData(), uuid))
+				if err is not None:
+					raise err
+				return t, None
+			else:
+				t, err = await self.send(DCERPC_RawCall(function, body, uuid))
+				if err is not None:
+					raise err
+				return t, None
+		except Exception as e:
+			return None, e
 
 		
 	def alter_ctx(self, newUID, bogus_binds = 0):

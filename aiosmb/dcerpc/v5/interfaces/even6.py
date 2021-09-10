@@ -3,9 +3,10 @@ import asyncio
 import os
 import io
 
-from aiosmb.dcerpc.v5.common.connection.smbdcefactory import SMBDCEFactory
-from aiosmb.commons.utils.extb import pprint_exc
-from aiosmb.commons.utils.decorators import red_gen, red, rr
+from aiosmb.dcerpc.v5.common.connection.authentication import DCERPCAuth
+from aiosmb.dcerpc.v5.common.connection.target import DCERPCTarget
+from aiosmb.connection import SMBConnection
+from aiosmb.dcerpc.v5.connection import DCERPC5Connection
 from aiosmb.dcerpc.v5 import even6
 from aiosmb.dcerpc.v5.interfaces.endpointmgr import EPM
 from aiosmb.dcerpc.v5.rpcrt import RPC_C_AUTHN_LEVEL_NONE, RPC_C_AUTHN_LEVEL_PKT_INTEGRITY, RPC_C_AUTHN_LEVEL_PKT_PRIVACY, DCERPCException, RPC_C_AUTHN_GSS_NEGOTIATE, RPC_C_AUTHN_LEVEL_CONNECT
@@ -17,10 +18,10 @@ from aiosmb.dcerpc.v5.common.even6.resultset import RESULT_SET
 ###
 ###
 
-class SMBEven6:
-	def __init__(self, connection):
-		self.connection = connection
-		self.service_manager = None
+class Even6RPC:
+	def __init__(self):
+		self.service_pipename = None #not available via smb
+		self.service_uuid = even6.MSRPC_UUID_EVEN6
 		self.handles = {}
 		
 		self.dce = None
@@ -32,45 +33,75 @@ class SMBEven6:
 		await self.close()
 		return True,None
 	
-	@red
 	async def close(self):
-		if self.dce:
-			try:
-				await self.dce.disconnect()
-			except:
-				pass
-			return
-		
-		return True,None
-	
-	async def connect(self, open = True):
 		try:
-			epm = EPM(self.connection, protocol = 'ncacn_ip_tcp')
-			_, err = await epm.connect()
-			if err is not None:
-				return False, err
+			if self.dce:
+				try:
+					await self.dce.disconnect()
+				except:
+					pass
+				return
 			
-			stringBinding, _ = await rr(epm.map(even6.MSRPC_UUID_EVEN6))
-			self.dce = epm.get_connection_from_stringbinding(stringBinding)
-			self.dce.set_auth_level(RPC_C_AUTHN_LEVEL_PKT_PRIVACY)
-
-			_, err = await self.dce.connect()
+			return True,None
+		except Exception as e:
+			return None, e
+	
+	@staticmethod
+	async def from_rpcconnection(connection:DCERPC5Connection, auth_level = None, open:bool = True, perform_dummy:bool = False):
+		try:
+			service = Even6RPC()
+			service.dce = connection
+			
+			service.dce.set_auth_level(auth_level)
+			if auth_level is None:
+				service.dce.set_auth_level(RPC_C_AUTHN_LEVEL_PKT_PRIVACY) #secure default :P
+			
+			_, err = await service.dce.connect()
 			if err is not None:
-				return False, err
-
-			_, err = await self.dce.bind(even6.MSRPC_UUID_EVEN6)
+				raise err
+			
+			_, err = await service.dce.bind(Even6RPC().service_uuid)
 			if err is not None:
-				return False, err
-
-			return True, None
-		
+				raise err
+				
+			return service, None
 		except Exception as e:
 			return False, e
+	
+	@staticmethod
+	async def from_smbconnection(connection:SMBConnection, auth_level = None, open:bool = True, perform_dummy:bool = False):
+		"""
+		Creates the connection to the service using an established SMBConnection.
+		This connection will use the given SMBConnection as transport layer.
+		"""
+		try:
+			if auth_level is None:
+				#for SMB connection no extra auth needed
+				auth_level = RPC_C_AUTHN_LEVEL_PKT_PRIVACY
+			
+			epm = EPM.from_smbconnection(connection)
+			_, err = await epm.connect()
+			if err is not None:
+				raise err
 
+			constring, err = await epm.map(Even6RPC().service_uuid)
+			if err is not None:
+				raise err
+			
+			target = DCERPCTarget.from_connection_string(constring, smb_connection = connection)
+			dcerpc_auth = DCERPCAuth.from_smb_gssapi(connection.gssapi)
+			rpc_connection = DCERPC5Connection(dcerpc_auth, target)
+			
+			service, err = await Even6RPC.from_rpcconnection(rpc_connection, auth_level=auth_level, open=open, perform_dummy = perform_dummy)	
+			if err is not None:
+				raise err
+
+			return service, None
+		except Exception as e:
+			return None, e
 		finally:
 			if epm is not None:
 				await epm.disconnect()
-
 	
 	async def register_query(self, path, query = '*', flags = even6.EvtQueryChannelName | even6.EvtReadNewestToOldest):
 		try:

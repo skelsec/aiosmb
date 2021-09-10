@@ -8,40 +8,67 @@ class SMBException(Exception):
 		return 'Error! Server responded with: %s' % self.ntstatus.name
 
 class SMBConnectionNetworkTerminated(SMBException):
-	def __init__(self):
-		super().__init__('ConnectionTerminated',-1)
+	def __init__(self, msg = ''):
+		if len(msg) == 0:
+			super().__init__('ConnectionTerminated',-1)
+		else:
+			super().__init__(msg,-1)
 
 class SMBConnectionTimeoutException(SMBException):
-	def __init__(self):
-		super().__init__('ConnectionTimeout',-1)
+	def __init__(self, msg = ''):
+		if len(msg) == 0:
+			super().__init__('ConnectionTimeout',-1)
+		else:
+			super().__init__(msg,-1)
 	
 class SMBConnectionRefusedException(SMBException):
-	def __init__(self):
-		super().__init__('ConnectionRefused',-1)
+	def __init__(self, msg = ''):
+		if len(msg) == 0:
+			super().__init__('ConnectionRefused',-1)
+		else:
+			super().__init__(msg,-1)
 	
 class SMBUnsupportedDialectSelected(SMBException):
-	def __init__(self):
-		super().__init__('UnsupportedDialect',-1)
+	def __init__(self, msg = ''):
+		if len(msg) == 0:
+			super().__init__('UnsupportedDialect',-1)
+		else:
+			super().__init__(msg,-1)
 
 class SMBUnsupportedDialectSign(SMBException):
-	def __init__(self):
-		super().__init__('UnsupportedDialectSign',-1)
+	def __init__(self, msg = ''):
+		if len(msg) == 0:
+			super().__init__('UnsupportedDialectSign',-1)
+		else:
+			super().__init__(msg,-1)
 	
 class SMBUnsupportedSMBVersion(SMBException):
-	def __init__(self):
-		super().__init__('UnsupportedSMBVersion',-1)
+	def __init__(self, msg = ''):
+		if len(msg) == 0:
+			super().__init__('UnsupportedSMBVersion',-1)
+		else:
+			super().__init__(msg,-1)
 	
 class SMBKerberosPreauthFailed(SMBException):
-	def __init__(self):
-		super().__init__('KerberosPreauthFailed',-1)
+	def __init__(self, msg = ''):
+		if len(msg) == 0:
+			super().__init__('KerberosPreauthFailed',-1)
+		else:
+			super().__init__(msg,-1)
 
 class SMBAuthenticationFailed(SMBException):
-	def __init__(self):
-		super().__init__('SMBAuthenticationFailed',-1)
+	def __init__(self, msg = ''):
+		if len(msg) == 0:
+			super().__init__('SMBAuthenticationFailed',-1)
+		else:
+			super().__init__(msg,-1)
 	
 class SMBGenericException(SMBException):
-	def __init__(self):
-		super().__init__('GenericException',-1)
+	def __init__(self, msg = ''):
+		if len(msg) == 0:
+			super().__init__('GenericException',-1)
+		else:
+			super().__init__(msg,-1)
 	
 class SMBIncorrectShareName(SMBException):
 	pass

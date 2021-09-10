@@ -12,20 +12,22 @@ class DCERPCSMBTransport:
 		
 		self._max_send_frag = None
 	
-	@red
 	async def connect(self):
 		# TODO: if the smb connection is not set up, we need to set it up
+		try:
+			unc_path = '\\\\%s\\%s%s' % (self.target.smb_connection.target.get_hostname_or_ip(), 'IPC$', self.target.pipe)
+			self.smbfile = SMBFile.from_uncpath(unc_path)
+			_, err = await self.smbfile.open(self.target.smb_connection, 'wp')
+			return True, err
+		except Exception as e:
+			return None, e
 
-		unc_path = '\\\\%s\\%s%s' % (self.target.smb_connection.target.get_hostname_or_ip(), 'IPC$', self.target.pipe)
-		self.smbfile = SMBFile.from_uncpath(unc_path)
-		_, err = await self.smbfile.open(self.target.smb_connection, 'wp')
-		return True, err
-
-	@red
 	async def disconnect(self):
-		await self.smbfile.close()
+		try:
+			await self.smbfile.close()
+		except Exception as e:
+			return None, e
 	
-	@red
 	async def send(self, data, forceWriteAndx = 0, forceRecv = 0):
 		try:
 			if self._max_send_frag:
@@ -48,10 +50,11 @@ class DCERPCSMBTransport:
 		except Exception as e:
 			return None, e
 
-	
-	@red
 	async def recv(self, count): #async def recv(self, forceRecv = 0, count = 0):
-		#print(count)
-		data, err = await self.smbfile.read(count)
-		#print('recv %s' % repr(data))
-		return data, err
+		try:
+			#print(count)
+			data, err = await self.smbfile.read(count)
+			#print('recv %s' % repr(data))
+			return data, err
+		except Exception as e:
+			return None, e

@@ -3,10 +3,12 @@ import io
 
 class NTLMRevisionCurrent(enum.Enum):
 	NTLMSSP_REVISION_W2K3 = 0x0F
+	NTLMSSP_REVISION_UNK = 0xFF
 
 
 # https://msdn.microsoft.com/en-us/library/cc236722.aspx#Appendix_A_33
 class WindowsMajorVersion(enum.Enum):
+	WINDOWS_MAJOR_VERSION_UNK = 0xFF
 	WINDOWS_MAJOR_VERSION_5  = 0x05
 	WINDOWS_MAJOR_VERSION_6  = 0x06
 	WINDOWS_MAJOR_VERSION_10 = 0x0A
@@ -14,6 +16,7 @@ class WindowsMajorVersion(enum.Enum):
 
 # https://msdn.microsoft.com/en-us/library/cc236722.aspx#Appendix_A_33
 class WindowsMinorVersion(enum.Enum):
+	WINDOWS_MINOR_VERSION_UNK = 0xFF
 	WINDOWS_MINOR_VERSION_0 = 0x00
 	WINDOWS_MINOR_VERSION_1 = 0x01
 	WINDOWS_MINOR_VERSION_2 = 0x02
@@ -67,12 +70,20 @@ class Version:
 	@staticmethod
 	def from_buffer(buff):
 		v = Version()
-		v.ProductMajorVersion = WindowsMajorVersion(int.from_bytes(buff.read(1), byteorder = 'little', signed = False))
-		v.ProductMinorVersion = WindowsMinorVersion(int.from_bytes(buff.read(1), byteorder = 'little', signed = False))
+		try:
+			v.ProductMajorVersion = WindowsMajorVersion(int.from_bytes(buff.read(1), byteorder = 'little', signed = False))
+		except:
+			v.ProductMajorVersion = WindowsMajorVersion.WINDOWS_MAJOR_VERSION_UNK
+		try:
+			v.ProductMinorVersion = WindowsMinorVersion(int.from_bytes(buff.read(1), byteorder = 'little', signed = False))
+		except:
+			v.ProductMinorVersion = WindowsMinorVersion.WINDOWS_MINOR_VERSION_UNK
 		v.ProductBuild        = int.from_bytes(buff.read(2), byteorder = 'little', signed = False)
 		v.Reserved            = int.from_bytes(buff.read(3), byteorder = 'little', signed = False)
-		v.NTLMRevisionCurrent = NTLMRevisionCurrent(int.from_bytes(buff.read(1), byteorder = 'little', signed = False))
-
+		try:
+			v.NTLMRevisionCurrent = NTLMRevisionCurrent(int.from_bytes(buff.read(1), byteorder = 'little', signed = False))
+		except:
+			v.NTLMRevisionCurrent = NTLMRevisionCurrent.NTLMSSP_REVISION_UNK
 		try:
 			v.WindowsProduct = WindowsProduct[(v.ProductMajorVersion, v.ProductMinorVersion)]
 		except:

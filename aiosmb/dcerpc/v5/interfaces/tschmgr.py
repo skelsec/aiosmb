@@ -1,26 +1,28 @@
-
-import asyncio
+from typing import Tuple
 import os
-from aiosmb.dcerpc.v5.common.connection.smbdcefactory import SMBDCEFactory
-from aiosmb.dcerpc.v5 import tsch
-from aiosmb.dcerpc.v5.dtypes import RPC_SID, DACL_SECURITY_INFORMATION
-from aiosmb.wintypes.ntstatus import NTStatus
-from aiosmb.dcerpc.v5.rpcrt import DCERPCException
-from aiosmb import logger
+import asyncio
 import traceback
-from aiosmb.commons.utils.extb import pprint_exc
-from aiosmb.commons.utils.decorators import red_gen, red, rr
-from aiosmb.dcerpc.v5.dtypes import NULL
 
+from aiosmb import logger
+from aiosmb.connection import SMBConnection
+from aiosmb.dcerpc.v5.connection import DCERPC5Connection
+from aiosmb.dcerpc.v5 import tsch
 from aiosmb.dcerpc.v5.interfaces.endpointmgr import EPM
-from aiosmb.dcerpc.v5.rpcrt import RPC_C_AUTHN_LEVEL_NONE, RPC_C_AUTHN_LEVEL_PKT_INTEGRITY, RPC_C_AUTHN_LEVEL_PKT_PRIVACY, DCERPCException, RPC_C_AUTHN_GSS_NEGOTIATE, RPC_C_AUTHN_LEVEL_CONNECT
+from aiosmb.dcerpc.v5.common.connection.smbdcefactory import SMBDCEFactory
+from aiosmb.dcerpc.v5.dtypes import NULL
+from aiosmb.dcerpc.v5.rpcrt import RPC_C_AUTHN_LEVEL_NONE,\
+	RPC_C_AUTHN_LEVEL_CONNECT,\
+	RPC_C_AUTHN_LEVEL_CALL,\
+	RPC_C_AUTHN_LEVEL_PKT,\
+	RPC_C_AUTHN_LEVEL_PKT_INTEGRITY,\
+	RPC_C_AUTHN_LEVEL_PKT_PRIVACY,\
+	DCERPCException, RPC_C_AUTHN_GSS_NEGOTIATE
 
 
-class SMBTSCH:
-	def __init__(self, connection):
-		self.connection = connection
-		self.service_manager = None
-		
+class TSCHRPC:
+	def __init__(self):
+		self.service_pipename = r'\atsvc'
+		self.service_uuid = tsch.MSRPC_UUID_TSCHS
 		self.dce = None
 		
 	async def __aenter__(self):
@@ -30,26 +32,59 @@ class SMBTSCH:
 		await self.close()
 		return True,None
 	
-	@red
 	async def close(self):
-		if self.dce:
-			try:
-				await self.dce.disconnect()
-			except:
-				pass
-			return
-		
-		return True,None
-	@red
-	async def connect(self, open = True):
-		rpctransport = SMBDCEFactory(self.connection, filename=r'\atsvc')
-		
-		self.dce = rpctransport.get_dce_rpc()
-		self.dce.set_auth_level(RPC_C_AUTHN_LEVEL_CONNECT)
-		await rr(self.dce.connect())
-		await rr(self.dce.bind(tsch.MSRPC_UUID_TSCHS))
+		try:
+			if self.dce:
+				try:
+					await self.dce.disconnect()
+				except:
+					pass
+				return
+			
+			return True,None
+		except Exception as e:
+			return None, e
+	
+	@staticmethod
+	async def from_rpcconnection(connection:DCERPC5Connection, auth_level = None, open:bool = True, perform_dummy:bool = False):
+		try:
+			service = TSCHRPC()
+			service.dce = connection
+			
+			service.dce.set_auth_level(auth_level)
+			if auth_level is None:
+				service.dce.set_auth_level(RPC_C_AUTHN_LEVEL_PKT_PRIVACY) #secure default :P
+			
+			_, err = await service.dce.connect()
+			if err is not None:
+				raise err
+			
+			_, err = await service.dce.bind(service.service_uuid)
+			if err is not None:
+				raise err
+				
+			return service, None
+		except Exception as e:
+			traceback.print_exc()
+			return False, e
+	
+	@staticmethod
+	async def from_smbconnection(connection:SMBConnection, auth_level = None, open:bool = True, perform_dummy:bool = False):
+		"""
+		Creates the connection to the service using an established SMBConnection.
+		This connection will use the given SMBConnection as transport layer.
+		"""
+		try:
+			if auth_level is None:
+				auth_level = RPC_C_AUTHN_LEVEL_CONNECT
+			rpctransport = SMBDCEFactory(connection, filename=TSCHRPC().service_pipename)		
+			service, err = await TSCHRPC.from_rpcconnection(rpctransport.get_dce_rpc(), auth_level=auth_level, open=open, perform_dummy = perform_dummy)	
+			if err is not None:
+				raise err
 
-		return True,None
+			return service, None
+		except Exception as e:
+			return None, e
 	
 	async def register_task(self, template, task_name = None, flags = tsch.TASK_CREATE, sddl = NULL, logon_type = tsch.TASK_LOGON_NONE):
 		if task_name is None:
@@ -220,3 +255,42 @@ class SMBTSCH:
      </Exec>""".format(command)
 
 		return ret
+
+async def amain():
+	try:
+		from aiosmb.commons.connection.credential import SMBCredential, SMBAuthProtocol, SMBCredentialsSecretType
+		from aiosmb.commons.connection.authbuilder import AuthenticatorBuilder
+		from aiosmb.dcerpc.v5.common.connection.authentication import DCERPCAuth
+
+		ip = '10.10.10.2'
+		target, err = await EPM.create_target(ip, TSCHRPC().service_uuid)
+		if err is not None:
+			raise err
+		
+		cred = SMBCredential(
+			username = 'Administrator', 
+			domain = 'TEST', 
+			secret = 'Passw0rd!1', 
+			secret_type = SMBCredentialsSecretType.PASSWORD, 
+			authentication_type = SMBAuthProtocol.NTLM, 
+			settings = None, 
+			target = None)
+
+		gssapi = AuthenticatorBuilder.to_spnego_cred(cred)
+		auth = DCERPCAuth.from_smb_gssapi(gssapi)
+		connection = DCERPC5Connection(auth, target)
+		service, err = await TSCHRPC.from_rpcconnection(connection, perform_dummy=True)
+		if err is not None:
+			raise err
+		
+		async for task, err in service.list_tasks():
+			if err is not None:
+				raise err
+			print(task)
+
+	except Exception as e:
+		traceback.print_exc()
+
+if __name__ == '__main__':
+	import asyncio
+	asyncio.run(amain())

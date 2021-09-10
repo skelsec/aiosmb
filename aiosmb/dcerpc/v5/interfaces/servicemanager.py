@@ -1,16 +1,29 @@
 import enum
 import asyncio
+from inspect import trace
+import traceback
 
 from aiosmb import logger
 from aiosmb.dcerpc.v5.common.service import SMBServiceStatus, SMBService
 from aiosmb.dcerpc.v5.common.connection.smbdcefactory import SMBDCEFactory
-from aiosmb.dcerpc.v5 import wkst, scmr
+from aiosmb.connection import SMBConnection
+from aiosmb.dcerpc.v5.connection import DCERPC5Connection
+from aiosmb.dcerpc.v5 import scmr
+from aiosmb.dcerpc.v5.interfaces.endpointmgr import EPM
+from aiosmb.dcerpc.v5.rpcrt import RPC_C_AUTHN_LEVEL_NONE,\
+	RPC_C_AUTHN_LEVEL_CONNECT,\
+	RPC_C_AUTHN_LEVEL_CALL,\
+	RPC_C_AUTHN_LEVEL_PKT,\
+	RPC_C_AUTHN_LEVEL_PKT_INTEGRITY,\
+	RPC_C_AUTHN_LEVEL_PKT_PRIVACY,\
+	DCERPCException, RPC_C_AUTHN_GSS_NEGOTIATE
 
 from aiosmb.commons.utils.decorators import red, red_gen
 
-class SMBRemoteServieManager:
-	def __init__(self, connection):
-		self.connection = connection
+class REMSVCRPC:
+	def __init__(self):
+		self.service_pipename = r'\svcctl'
+		self.service_uuid = scmr.MSRPC_UUID_SCMR
 		self.dce = None
 		self.handle = None
 		
@@ -23,59 +36,87 @@ class SMBRemoteServieManager:
 		await self.close()
 		return True,None
 	
-	@red
-	async def connect(self, open = True):
-		rpctransport = SMBDCEFactory(self.connection, filename=r'\svcctl')
-		self.dce = rpctransport.get_dce_rpc()
-		_, err = await self.dce.connect()
-		if err is not None:
-			return False, err
-		_, err = await self.dce.bind(scmr.MSRPC_UUID_SCMR)
-		if err is not None:
-			return False, err
-
-		if open == True:
-			_, err = await self.open()
+	@staticmethod
+	async def from_rpcconnection(connection:DCERPC5Connection, auth_level = None, open:bool = True, perform_dummy:bool = False):
+		try:
+			service = REMSVCRPC()
+			service.dce = connection
+			
+			service.dce.set_auth_level(auth_level)
+			if auth_level is None:
+				service.dce.set_auth_level(RPC_C_AUTHN_LEVEL_PKT_PRIVACY) #secure default :P 
+			
+			_, err = await service.dce.connect()
 			if err is not None:
-				return False, err
-		
-		return True,None
+				raise err
+			
+			_, err = await service.dce.bind(service.service_uuid)
+			if err is not None:
+				raise err
+			
+			if open is True:
+				_, err = await service.open()
+				if err is not None:
+					raise err
+				
+			return service, None
+		except Exception as e:
+			traceback.print_exc()
+			return False, e
 	
-	@red
+	@staticmethod
+	async def from_smbconnection(connection:SMBConnection, auth_level = None, open:bool = True, perform_dummy:bool = False):
+		"""
+		Creates the connection to the service using an established SMBConnection.
+		This connection will use the given SMBConnection as transport layer.
+		"""
+		try:
+			if auth_level is None:
+				#for SMB connection no extra auth needed
+				auth_level = RPC_C_AUTHN_LEVEL_NONE
+			rpctransport = SMBDCEFactory(connection, filename=REMSVCRPC().service_pipename)		
+			service, err = await REMSVCRPC.from_rpcconnection(rpctransport.get_dce_rpc(), auth_level=auth_level, open=open, perform_dummy = perform_dummy)	
+			if err is not None:
+				raise err
+
+			return service, None
+		except Exception as e:
+			return None, e
+	
 	async def open(self):
-		if not self.dce:
-			_, err = await self.connect()
+		try:			
+			ans, err = await scmr.hROpenSCManagerW(self.dce)
 			if err is not None:
 				return False, err
-		
-		ans, err = await scmr.hROpenSCManagerW(self.dce)
-		if err is not None:
-			return False, err
-		
-		self.handle = ans['lpScHandle']
+			
+			self.handle = ans['lpScHandle']
 
-		return True,None
+			return True,None
+		except Exception as e:
+			return None, e
 	
-	@red
 	async def close(self):
-		if self.dce:
-			if self.handle:
-				for service_name in self.service_handles:
+		try:
+			if self.dce:
+				if self.handle:
+					for service_name in self.service_handles:
+						try:
+							await self.close_service(service_name)
+						except:
+							pass
 					try:
-						await self.close_service(service_name)
+						await scmr.hRCloseServiceHandle(self.dce, self.service_handles[service_name])
 					except:
 						pass
 				try:
-					await scmr.hRCloseServiceHandle(self.dce, self.service_handles[service_name])
+					await self.dce.disconnect()
 				except:
 					pass
-			try:
-				await self.dce.disconnect()
-			except:
-				pass
-			return
-		
-		return True,None
+				return
+			
+			return True,None
+		except Exception as e:
+			return None, e
 
 	@red_gen
 	async def list(self):

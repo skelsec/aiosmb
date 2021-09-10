@@ -1,19 +1,24 @@
 import traceback
 import asyncio
 from aiosmb.dcerpc.v5.common.connection.smbdcefactory import SMBDCEFactory
+from aiosmb.connection import SMBConnection
+from aiosmb.dcerpc.v5.connection import DCERPC5Connection
 from aiosmb.dcerpc.v5 import rprn
-from aiosmb.dcerpc.v5.dtypes import RPC_SID
-from aiosmb.wintypes.ntstatus import NTStatus
 from aiosmb import logger
 from aiosmb.dcerpc.v5.dtypes import NULL
-from aiosmb.commons.utils.decorators import red, rr, red_gen
 import pathlib
+from aiosmb.dcerpc.v5.rpcrt import RPC_C_AUTHN_LEVEL_NONE,\
+	RPC_C_AUTHN_LEVEL_CONNECT,\
+	RPC_C_AUTHN_LEVEL_CALL,\
+	RPC_C_AUTHN_LEVEL_PKT,\
+	RPC_C_AUTHN_LEVEL_PKT_INTEGRITY,\
+	RPC_C_AUTHN_LEVEL_PKT_PRIVACY,\
+	DCERPCException, RPC_C_AUTHN_GSS_NEGOTIATE
 
-class SMBRPRN:
-	def __init__(self, connection):
-		self.connection = connection
-		self.service_manager = None
-		
+class RPRNRPC:
+	def __init__(self):
+		self.service_pipename = r'\spoolss'
+		self.service_uuid = rprn.MSRPC_UUID_RPRN
 		self.dce = None
 		#self.handle = None
 		
@@ -27,70 +32,118 @@ class SMBRPRN:
 		await self.close()
 		return True,None
 	
-	@red
-	async def connect(self, open = True):
-		rpctransport = SMBDCEFactory(self.connection, filename=r'\spoolss')
-		self.dce = rpctransport.get_dce_rpc()
-		await rr(self.dce.connect())
-		await rr(self.dce.bind(rprn.MSRPC_UUID_RPRN))
-
-		return True,None
+	@staticmethod
+	async def from_rpcconnection(connection:DCERPC5Connection, auth_level = None, open:bool = True, perform_dummy:bool = False):
+		try:
+			service = RPRNRPC()
+			service.dce = connection
+			
+			service.dce.set_auth_level(auth_level)
+			if auth_level is None:
+				service.dce.set_auth_level(RPC_C_AUTHN_LEVEL_PKT_PRIVACY) #secure default :P 
+			
+			_, err = await service.dce.connect()
+			if err is not None:
+				raise err
+			
+			_, err = await service.dce.bind(service.service_uuid)
+			if err is not None:
+				raise err
+				
+			return service, None
+		except Exception as e:
+			traceback.print_exc()
+			return False, e
 	
-	@red
+	@staticmethod
+	async def from_smbconnection(connection:SMBConnection, auth_level = None, open:bool = True, perform_dummy:bool = False):
+		"""
+		Creates the connection to the service using an established SMBConnection.
+		This connection will use the given SMBConnection as transport layer.
+		"""
+		try:
+			if auth_level is None:
+				#for SMB connection no extra auth needed
+				auth_level = RPC_C_AUTHN_LEVEL_NONE
+			rpctransport = SMBDCEFactory(connection, filename=RPRNRPC().service_pipename)		
+			service, err = await RPRNRPC.from_rpcconnection(rpctransport.get_dce_rpc(), auth_level=auth_level, open=open, perform_dummy = perform_dummy)	
+			if err is not None:
+				raise err
+
+			return service, None
+		except Exception as e:
+			return None, e
+	
 	async def close(self):
-		if self.dce:
-			try:
-				await self.dce.disconnect()
-			except:
-				pass
-			return
-		
-		return True,None
+		try:
+			if self.dce:
+				try:
+					await self.dce.disconnect()
+				except:
+					pass
+				return
+			
+			return True,None
+		except Exception as e:
+			return None, e
 	
-	@red
 	async def open_printer(self, printerName, pDatatype = NULL, pDevModeContainer = NULL, accessRequired = rprn.SERVER_READ):
-		resp, _ = await rr(rprn.hRpcOpenPrinter(self.dce, printerName, pDatatype, pDevModeContainer, accessRequired))
-		handle_no = self.handle_ctr
-		self.handle_ctr += 1
-		self.printer_handles[handle_no] = resp['pHandle']
+		try:
+			resp, err = await rprn.hRpcOpenPrinter(self.dce, printerName, pDatatype, pDevModeContainer, accessRequired)
+			if err is not None:
+				raise err
+			handle_no = self.handle_ctr
+			self.handle_ctr += 1
+			self.printer_handles[handle_no] = resp['pHandle']
 
-		return handle_no, None
-	
-	@red
+			return handle_no, None
+		except Exception as e:
+			return None, e
+
 	async def hRpcRemoteFindFirstPrinterChangeNotificationEx(self, handle, fdwFlags, fdwOptions=0, pszLocalMachine=NULL, dwPrinterLocal=0, pOptions=NULL):
-		
-		handle = self.printer_handles[handle]
-		resp, _ = await rr(rprn.hRpcRemoteFindFirstPrinterChangeNotificationEx(
-			self.dce, 
-			handle, 
-			fdwFlags, 
-			fdwOptions=fdwOptions,
-			pszLocalMachine=pszLocalMachine,
-			dwPrinterLocal=dwPrinterLocal, 
-			pOptions=pOptions
-		))
+		try:
+			handle = self.printer_handles[handle]
+			resp, err = await rprn.hRpcRemoteFindFirstPrinterChangeNotificationEx(
+				self.dce, 
+				handle, 
+				fdwFlags, 
+				fdwOptions=fdwOptions,
+				pszLocalMachine=pszLocalMachine,
+				dwPrinterLocal=dwPrinterLocal, 
+				pOptions=pOptions
+			)
+			if err is not None:
+				raise err
 
-		return resp, None
+			return resp, None
+		except Exception as e:
+			return None, e
 	
 	async def enum_drivers(self, environments, level = 2, name = ''):
-		if environments[-1] != '\x00':
-			environments += '\x00'
-		drivers, err = await rprn.hRpcEnumPrinterDrivers(self.dce, name, environments, level)
-		if err is not None:
-			return None, err
-		return drivers, None
+		try:
+			if environments[-1] != '\x00':
+				environments += '\x00'
+			drivers, err = await rprn.hRpcEnumPrinterDrivers(self.dce, name, environments, level)
+			if err is not None:
+				return None, err
+			return drivers, None
+		except Exception as e:
+			return None, e
 	
 	async def get_driverpath(self, environments = "Windows x64"):
-		drivers, err = await self.enum_drivers(environments, level = 2)
-		if err is not None:
-			return None, err
-		
-		for driver in drivers:
-			DriverPath = str(pathlib.PureWindowsPath(driver.DriverPath).parent) + '\\UNIDRV.DLL'
-			if "FileRepository" in DriverPath:
-				return DriverPath, None
+		try:
+			drivers, err = await self.enum_drivers(environments, level = 2)
+			if err is not None:
+				return None, err
+			
+			for driver in drivers:
+				DriverPath = str(pathlib.PureWindowsPath(driver.DriverPath).parent) + '\\UNIDRV.DLL'
+				if "FileRepository" in DriverPath:
+					return DriverPath, None
 
-		return None, Exception('Failed to obtain driverpath')
+			return None, Exception('Failed to obtain driverpath')
+		except Exception as e:
+			return None, e
 
 
 	async def printnightmare(self, share, driverpath = None, handle=NULL, environments = "Windows x64", name = "1234", silent = False):
