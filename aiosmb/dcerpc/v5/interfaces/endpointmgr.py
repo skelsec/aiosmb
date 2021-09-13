@@ -11,6 +11,8 @@ from aiosmb.dcerpc.v5.rpcrt import RPC_C_AUTHN_LEVEL_NONE,\
 	RPC_C_AUTHN_LEVEL_PKT_INTEGRITY,\
 	RPC_C_AUTHN_LEVEL_PKT_PRIVACY
 
+from aiosmb.commons.connection.proxy import SMBProxy
+
 """
 EPM is a bit special interface, as it seems it doesn't require authentication?
 So it should have been easy to just create a static method to resolv endpoints.
@@ -25,12 +27,12 @@ class EPM:
 			self.data_representation = uuidtup_to_bin(('8a885d04-1ceb-11c9-9fe8-08002b104860', '2.0'))
 
 	@staticmethod
-	def from_address(ip, port:int = 135, protocol:str = 'ncacn_ip_tcp', data_representation = None):
+	def from_address(ip, port:int = 135, protocol:str = 'ncacn_ip_tcp', data_representation = None, proxy:SMBProxy = None):
 		"""
 		Sets up the EPM object from IP/hostname port protocol parameters
 		"""
 		dcerpc_target_str = r'%s:%s[%s]' % (protocol, ip, port)
-		target = DCERPCTarget.from_connection_string(dcerpc_target_str)
+		target = DCERPCTarget.from_connection_string(dcerpc_target_str, proxy = proxy)
 		auth = None
 		connection = DCERPC5Connection(auth, target)
 		connection.set_auth_type(RPC_C_AUTHN_LEVEL_NONE)
@@ -49,9 +51,9 @@ class EPM:
 		return EPM(connection, data_representation)
 
 	@staticmethod
-	async def create_target(ip, remoteIf):
+	async def create_target(ip, remoteIf, proxy:SMBProxy = None):
 		try:
-			epm = EPM.from_address(ip)
+			epm = EPM.from_address(ip, proxy = proxy)
 			_, err = await epm.connect()
 			if err is not None:
 				raise err
@@ -60,9 +62,12 @@ class EPM:
 			if err is not None:
 				raise err
 			
-			return DCERPCTarget.from_connection_string(res), None
+			return DCERPCTarget.from_connection_string(res, proxy = proxy), None
 		except Exception as e:
 			return False, e
+		finally:
+			if epm is not None:
+				await epm.disconnect()
 
 	async def disconnect(self):
 		await self.dce.disconnect()

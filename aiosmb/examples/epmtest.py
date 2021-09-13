@@ -1,6 +1,6 @@
 import traceback
 from aiosmb.dcerpc.v5.interfaces.endpointmgr import EPM
-from aiosmb.dcerpc.v5.epm import KNOWN_UUIDS
+from aiosmb.dcerpc.v5.epm import KNOWN_UUIDS, KNOWN_PROTOCOLS
 from aiosmb.dcerpc.v5.uuid import uuidtup_to_bin, generate, stringver_to_bin, bin_to_uuidtup, bin_to_string
 from aiosmb.commons.connection.credential import SMBCredential, SMBAuthProtocol, SMBCredentialsSecretType
 from aiosmb.commons.connection.authbuilder import AuthenticatorBuilder
@@ -18,12 +18,12 @@ from aiosmb.dcerpc.v5.ndr import NDRCALL
 
 class DummyOp(NDRCALL):
 	opnum = 255
-	structure = (
-)
+	structure = ()
 
 async def amain():
 	try:
-		ip = '10.10.10.2'
+		targets = []
+		ip = '10.10.10.104'
 		epm = EPM.from_address(ip)
 		_, err = await epm.connect()
 		if err is not None:
@@ -34,23 +34,31 @@ async def amain():
 			raise err
 		
 		await epm.disconnect()
+		print(len(x))
 		
 		#print(x)
-		for entry in x[5:10]:
+		for entry in x:
 			version = '%s.%s' % (entry['tower']['Floors'][0]['MajorVersion'], entry['tower']['Floors'][0]['MinorVersion'])
 			uuidstr = bin_to_string(entry['tower']['Floors'][0]['InterfaceUUID'])
 			service_uuid = uuidtup_to_bin((uuidstr, version))
-			print(entry['tower']['Floors'][0]['InterfaceUUID'])
-			print(version)
-			print(service_uuid)
+			#print(entry['tower']['Floors'][0]['InterfaceUUID'])
+			#print(version)
+			#print(service_uuid)
+			
 
 			target, err = await EPM.create_target(ip, service_uuid)
-			print(target)
+			print(err)
+			
 			if err is not None:
 				if str(err).find('ept_s_not_registered') != -1:
 					continue
 				raise err
 			
+			targets.append((uuidstr, service_uuid, target))
+		
+		for uuidstr, service_uuid, target in targets:
+			#print('UUID: %s' % uuidstr)
+			#print('Target: %s' % target)
 			cred = SMBCredential(
 				username = 'Administrator', 
 				domain = 'TEST', 
@@ -64,16 +72,30 @@ async def amain():
 			gssapi = AuthenticatorBuilder.to_spnego_cred(cred)
 			auth = DCERPCAuth.from_smb_gssapi(gssapi)
 			connection = DCERPC5Connection(auth, target)
+			connection.set_auth_level(RPC_C_AUTHN_LEVEL_CONNECT)
 			try:
 				_, err = await connection.connect()
+				if err is not None:
+					raise err
+
+				_, err = await connection.bind(service_uuid)
 				if err is not None:
 					raise err
 				
 				req = DummyOp()
 				_, err = await connection.request(req)
-				print(err)
+				if str(err).find('rpc_s_access_denied') == -1:
+					proto = 'UNK'
+					if uuidstr in KNOWN_PROTOCOLS:
+						proto = KNOWN_PROTOCOLS[uuidstr]
+					print('UUID : %s' % uuidstr)
+					print('proto: %s' % proto)
+					print('err  : %s' % err)
+					print()
 			except Exception as e:
 				traceback.print_exc()
+			finally:
+				await connection.disconnect()
 
 
 	except Exception as e:

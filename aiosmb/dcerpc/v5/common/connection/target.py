@@ -2,6 +2,7 @@ import enum
 import copy
 from os import stat
 
+from aiosmb.commons.connection.proxy import SMBProxy
 from aiosmb.dcerpc.v5.common.connection.connectionstring import DCERPCStringBinding
 
 
@@ -34,7 +35,7 @@ class DCERPCTarget:
 		return target
 
 	@staticmethod
-	def from_connection_string(s, smb_connection = None, timeout = 1):
+	def from_connection_string(s, smb_connection = None, timeout = 1, proxy:SMBProxy = None):
 		if isinstance(s, str):
 			connection_string = DCERPCStringBinding(s)
 		elif isinstance(s, DCERPCStringBinding):
@@ -67,6 +68,21 @@ class DCERPCTarget:
 		
 		else:
 			raise Exception('Unknown DCERPC protocol %s' % ps)
+
+		if proxy is not None:
+			tp = copy.deepcopy(proxy)
+			if isinstance(tp.target, list):
+				tp.target[-1].endpoint_ip = target.ip
+				tp.target[-1].endpoint_port = target.port
+				tp.target[-1].timeout = target.timeout
+			else:
+				tp.target.endpoint_ip = target.ip
+				tp.target.endpoint_port = target.port
+				tp.target.timeout = target.timeout
+			
+			print(tp.target)
+			target.proxy = tp
+
 
 		if smb_connection is not None:
 			if smb_connection.target.proxy is not None:
