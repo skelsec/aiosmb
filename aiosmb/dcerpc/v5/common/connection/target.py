@@ -80,7 +80,6 @@ class DCERPCTarget:
 				tp.target.endpoint_port = target.port
 				tp.target.timeout = target.timeout
 			
-			print(tp.target)
 			target.proxy = tp
 
 

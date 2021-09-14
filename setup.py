@@ -41,7 +41,7 @@ setup(
 	install_requires=[
 		'minikerberos>=0.2.14',
 		'winsspi>=0.0.9',
-		'asysocks>=0.1.2',
+		'asysocks>=0.1.3',
 		'prompt-toolkit>=3.0.2',
 		'winacl>=0.1.1',
 		'six',

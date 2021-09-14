@@ -23,7 +23,7 @@ class DummyOp(NDRCALL):
 async def amain():
 	try:
 		targets = []
-		ip = '10.10.10.104'
+		ip = '10.10.10.2'
 		epm = EPM.from_address(ip)
 		_, err = await epm.connect()
 		if err is not None:
