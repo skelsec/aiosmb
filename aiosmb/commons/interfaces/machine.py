@@ -33,9 +33,10 @@ from aiosmb.protocol.smb2.commands.ioctl import CtlCode, IOCTLREQFlags
 from aiosmb.dcerpc.v5.rprn import PRINTER_CHANGE_ADD_JOB
 
 class SMBMachine:
-	def __init__(self, connection, print_cb = None):
+	def __init__(self, connection, print_cb = None, force_rpc_auth = None):
 		self.connection = connection
 		self.print_cb = print_cb
+		self.force_rpc_auth = force_rpc_auth
 		self.services = []
 		self.shares = []
 		self.localgroups = []
@@ -98,7 +99,7 @@ class SMBMachine:
 				return True, None
 			
 			if service_name in ['PAR', 'RPRN','SRVS','SAMR','RRP','TSCH', 'LSAD', 'SERVICEMGR']: #new service interface
-				self.named_rpcs[service_name], err = await self.named_rpcs_proto[service_name].from_smbconnection(self.connection)
+				self.named_rpcs[service_name], err = await self.named_rpcs_proto[service_name].from_smbconnection(self.connection, auth_level = self.force_rpc_auth)
 			else:
 				self.named_rpcs[service_name] = self.named_rpcs_proto[service_name](self.connection)
 				_, err = await self.named_rpcs[service_name].connect()
