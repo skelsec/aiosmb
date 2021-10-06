@@ -136,7 +136,6 @@ class SMBServerConnection:
 		self.network_transport = None 
 		self.transport = transport
 		self.incoming_task = None
-		self.keepalive_task = None
 		# TODO: turn it back on 
 		self.activity_at = None
 		
@@ -230,7 +229,8 @@ class SMBServerConnection:
 		return None
 
 	async def run(self):
-		await self.__handle_smb_in()
+		self.incoming_task = self.__handle_smb_in()
+		await self.incoming_task
 
 	async def __handle_smb_in(self):
 		"""
@@ -358,13 +358,7 @@ class SMBServerConnection:
 		
 	async def disconnect(self):
 		"""
-		Tears down the socket connecting as well as the reading cycle.
-		Doesn't do any cleanup! 
-		For proper cleanup call the terminate function.
 		"""
-		if self.status == SMBConnectionStatus.CLOSED:
-			return
-		
 		self.status = SMBConnectionStatus.CLOSED
 		try:
 			if self.transport is not None:
@@ -379,9 +373,6 @@ class SMBServerConnection:
 		
 		if self.incoming_task is not None:
 			self.incoming_task.cancel()
-		
-		if self.keepalive_task is not None:
-			self.keepalive_task.cancel()
 	
 
 	def update_integrity(self, msg_data):
@@ -1313,29 +1304,9 @@ class SMBServerConnection:
 		
 	async def terminate(self):
 		"""
-		Use this function to properly terminate the SBM connection.
-		Terminates the connection. Closes all tree handles, logs off and disconnects the TCP connection.
 		"""
-		#return
-		try:		
-			if self.session_closed == True or self.status == SMBConnectionStatus.CLOSED:
-				return
-			
-			if self.status == SMBConnectionStatus.RUNNING:
-				#only doing the proper disconnection if the connection was already running
-				for tree_id in list(self.TreeConnectTable_id.keys()):
-					try:
-						await asyncio.wait_for(self.tree_disconnect(tree_id), timeout = 1)
-					except:
-						pass
-				#logging off
-				try:
-					await asyncio.wait_for(self.logoff(), timeout = 1)
-				except Exception as e:
-					pass
-			
-			await asyncio.wait_for(self.disconnect(), timeout = 1)
-			logger.debug('Terminate finished!')
+		try:					
+			await self.disconnect()
 		except asyncio.CancelledError:
 			return
 		except Exception as e:

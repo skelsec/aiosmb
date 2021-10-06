@@ -470,6 +470,17 @@ class SMBConnection:
 			return
 		
 		self.status = SMBConnectionStatus.CLOSED
+		
+		await self.netbios_transport.in_queue.put((None, Exception('Exiting!')))
+		await self.netbios_transport.out_queue.put(None)
+		await asyncio.sleep(0)
+		
+		if self.keepalive_task is not None:
+			self.keepalive_task.cancel()
+		
+		if self.incoming_task is not None:
+			self.incoming_task.cancel()
+
 		try:
 			if self.netbios_transport is not None:
 				await self.netbios_transport.stop()
@@ -481,11 +492,7 @@ class SMBConnection:
 		except:
 			pass
 		
-		if self.incoming_task is not None:
-			self.incoming_task.cancel()
 		
-		if self.keepalive_task is not None:
-			self.keepalive_task.cancel()
 
 	async def keepalive(self):
 		"""
