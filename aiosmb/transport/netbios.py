@@ -22,6 +22,8 @@ class NetBIOSTransport:
 		self.outgoing_task = None
 		self.incoming_task = None
 
+		self.out_task_finished = asyncio.Event()
+
 		self.__total_size = -1
 		
 	async def stop(self):
@@ -56,13 +58,10 @@ class NetBIOSTransport:
 		try:
 			while True:
 				data, err = await self.socket_in_queue.get()
-				#if err is not None:
-				#	raise err
+				if err is not None:
+					raise err
 				
 				await self.in_queue.put( (data, err) )
-
-			
-			raise Exception('Remote end terminated the connection')
 
 		except asyncio.CancelledError:
 			#the SMB connection is terminating
@@ -129,7 +128,6 @@ class NetBIOSTransport:
 			while True:
 				smb_msg_data = await self.out_queue.get()
 				if smb_msg_data is None:
-					await self.stop()
 					return
 				data  = b'\x00'
 				data += len(smb_msg_data).to_bytes(3, byteorder='big', signed = False)
@@ -143,4 +141,8 @@ class NetBIOSTransport:
 		except Exception as e:
 			logger.exception('NetBIOSTransport handle_outgoing')
 			await self.stop()
+		
+		finally:
+			await self.stop()
+			self.out_task_finished.set()
 			

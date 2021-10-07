@@ -573,6 +573,8 @@ class DCERPC5Connection:
 				# TCP/UDP Transports
 
 				response_data, err = await self.transport.recv(1) #test
+				if err is not None:
+					raise err
 				response_header = MSRPCRespHeader(response_data)
 
 				off = response_header.get_header_size()
