@@ -6,7 +6,6 @@ import logging
 from aiosmb import logger
 from aiosmb._version import __banner__
 from aiosmb.commons.connection.url import SMBConnectionURL
-from aiosmb.connection import SMBConnection
 from aiosmb.dcerpc.v5.interfaces.even6 import Even6RPC
 
 """

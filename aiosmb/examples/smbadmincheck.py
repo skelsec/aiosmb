@@ -14,8 +14,8 @@ from aiosmb.commons.utils.univeraljson import UniversalEncoder
 from aiosmb.commons.connection.url import SMBConnectionURL
 from aiosmb.commons.interfaces.machine import SMBMachine
 from aiosmb.commons.interfaces.share import SMBShare
-from aiosmb.dcerpc.v5.interfaces.remoteregistry import RRP
-from aiosmb.dcerpc.v5.interfaces.servicemanager import SMBRemoteServieManager
+from aiosmb.dcerpc.v5.interfaces.remoteregistry import RRPRPC
+from aiosmb.dcerpc.v5.interfaces.servicemanager import REMSVCRPC
 
 from tqdm import tqdm
 
@@ -129,13 +129,13 @@ class SMBAdminCheck:
 				_, err = await share.connect(connection)
 				res.share = True if err is None else False
 
-				rrp = RRP(connection)
-				_, err = await rrp.connect()
+				rrp, err = await RRPRPC.from_smbconnection(connection)
+				#_, err = await rrp.connect()
 				res.registry = True if err is None else False
 
 
-				srvmgr = SMBRemoteServieManager(connection)
-				_, err = await srvmgr.connect()
+				srvmgr, err = await REMSVCRPC.from_smbconnection(connection)
+				#_, err = await srvmgr.connect()
 				res.servicemgr = True if err is None else False
 
 				await self.res_q.put(res)

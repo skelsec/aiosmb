@@ -7,7 +7,6 @@ import asyncio
 from pathlib import PureWindowsPath
 
 from aiosmb.commons.connection.url import SMBConnectionURL
-from aiosmb.commons.interfaces.machine import SMBMachine
 from aiosmb.commons.interfaces.file import SMBFile
 
 
