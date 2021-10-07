@@ -49,6 +49,7 @@ setup(
 		'colorama',
 		'asn1crypto',
 		'pycryptodomex',
+		'wcwidth',
 	],
 	
 	classifiers=[
