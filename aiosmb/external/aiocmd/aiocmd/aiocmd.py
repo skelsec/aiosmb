@@ -3,6 +3,7 @@ import inspect
 import shlex
 import signal
 import sys
+import traceback
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.completion import WordCompleter
@@ -102,6 +103,7 @@ class PromptToolkitCmd:
         except (ExitPromptException, asyncio.CancelledError):
             raise
         except Exception as ex:
+            traceback.print_exc()
             print("Command failed: ", ex)
 
     def _interrupt_handler(self, event):

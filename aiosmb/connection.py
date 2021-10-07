@@ -471,8 +471,11 @@ class SMBConnection:
 		
 		self.status = SMBConnectionStatus.CLOSED
 		
-		await self.netbios_transport.in_queue.put((None, Exception('Exiting!')))
-		await self.netbios_transport.out_queue.put(None)
+		if self.netbios_transport is not None:
+			if self.netbios_transport.in_queue is not None:
+				await self.netbios_transport.in_queue.put((None, Exception('Exiting!')))
+			if self.netbios_transport.out_queue is not None:
+				await self.netbios_transport.out_queue.put(None)
 		await asyncio.sleep(0)
 		
 		if self.keepalive_task is not None:
@@ -988,7 +991,7 @@ class SMBConnection:
 			
 			elif rply.header.Status == NTStatus.ACCESS_DENIED:
 				#this could mean incorrect filename/foldername OR actually access denied
-				raise SMBCreateAccessDenied()
+				raise SMBException('%s' % rply.header.Status.name, rply.header.Status)
 				
 			else:
 				raise SMBException('%s' % rply.header.Status.name, rply.header.Status)

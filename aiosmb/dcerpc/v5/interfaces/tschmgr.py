@@ -65,7 +65,6 @@ class TSCHRPC:
 				
 			return service, None
 		except Exception as e:
-			traceback.print_exc()
 			return False, e
 	
 	@staticmethod
