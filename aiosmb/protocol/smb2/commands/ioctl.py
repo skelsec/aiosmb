@@ -321,6 +321,7 @@ class NETWORK_INTERFACE_INFO:
 		return msg
 		
 class SOCKADDR_STORAGE_FAMILY(enum.Enum):
+	UNKONWN = 0x0000 #??????
 	InterNetwork = 0x0002 #When set, indicates an IPv4 address in the socket.
 	InterNetworkV6 = 0x0017 #When set, indicates an IPv6 address in the socket.
 
