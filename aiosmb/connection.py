@@ -1312,6 +1312,11 @@ class SMBConnection:
 		msg = SMB2Message(header, command)
 		message_id = await self.sendSMB(msg)
 		rply = await self.recvSMB(message_id)
+
+		if rply.header.Status == NTStatus.SUCCESS:
+			return True, None
+		else:
+			return None, SMBException('%s' % rply.header.Status.name, rply.header.Status)
 		
 	async def tree_disconnect(self, tree_id):
 		"""
