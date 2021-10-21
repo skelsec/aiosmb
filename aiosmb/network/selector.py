@@ -1,4 +1,4 @@
-from aiosmb.commons.connection.proxy import SMBProxyType
+from aiosmb.commons.connection.proxy import SMBProxyType, ASYSOCKS_PROXY_TYPES
 from aiosmb.network.tcp import TCPSocket
 from aiosmb.network.socks import SocksProxyConnection
 from aiosmb.network.multiplexornetwork import MultiplexorProxyConnection
@@ -16,7 +16,7 @@ class NetworkSelector:
 				return QUICSocket(target = target), None
 			else:
 				return TCPSocket(target = target), None
-		elif target.proxy.type in [SMBProxyType.WSNET,SMBProxyType.WSNETWS, SMBProxyType.WSNETWSS, SMBProxyType.SOCKS5, SMBProxyType.SOCKS5_SSL, SMBProxyType.SOCKS4, SMBProxyType.SOCKS4_SSL]:
+		elif target.proxy.type in ASYSOCKS_PROXY_TYPES:
 			return SocksProxyConnection(target = target), None
 
 		elif target.proxy.type in [SMBProxyType.MULTIPLEXOR, SMBProxyType.MULTIPLEXOR_SSL]:

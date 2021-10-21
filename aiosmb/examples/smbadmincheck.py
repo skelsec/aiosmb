@@ -127,7 +127,16 @@ class SMBAdminCheck:
 					fullpath = '\\\\%s\\%s' % (connection.target.get_hostname_or_ip(), 'ADMIN$')
 				)
 				_, err = await share.connect(connection)
-				res.share = True if err is None else False
+				if err is not None:
+					res.share = False
+					share = SMBShare(
+						name = 'admin$',
+						fullpath = '\\\\%s\\%s' % (connection.target.get_hostname_or_ip(), 'admin$')
+					)
+					_, err = await share.connect(connection)
+					res.share = True if err is None else False
+				else:
+					res.share = True
 
 				rrp, err = await RRPRPC.from_smbconnection(connection)
 				#_, err = await rrp.connect()

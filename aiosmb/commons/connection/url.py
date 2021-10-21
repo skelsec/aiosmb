@@ -40,7 +40,8 @@ class SMBConnectionURL:
 		#proxy
 		self.proxy= None
 
-		self.parse()
+		if self.connection_url is not None:
+			self.parse()
 
 	def get_connection(self):
 		credential = self.get_credential()
