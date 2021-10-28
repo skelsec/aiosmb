@@ -98,7 +98,9 @@ class EnumResultFinal:
 class SMBFileEnum:
 	def __init__(self, smb_url, worker_count = 10, depth = 3, enum_url = False, out_file = None, show_pbar = True, max_items = None, max_runtime = None, fetch_share_sd = False, fetch_dir_sd = False, fetch_file_sd = False, task_q = None, res_q = None, output_type = 'str', exclude_share = [], exclude_dir = [], exclude_target = [], ext_result_q = None):
 		self.target_gens = []
-		self.smb_mgr = SMBConnectionURL(smb_url)
+		self.smb_mgr = smb_url
+		if isinstance(smb_url, str):
+			self.smb_mgr = SMBConnectionURL(smb_url)
 		self.worker_count = worker_count
 		self.task_q = task_q
 		self.res_q = res_q

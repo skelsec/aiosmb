@@ -97,7 +97,9 @@ class SMBAdminEnumResult:
 class SMBAdminCheck:
 	def __init__(self, smb_url, worker_count = 100, enum_url = True, exclude_target = [], show_pbar = False, ext_result_q=None, output_type = 'str', out_file = None):
 		self.target_gens = []
-		self.smb_mgr = SMBConnectionURL(smb_url)
+		self.smb_mgr = smb_url
+		if isinstance(smb_url, str):
+			self.smb_mgr = SMBConnectionURL(smb_url)
 		self.worker_count = worker_count
 		self.task_q = None
 		self.res_q = None
