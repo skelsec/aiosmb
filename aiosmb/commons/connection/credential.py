@@ -2,6 +2,8 @@ import enum
 import platform
 import uuid
 
+from aiosmb.commons.connection.target import SMBTarget
+
 
 class SMBCredentialTypes(enum.Enum):
 	NTLM_NT = 'ntlm-nt'
@@ -59,13 +61,13 @@ class SMBAuthProtocol(enum.Enum):
 
 class SMBCredential:
 	def __init__(self, username = None, domain = None, secret = None, secret_type = None, authentication_type = None, settings = None, target = None):
-		self.username = username
-		self.domain = domain
-		self.secret = secret
-		self.secret_type = secret_type #SMBCredentialsSecretType
-		self.target = target #for kerberos authentication
+		self.username:str = username
+		self.domain:str = domain
+		self.secret:str = secret
+		self.secret_type:SMBCredentialsSecretType = secret_type #SMBCredentialsSecretType
+		self.target:SMBTarget = target #for kerberos authentication
 		
-		self.authentication_type = authentication_type #kerberos or NTLM or ...
+		self.authentication_type:SMBAuthProtocol = authentication_type #kerberos or NTLM or ...
 		self.settings = settings
 			
 		#domain/user/auth_type/secret_type:secret@target_ip_hostname_fqdn:target_port/dc_ip
@@ -85,7 +87,7 @@ class SMBCredential:
 		return SMBCredential.from_connection_string(s + '@')
 
 	@staticmethod
-	def from_connection_string(s):
+	def from_connection_string(s:str):
 		creds = SMBCredential()
 		
 		t, target = s.rsplit('@', 1)

@@ -12,7 +12,11 @@ class FileTargetGen:
 					line = line.strip()
 					if line == '':
 						continue
-					yield str(uuid.uuid4()), line, None
+					try:
+						for ip in ipaddress.ip_network(line, strict = False):
+							yield  str(uuid.uuid4()),str(ip), None
+					except:
+						yield str(uuid.uuid4()), line, None
 		except Exception as e:
 			yield None, None, e
 

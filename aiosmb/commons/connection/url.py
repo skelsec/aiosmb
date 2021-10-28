@@ -9,12 +9,15 @@ from aiosmb.connection import SMBConnection
 from getpass import getpass
 import base64
 import ipaddress
+import copy
 
 
 class SMBConnectionURL:
-	def __init__(self, connection_url):
+	def __init__(self, connection_url, credential:SMBCredential = None, target:SMBTarget = None):
 		self.connection_url = connection_url
-		
+		self.credential = credential
+		self.target = target
+
 		#credential
 		self.authentication_protocol = None
 		self.secret_type = None
@@ -71,9 +74,13 @@ class SMBConnectionURL:
 		return SMBFile.from_smburl(self)
 
 	def get_proxy(self):
+		if self.target is not None:
+			return copy.deepcopy(self.target.proxy)
 		return self.proxy
 
 	def get_target(self):
+		if self.target is not None:
+			return copy.deepcopy(self.target)
 		if self.ip is not None and self.hostname is None:
 			try:
 				ipaddress.ip_address(self.ip)
@@ -114,6 +121,8 @@ class SMBConnectionURL:
 		return t
 
 	def get_credential(self):
+		if self.credential is not None:
+			return copy.deepcopy(self.credential)
 		return SMBCredential(
 			username = self.username,
 			domain = self.domain, 

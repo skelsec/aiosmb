@@ -11,6 +11,7 @@ import ipaddress
 import enum
 import copy
 
+from aiosmb.commons.connection.proxy import SMBProxy
 from aiosmb.protocol.common import NegotiateDialects, SMB2_NEGOTIATE_DIALTECTS_2, SMB2_NEGOTIATE_DIALTECTS_3, SMB2_NEGOTIATE_DIALTECTS
 
 class SMBConnectionDialect(enum.Enum):
@@ -45,37 +46,37 @@ class SMBConnectionProtocol(enum.Enum):
 class SMBTarget:
 	"""
 	"""
-	def __init__(self, ip = None, 
-						port = 445, 
-						hostname = None, 
-						timeout = 1, 
-						dc_ip=None, 
-						domain = None, 
-						proxy = None,
-						protocol = SMBConnectionProtocol.TCP,
-						path = None):
-		self.ip = ip
-		self.port = port
-		self.hostname = hostname
-		self.timeout = timeout
-		self.dc_ip = dc_ip
-		self.domain = domain
-		self.proxy = proxy
-		self.protocol = protocol
-		self.preferred_dialects = SMB2_NEGOTIATE_DIALTECTS_2
+	def __init__(self, ip:str = None, 
+						port:int = 445, 
+						hostname:str = None, 
+						timeout:int = 1, 
+						dc_ip:str =None, 
+						domain:str = None, 
+						proxy:SMBProxy = None,
+						protocol:SMBConnectionProtocol = SMBConnectionProtocol.TCP,
+						path:str = None):
+		self.ip:str = ip
+		self.port:int = port
+		self.hostname:str = hostname
+		self.timeout:int = timeout
+		self.dc_ip:str = dc_ip
+		self.domain:str = domain
+		self.proxy:SMBProxy = proxy
+		self.protocol:SMBConnectionProtocol = protocol
+		self.preferred_dialects:SMBConnectionDialect = SMB2_NEGOTIATE_DIALTECTS_2
 
-		self.path = path #for holding remote file path
+		self.path:str = path #for holding remote file path
 
 		#this is mostly for advanced users
-		self.MaxTransactSize = 0x100000
-		self.MaxReadSize = 0x100000
-		self.MaxWriteSize = 0x100000
-		self.SMBPendingTimeout = 5
-		self.SMBPendingMaxRenewal = None
-		self.compression = False
+		self.MaxTransactSize:int = 0x100000
+		self.MaxReadSize:int = 0x100000
+		self.MaxWriteSize:int = 0x100000
+		self.SMBPendingTimeout:int = 5
+		self.SMBPendingMaxRenewal:int = None
+		self.compression:bool = False
 
 
-	def update_dialect(self, dialect):
+	def update_dialect(self, dialect:SMBConnectionDialect) -> None: 
 		if isinstance(dialect, SMBConnectionDialect) is False:
 			raise Exception('dialect must be a type of SMBConnectionDialect')
 		if dialect == SMBConnectionDialect.SMB:
@@ -93,7 +94,7 @@ class SMBTarget:
 			}
 		return
 
-	def to_target_string(self):
+	def to_target_string(self) -> str:
 		return 'cifs/%s@%s' % (self.hostname, self.domain)
 
 	def get_copy(self, ip, port, hostname = None):

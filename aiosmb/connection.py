@@ -8,6 +8,7 @@ import traceback
 import datetime
 
 from aiosmb import logger
+from aiosmb.authentication.spnego.native import SPNEGO
 from aiosmb.commons.exceptions import *
 from aiosmb.network.selector import NetworkSelector
 from aiosmb.transport.netbios import NetBIOSTransport
@@ -141,8 +142,7 @@ class SMBConnection:
 	"""
 	Connection class for network connectivity and SMB messages management (sending/recieveing/singing/encrypting).
 	"""
-	#def __init__(self, gssapi, target, dialects = [NegotiateDialects.SMB202]):
-	def __init__(self, gssapi, target, preserve_gssapi = True, nosign = False):
+	def __init__(self, gssapi:SPNEGO, target:SMBTarget, preserve_gssapi:bool = True, nosign:bool = False):
 		self.nosign = nosign
 		self.gssapi = gssapi
 		self.original_gssapi = None

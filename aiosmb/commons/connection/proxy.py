@@ -53,7 +53,7 @@ multiplexorproxyurl_param2var = {
 
 class SMBProxy:
 	def __init__(self):
-		self.type = None
+		self.type:SMBProxyType = None
 		self.target = None
 		self.auth   = None
 

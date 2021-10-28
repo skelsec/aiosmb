@@ -785,6 +785,8 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			async for secret, err in self.machine.dcsync(target_users=users):
 				if err is not None:
 					raise err
+				if secret is None:
+					continue
 				print(str(secret))
 			
 			return True, None
