@@ -1,3 +1,4 @@
+from aiosmb.wintypes.ntstatus import NTStatus
 
 class SMBException(Exception):
 	def __init__(self, message = '', ntstatus = None):
@@ -13,6 +14,14 @@ class SMBConnectionNetworkTerminated(SMBException):
 			super().__init__('ConnectionTerminated',-1)
 		else:
 			super().__init__(msg,-1)
+
+class SMBConnectionTerminated(SMBException):
+	def __init__(self, msg = ''):
+		self.error_code = NTStatus.CONNECTION_ABORTED
+		if len(msg) == 0:
+			super().__init__('ConnectionTerminated',NTStatus.CONNECTION_ABORTED)
+		else:
+			super().__init__(msg,NTStatus.CONNECTION_ABORTED)
 
 class SMBConnectionTimeoutException(SMBException):
 	def __init__(self, msg = ''):

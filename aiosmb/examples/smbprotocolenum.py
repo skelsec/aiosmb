@@ -86,7 +86,10 @@ class SMBProtocolEnumResult:
 		return ''
 
 class SMBProtocolEnum:
-	def __init__(self, worker_count = 100, timeout = 5, only_signing = False, protocols = SMB_NEGOTIATE_PROTOCOL_TEST, exclude_target = [], show_pbar = False, ext_result_q = None, output_type = 'str', out_file = None):
+	def __init__(self, smb_url, worker_count = 100, timeout = 5, only_signing = False, protocols = SMB_NEGOTIATE_PROTOCOL_TEST, exclude_target = [], show_pbar = False, ext_result_q = None, output_type = 'str', out_file = None):
+		self.smb_mgr = smb_url
+		if isinstance(smb_url, str):
+			self.smb_url = SMBConnectionURL(smb_url)
 		self.target_gens = []
 		self.timeout = timeout
 		self.worker_count = worker_count
@@ -108,8 +111,7 @@ class SMBProtocolEnum:
 	async def __executor(self, tid, target):
 		try:
 			for protocol in self.protocols:
-				smb_mgr = SMBConnectionURL('smb2+ntlm-password://%s/?timeout=%s' % (target, self.timeout))
-				connection = smb_mgr.create_connection_newtarget(target)
+				connection = self.smb_mgr.create_connection_newtarget(target)
 				res, sign_en, sign_req, rply, err = await connection.protocol_test([protocol])
 				if err is not None:
 					raise err
@@ -368,7 +370,8 @@ async def amain():
 	if args.tsv is True:
 		output_type = 'tsv'
 
-	enumerator = SMBProtocolEnum(worker_count = args.smb_worker_count, timeout = args.timeout, only_signing = args.signing, show_pbar=args.progress, out_file=args.out_file, output_type=output_type)
+	smb_url = SMBConnectionURL('smb2+ntlm-password://dummy\\dummy:dummy@999.999.999.999')
+	enumerator = SMBProtocolEnum(smb_url, worker_count = args.smb_worker_count, timeout = args.timeout, only_signing = args.signing, show_pbar=args.progress, out_file=args.out_file, output_type=output_type)
 
 	notfile = []
 	if len(args.targets) == 0 and args.stdin is True:

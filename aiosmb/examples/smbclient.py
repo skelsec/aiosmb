@@ -1130,6 +1130,7 @@ def main():
 	import argparse
 	import platform
 	import logging
+	from asysocks import logger as asylogger
 	
 	parser = argparse.ArgumentParser(description='Interactive SMB client')
 	parser.add_argument('-v', '--verbose', action='count', default=0)
@@ -1149,6 +1150,7 @@ def main():
 		print('setting deepdebug')
 		logger.setLevel(1) #enabling deep debug
 		sockslogger.setLevel(1)
+		asylogger.setLevel(1)
 		asyncio.get_event_loop().set_debug(True)
 		logging.basicConfig(level=logging.DEBUG)
 

@@ -162,6 +162,8 @@ class SMBConnection:
 		self.netbios_transport = None #this class is used by the netbios transport class, keeping it here also maybe you like to go in raw
 		self.incoming_task = None
 		self.keepalive_task = None
+		self.keepalive_timeout = 15
+		self.connection_closed_evt = None
 		# TODO: turn it back on 
 		self.supress_keepalive = False
 		self.activity_at = None
@@ -440,6 +442,7 @@ class SMBConnection:
 		Establishes socket connection to the remote endpoint. Also starts the internal reading procedures.
 		"""
 		try:
+			self.connection_closed_evt = asyncio.Event()
 			self.network_transport, err = await NetworkSelector.select(self.target)
 			if err is not None:
 				raise err
@@ -510,7 +513,7 @@ class SMBConnection:
 			while True:
 				await asyncio.sleep(sleep_time)
 				if (datetime.datetime.utcnow() - self.activity_at).seconds > sleep_time and self.supress_keepalive is False: 
-					await self.echo()
+					await asyncio.wait_for(self.echo(), timeout = self.keepalive_timeout)
 				
 		except asyncio.CancelledError:
 			return
@@ -911,7 +914,7 @@ class SMBConnection:
 		await self.netbios_transport.out_queue.put(msg.to_bytes())
 		
 		if ret_message is True:
-				return message_id, msg
+			return message_id, msg
 		return message_id
 		
 	async def tree_connect(self, share_name):
@@ -919,8 +922,9 @@ class SMBConnection:
 		share_name MUST be in "\\\\server\\share" format! Server can be NetBIOS name OR IP4 OR IP6 OR FQDN
 		"""
 		try:
-			if self.session_closed == True:
-				return
+			if self.session_closed == True or self.status == SMBConnectionStatus.CLOSED:
+				raise SMBConnectionTerminated()
+			
 			command = TREE_CONNECT_REQ()
 			command.Path = share_name
 			command.Flags = 0
@@ -955,8 +959,8 @@ class SMBConnection:
 		
 	async def create(self, tree_id, file_path, desired_access, share_mode, create_options, create_disposition, file_attrs, impresonation_level = ImpersonationLevel.Impersonation, oplock_level = OplockLevel.SMB2_OPLOCK_LEVEL_NONE, create_contexts = None, return_reply = False):
 		try:
-			if self.session_closed == True:
-				return
+			if self.session_closed == True or self.status == SMBConnectionStatus.CLOSED:
+				raise SMBConnectionTerminated()
 			
 			if tree_id not in self.TreeConnectTable_id:
 				raise Exception('Unknown Tree ID!')
@@ -1012,8 +1016,8 @@ class SMBConnection:
 		If and EOF happens the function returns an empty byte array and the remaining data is set to 0
 		"""
 		try:
-			if self.session_closed == True:
-				return None, None, None
+			if self.session_closed == True or self.status == SMBConnectionStatus.CLOSED:
+				raise SMBConnectionTerminated()
 				
 			if tree_id not in self.TreeConnectTable_id:
 				raise Exception('Unknown Tree ID!')
@@ -1066,8 +1070,8 @@ class SMBConnection:
 		
 		"""
 		try:
-			if self.session_closed == True:
-				return None, None
+			if self.session_closed == True or self.status == SMBConnectionStatus.CLOSED:
+				raise SMBConnectionTerminated()
 				
 			if tree_id not in self.TreeConnectTable_id:
 				raise Exception('Unknown Tree ID! %s' % tree_id)
@@ -1114,8 +1118,9 @@ class SMBConnection:
 		IMPORTANT: in case you are requesting big amounts of data, the result will arrive in chunks. You will need to invoke this function until None is returned to get the full data!!!
 		"""
 		try:
-			if self.session_closed == True:
-				return
+			if self.session_closed == True or self.status == SMBConnectionStatus.CLOSED:
+				raise SMBConnectionTerminated()
+
 			if tree_id not in self.TreeConnectTable_id:
 				raise Exception('Unknown Tree ID!')
 			if file_id not in self.FileHandleTable:
@@ -1174,8 +1179,8 @@ class SMBConnection:
 		IMPORTANT: in case you are requesting big amounts of data, the result will arrive in chunks. You will need to invoke this function until None is returned to get the full data!!!
 		"""
 		try:
-			if self.session_closed == True:
-				return None, None
+			if self.session_closed == True or self.status == SMBConnectionStatus.CLOSED:
+				raise SMBConnectionTerminated()
 				
 			if tree_id not in self.TreeConnectTable_id:
 				raise Exception('Unknown Tree ID!')
@@ -1218,6 +1223,9 @@ class SMBConnection:
 
 	async def ioctl(self, tree_id, file_id, ctlcode, data = None, flags = IOCTLREQFlags.IS_IOCTL):
 		try:
+			if self.session_closed == True or self.status == SMBConnectionStatus.CLOSED:
+				raise SMBConnectionTerminated()
+
 			command = IOCTL_REQ()
 			command.CtlCode  = ctlcode
 			command.FileId  = file_id
@@ -1242,8 +1250,9 @@ class SMBConnection:
 		"""
 		Closes the file/directory/pipe/whatever based on file_id. It will automatically remove all traces of the file handle.
 		"""
-		if self.session_closed == True:
-			return
+		if self.session_closed == True or self.status == SMBConnectionStatus.CLOSED:
+			raise SMBConnectionTerminated()
+		
 		command = CLOSE_REQ()
 		command.Flags = flags
 		command.FileId = file_id
@@ -1265,19 +1274,23 @@ class SMBConnection:
 		"""
 		Flushes all cached data that may be on the server for the given file.
 		"""
-		if self.session_closed == True:
-			return
+		try:
+			if self.session_closed == True or self.status == SMBConnectionStatus.CLOSED:
+				raise SMBConnectionTerminated()
+				
+			command = FLUSH_REQ()
+			command.FileId = file_id
 			
-		command = FLUSH_REQ()
-		command.FileId = file_id
-		
-		header = SMB2Header_SYNC()
-		header.Command  = SMB2Command.FLUSH
-		header.TreeId = tree_id
-		msg = SMB2Message(header, command)
-		message_id = await self.sendSMB(msg)
+			header = SMB2Header_SYNC()
+			header.Command  = SMB2Command.FLUSH
+			header.TreeId = tree_id
+			msg = SMB2Message(header, command)
+			message_id = await self.sendSMB(msg)
 
-		rply = await self.recvSMB(message_id)
+			rply = await self.recvSMB(message_id)
+			return True, None
+		except Exception as e:
+			return None, e
 		
 	async def logoff(self):
 		"""
@@ -1285,45 +1298,50 @@ class SMBConnection:
 		The underlying connection will still be active, so please either clean it up manually or dont touch this function
 		For proper closing of the connection use the terminate function
 		"""
-		if self.session_closed == True:
-			return
+		try:
+			if self.session_closed == True or self.status == SMBConnectionStatus.CLOSED:
+				raise SMBConnectionTerminated()
+				
+			command = LOGOFF_REQ()
 			
-		if self.status == SMBConnectionStatus.CLOSED:
-			return
-			
-		command = LOGOFF_REQ()
-		
-		header = SMB2Header_SYNC()
-		header.Command  = SMB2Command.LOGOFF
-		msg = SMB2Message(header, command)
-		message_id = await self.sendSMB(msg)
+			header = SMB2Header_SYNC()
+			header.Command  = SMB2Command.LOGOFF
+			msg = SMB2Message(header, command)
+			message_id = await self.sendSMB(msg)
 
-		rply = await self.recvSMB(message_id)
+			rply = await self.recvSMB(message_id)
+			return True, None
+		except Exception as e:
+			return None, e
 	
 	async def echo(self):
 		"""
 		Issues an ECHO request to the server. Server will reply with and ECHO response, if it's still alive
 		"""
-		if self.session_closed == True:
-			return
-		command = ECHO_REQ()
-		header = SMB2Header_SYNC()
-		header.Command  = SMB2Command.ECHO
-		msg = SMB2Message(header, command)
-		message_id = await self.sendSMB(msg)
-		rply = await self.recvSMB(message_id)
+		try:
+			if self.session_closed == True or self.status == SMBConnectionStatus.CLOSED:
+				raise SMBConnectionTerminated()
 
-		if rply.header.Status == NTStatus.SUCCESS:
-			return True, None
-		else:
-			return None, SMBException('%s' % rply.header.Status.name, rply.header.Status)
+			command = ECHO_REQ()
+			header = SMB2Header_SYNC()
+			header.Command  = SMB2Command.ECHO
+			msg = SMB2Message(header, command)
+			message_id = await self.sendSMB(msg)
+			rply = await self.recvSMB(message_id)
+
+			if rply.header.Status == NTStatus.SUCCESS:
+				return True, None
+			else:
+				return None, SMBException('%s' % rply.header.Status.name, rply.header.Status)
+		except Exception as e:
+			return None, e
 		
 	async def tree_disconnect(self, tree_id):
 		"""
 		Disconnects from tree, removes all file entries associated to the tree
 		"""
-		if self.session_closed == True:
-			return
+		if self.session_closed == True or self.status == SMBConnectionStatus.CLOSED:
+			raise SMBConnectionTerminated()
 			
 		command = TREE_DISCONNECT_REQ()
 		
@@ -1353,8 +1371,8 @@ class SMBConnection:
 		"""
 		Issues a CANCEL command for the given message_id
 		"""
-		if self.session_closed == True:
-			return
+		if self.session_closed == True or self.status == SMBConnectionStatus.CLOSED:
+			raise SMBConnectionTerminated()
 			
 		command = CANCEL_REQ()
 		header = SMB2Header_SYNC()
@@ -1393,6 +1411,9 @@ class SMBConnection:
 			return
 		except Exception as e:
 			logger.debug('terminate error %s' % str(e))
+		finally:
+			if self.connection_closed_evt is not None:
+				self.connection_closed_evt.set()
 	
 	async def ghosting(self):
 		#self.encryption_required = False

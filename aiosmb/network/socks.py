@@ -55,8 +55,8 @@ class SocksProxyConnection:
 
 			self.target.proxy.target[-1].endpoint_ip = self.target.ip
 			self.target.proxy.target[-1].endpoint_port = int(self.target.port)
-			self.target.proxy.target[-1].endpoint_timeout = int(self.target.timeout)
-			self.target.proxy.target[-1].timeout = int(self.target.timeout)
+			self.target.proxy.target[-1].endpoint_timeout = None #int(self.target.timeout)
+			self.target.proxy.target[-1].timeout = int(self.target.timeout) if self.target.timeout is not None else None
 
 			self.client = SOCKSClient(comms, self.target.proxy.target)
 			self.proxy_task = asyncio.create_task(self.client.run())

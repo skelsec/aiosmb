@@ -63,7 +63,10 @@ class SMBOSEnumResult:
 		return ''
 	
 class SMBOSEnum:
-	def __init__(self, worker_count = 100, timeout = 5, show_pbar = True, output_type = 'str', out_file = None, out_buffer_size = 1, ext_result_q = None):
+	def __init__(self, smb_url, worker_count = 100, timeout = 5, show_pbar = True, output_type = 'str', out_file = None, out_buffer_size = 1, ext_result_q = None):
+		self.smb_mgr = smb_url
+		if isinstance(smb_url, str):
+			self.smb_url = SMBConnectionURL(smb_url)
 		self.target_gens = []
 		self.timeout = timeout
 		self.worker_count = worker_count
@@ -83,8 +86,8 @@ class SMBOSEnum:
 
 	async def __executor(self, tid, target):
 		try:
-			smb_mgr = SMBConnectionURL('smb2+ntlm-password://%s/?timeout=%s' % (target, self.timeout))
-			connection = smb_mgr.create_connection_newtarget(target)
+			
+			connection = self.smb_mgr.create_connection_newtarget(target)
 			res, err = await connection.fake_login()
 			if err is not None:
 				raise err
@@ -317,6 +320,7 @@ async def amain():
 		output_type = 'tsv'
 
 	enumerator = SMBOSEnum(
+		smb_url = SMBConnectionURL('smb2+ntlm-password://dummy\\dummy:dummy@999.999.999.999'),
 		worker_count = args.smb_worker_count, 
 		timeout = args.timeout,
 		show_pbar = args.progress, 
