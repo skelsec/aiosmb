@@ -44,7 +44,7 @@ class EPM:
 		Sets up the EPM connection from an existing SMB connection
 		"""
 		dcerpc_target_str = r'%s:%s[%s]' % (protocol, smb_connection.target.get_hostname_or_ip(), port)
-		target = DCERPCTarget.from_connection_string(dcerpc_target_str)
+		target = DCERPCTarget.from_connection_string(dcerpc_target_str, proxy=smb_connection.target.proxy)
 		auth = DCERPCAuth.from_smb_gssapi(smb_connection.gssapi)
 		connection = DCERPC5Connection(auth, target)
 		connection.set_auth_type(RPC_C_AUTHN_LEVEL_NONE)
@@ -77,12 +77,14 @@ class EPM:
 			_, err = await self.dce.connect()
 			if err is not None:
 				raise err
+			print('EPM bind')
 			_, err = await self.dce.bind(MSRPC_UUID_PORTMAP)
 			if err is not None:
 				raise err
-
+			print('EPM done')
 			return True,None
 		except Exception as e:
+			print('EPM err %s' % e)
 			return False, e
 
 	async def map(self, remoteIf):

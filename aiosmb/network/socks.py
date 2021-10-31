@@ -59,7 +59,12 @@ class SocksProxyConnection:
 			self.target.proxy.target[-1].timeout = int(self.target.timeout) if self.target.timeout is not None else None
 
 			self.client = SOCKSClient(comms, self.target.proxy.target)
-			self.proxy_task = asyncio.create_task(self.client.run())
+			proxy_coro = await self.client.run(True)
+			self.proxy_task = asyncio.create_task(proxy_coro)
+			await self.client.proxy_running_evt.wait()
+
+
+
 			return True, None
 		except Exception as e:
 			return False, e
