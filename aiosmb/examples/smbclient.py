@@ -527,10 +527,13 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			traceback.print_exc()
 			return None, e
 	
-	async def do_servicecmdexec(self, command):
+	async def do_servicecmdexec(self, command, timeout = 1):
 		"""Executes a shell command as a service and returns the result"""
 		try:
 			buffer = b''
+			if timeout is None or timeout == '':
+				timeout = 1
+			timeout = int(timeout)
 			async for data, err in self.machine.service_cmd_exec(command):
 				if err is not None:
 					raise err
@@ -956,10 +959,26 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			return None, e
 
 
-	async def do_taskcmdexec(self, command):
+	async def do_taskcmdexec(self, command, timeout = 1):
 		""" Executes a shell command using the scheduled tasks service"""
 		try:
-			await self.machine.tasks_execute_commands([command])
+			buffer = b''
+			if timeout is None or timeout == '':
+				timeout = 1
+			timeout = int(timeout)
+			async for data, err in self.machine.tasks_cmd_exec(command, timeout):
+				if err is not None:
+					raise err
+				if data is None:
+					break
+				
+				try:
+					print(data.decode())
+				except:
+					print(data)
+			return True, None
+			
+			#await self.machine.tasks_execute_commands([command])
 		except SMBException as e:
 			logger.debug(traceback.format_exc())
 			print(e.pprint())

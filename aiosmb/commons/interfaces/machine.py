@@ -509,7 +509,7 @@ class SMBMachine:
 						print('[%s] Removed service: %s' % (self.connection.target.get_hostname_or_ip(), service_name))
 
 	
-	async def service_cmd_exec(self, command, display_name = None, service_name = None):
+	async def service_cmd_exec(self, command, display_name = None, service_name = None, result_wait_timeout = 1):
 		"""
 		Creates a service and starts it.
 		Does not create files! there is a separate command for that!
@@ -546,13 +546,18 @@ class SMBMachine:
 			#if err is not None:
 			#	raise err
 
-			await asyncio.sleep(5)
-			logger.debug('Opening temp file. Path: %s' % temp_file_location)
-			temp = SMBFile.from_remotepath(self.connection, temp_file_location)
-			_, err = await temp.open(self.connection)
-			if err is not None:
+			err = None
+			for _ in range(5):
+				logger.debug('Opening temp file. Path: %s' % temp_file_location)
+				temp = SMBFile.from_remotepath(self.connection, temp_file_location)
+				_, err = await temp.open(self.connection)
+				if err is not None:
+					await asyncio.sleep(result_wait_timeout)
+					continue
+				break
+			else:
 				raise err
-			
+
 			async for data, err in temp.read_chunked():
 				if err is not None:
 					logger.debug('Temp file read failed!')
@@ -699,6 +704,70 @@ class SMBMachine:
 			return await self.named_rpcs['TSCH'].run_commands(commands)
 		except Exception as e:
 			return None, e
+	
+	async def tasks_cmd_exec(self, command, result_wait_timeout = 1):
+		try:
+			_, err = await self.connect_rpc('TSCH')
+			if err is not None:
+				raise err
+
+			temp_file_name = os.urandom(4).hex()
+			temp_file_location = '\\ADMIN$\\temp\\%s' % temp_file_name
+			temp_location = '%%windir%%\\temp\\%s' % (temp_file_name)
+
+			if self.print_cb is not None:
+				await self.print_cb('[%s] Temp file location: %s' % (self.connection.target.get_hostname_or_ip(), temp_location))
+
+			#totally not from impacket
+			command = '%s  >  %s 2>&1' % (command, temp_location)
+
+			logger.debug('Command: %s' % command)
+			if self.print_cb is not None:
+				await self.print_cb('[%s] Registering new task and executing command...' % self.connection.target.get_hostname_or_ip())
+
+			res, err = await self.named_rpcs['TSCH'].run_commands([command])
+			if err is not None:
+				raise err
+			
+			if self.print_cb is not None:
+				await self.print_cb('[%s] Task executed OK! Waiting for output file' % self.connection.target.get_hostname_or_ip())
+			
+			err = None
+			for _ in range(10):
+				logger.debug('Opening temp file. Path: %s' % temp_file_location)
+				temp = SMBFile.from_remotepath(self.connection, temp_file_location)
+				_, err = await temp.open(self.connection)
+				if err is not None:
+					await asyncio.sleep(result_wait_timeout)
+					continue
+				break
+			else:
+				raise err
+
+			if self.print_cb is not None:
+				await self.print_cb('[%s] Got output file, reading...' % self.connection.target.get_hostname_or_ip())
+			async for data, err in temp.read_chunked():
+				if err is not None:
+					logger.debug('Temp file read failed!')
+					raise err
+				if data is None:
+					break
+
+				yield data, err
+			
+			logger.debug('Deleting temp file...')
+			if self.print_cb is not None:
+				await self.print_cb('[%s] Deleting temp file...' % self.connection.target.get_hostname_or_ip())
+			_, err = await temp.delete()
+			if err is not None:
+				logger.debug('Failed to delete temp file!')
+				if self.print_cb is not None:
+					await self.print_cb('[%s] Failed to delete temp file!' % self.connection.target.get_hostname_or_ip())
+			
+			yield None, None
+
+		except Exception as e:
+			yield None, e
 
 	async def tasks_delete(self, task_name):
 		try:

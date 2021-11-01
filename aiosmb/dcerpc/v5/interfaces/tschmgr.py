@@ -206,40 +206,40 @@ class TSCHRPC:
 		return """<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <Triggers>
-    <CalendarTrigger>
-      <StartBoundary>2015-07-15T20:35:13.2757294</StartBoundary>
-      <Enabled>true</Enabled>
-      <ScheduleByDay>
-        <DaysInterval>1</DaysInterval>
-      </ScheduleByDay>
-    </CalendarTrigger>
+	<CalendarTrigger>
+	  <StartBoundary>2015-07-15T20:35:13.2757294</StartBoundary>
+	  <Enabled>true</Enabled>
+	  <ScheduleByDay>
+		<DaysInterval>1</DaysInterval>
+	  </ScheduleByDay>
+	</CalendarTrigger>
   </Triggers>
   <Principals>
-    <Principal id="LocalSystem">
-      <UserId>S-1-5-18</UserId>
-      <RunLevel>HighestAvailable</RunLevel>
-    </Principal>
+	<Principal id="LocalSystem">
+	  <UserId>S-1-5-18</UserId>
+	  <RunLevel>HighestAvailable</RunLevel>
+	</Principal>
   </Principals>
   <Settings>
-    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
-    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
-    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
-    <AllowHardTerminate>true</AllowHardTerminate>
-    <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
-    <IdleSettings>
-      <StopOnIdleEnd>true</StopOnIdleEnd>
-      <RestartOnIdle>false</RestartOnIdle>
-    </IdleSettings>
-    <AllowStartOnDemand>true</AllowStartOnDemand>
-    <Enabled>true</Enabled>
-    <Hidden>true</Hidden>
-    <RunOnlyIfIdle>false</RunOnlyIfIdle>
-    <WakeToRun>false</WakeToRun>
-    <ExecutionTimeLimit>P3D</ExecutionTimeLimit>
-    <Priority>7</Priority>
+	<MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+	<DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+	<StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+	<AllowHardTerminate>true</AllowHardTerminate>
+	<RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
+	<IdleSettings>
+	  <StopOnIdleEnd>true</StopOnIdleEnd>
+	  <RestartOnIdle>false</RestartOnIdle>
+	</IdleSettings>
+	<AllowStartOnDemand>true</AllowStartOnDemand>
+	<Enabled>true</Enabled>
+	<Hidden>true</Hidden>
+	<RunOnlyIfIdle>false</RunOnlyIfIdle>
+	<WakeToRun>false</WakeToRun>
+	<ExecutionTimeLimit>P3D</ExecutionTimeLimit>
+	<Priority>7</Priority>
   </Settings>
   <Actions Context="LocalSystem">
-    {}
+	{}
   </Actions>
 </Task>
 """.format(self.gen_commands(commands))
@@ -248,12 +248,22 @@ class TSCHRPC:
 		ret = ""
 		for command in commands:
 			ret += """
-     <Exec>
-      <Command>cmd.exe</Command>
-      <Arguments>/C {}</Arguments>
-     </Exec>""".format(command)
+	 <Exec>
+	  <Command>cmd.exe</Command>
+	  <Arguments>/C {}</Arguments>
+	 </Exec>""".format(self.xml_escape(command))
 
 		return ret
+	
+	def xml_escape(self, data):
+		replace_table = {
+			 "&": "&amp;",
+			 '"': "&quot;",
+			 "'": "&apos;",
+			 ">": "&gt;",
+			 "<": "&lt;",
+			 }
+		return ''.join(replace_table.get(c, c) for c in data)
 
 async def amain():
 	try:
