@@ -1,10 +1,9 @@
 
 import asyncio
-import enum
+import os
 import uuid
 import logging
 import json
-import ipaddress
 
 from aiosmb import logger
 from aiosmb.examples.scancommons.targetgens import *
@@ -20,7 +19,7 @@ from tqdm import tqdm
 
 
 
-ENUMRESFINAL_TSV_HDR = ['target', 'target_id', 'username', 'ip_addr', 'err']
+ENUMRESFINAL_TSV_HDR = ['target', 'target_id', 'result', 'err']
 class EnumResultFinal:
 	def __init__(self, obj, otype, err, target, target_id):
 		self.obj = obj
@@ -29,20 +28,17 @@ class EnumResultFinal:
 		self.target = target
 		self.target_id = target_id
 
-		self.username = None
-		self.ip_addr = None
+		self.result = None
 
-		if self.otype == 'session':
-			self.username = self.obj.username
-			self.ip_addr = str(self.obj.ip_addr)
-
+		if self.otype == 'result':
+			self.result = self.obj
 
 	def __str__(self):
 		if self.err is not None:
-			return '[E] %s | %s' % (self.unc_path, self.err)
+			return '[E] %s | %s | %s' % (self.target, self.target_id, self.err)
 
-		elif self.otype == 'session':
-			return '[S] %s | %s | %s | %s ' % (self.target, self.target_id, self.username, self.ip_addr)
+		elif self.otype == 'result':
+			return '[R] %s | %s | %s' % (self.target, self.target_id, self.result)
 
 		elif self.otype == 'progress':
 			return '[P][%s/%s][%s] %s' % (self.obj.total_targets, self.obj.total_finished, str(self.obj.gens_finished), self.obj.current_finished)
@@ -54,8 +50,7 @@ class EnumResultFinal:
 		return {
 			'target' : self.target,
 			'target_id' : self.target_id,
-			'username' : self.username,
-			'ip_addr' : self.ip_addr,
+			'result' : self.result,
 			'otype' : self.otype,
 			'err' : self.err,
 		}
@@ -72,7 +67,7 @@ class EnumResultFinal:
 		return '\t'.join(data)
 
 
-class SMBSessionEnum:
+class SMBPrintnightmareEnum:
 	def __init__(self, smb_url:SMBConnectionURL, worker_count = 10, enum_url = False, out_file = None, show_pbar = True, max_runtime = None, task_q = None, res_q = None, output_type = 'str', ext_result_q = None):
 		self.target_gens = []
 		self.smb_mgr = smb_url
@@ -107,13 +102,22 @@ class SMBSessionEnum:
 				if err is not None:
 					raise err
 
+				nonexistentpath = "C:\\doesntexist\\%s.dll" % os.urandom(4).hex()
 				machine = SMBMachine(connection)
-				async for session, err in machine.list_sessions():
-					# SMBUserSession
-					if err is not None:
-						raise err
-					er = EnumResult(tid, target, session)
+				_, err = await asyncio.wait_for(machine.printnightmare(nonexistentpath, None, silent=True), 10)
+				if err is not None:
+					er = EnumResult(tid, target, 'OK')
+					if str(err).find('ERROR_PATH_NOT_FOUND') != -1:
+						er = EnumResult(tid, target, 'VULN')
 					await self.res_q.put(er)
+
+				_, err = await asyncio.wait_for(machine.par_printnightmare(nonexistentpath, None, silent=True), 10)
+				if err is not None:
+					er = EnumResult(tid, target, 'OK')
+					if str(err).find('ERROR_PATH_NOT_FOUND') != -1:
+						er = EnumResult(tid, target, 'VULN')
+					await self.res_q.put(er)
+					
 
 		except asyncio.CancelledError:
 			return
@@ -153,7 +157,7 @@ class SMBSessionEnum:
 			if self.show_pbar is True:
 				pbar = {}
 				pbar['targets']    = tqdm(desc='Targets     ', unit='', position=0)
-				pbar['sessions']   = tqdm(desc='Sessions    ', unit='', position=1)
+				pbar['vulnerable'] = tqdm(desc='Vulnerable  ', unit='', position=1)
 				pbar['connerrors'] = tqdm(desc='Conn Errors ', unit='', position=2)
 
 			out_buffer = []
@@ -227,12 +231,12 @@ class SMBSessionEnum:
 							
 					if er.result is not None:
 						if self.ext_result_q is not None:
-							await self.ext_result_q.put(EnumResultFinal(er.result, 'session', None, er.target, er.target_id))
-						out_buffer.append(EnumResultFinal(er.result, 'session', None, er.target, er.target_id))
+							await self.ext_result_q.put(EnumResultFinal(er.result, 'result', None, er.target, er.target_id))
+						out_buffer.append(EnumResultFinal(er.result, 'result', None, er.target, er.target_id))
 						self.__total_sessions += 1
 							
-						if self.show_pbar is True:
-							pbar['sessions'].update(1)
+						if self.show_pbar is True and er.result.startswith('VULN') is True:
+							pbar['vulnerable'].update(1)
 					
 					if er.status == EnumResultStatus.ERROR:
 						self.__total_errors += 1
@@ -315,13 +319,15 @@ async def amain():
 
 	epilog = """
 Output legend:
-    [S] Session
+    [S] Share
+    [D] Dictionary
     [F] File
     [E] Error
+    [M] Maxed (max items limit reached for directory)
     [P] Progress (current/total)
 """
 
-	parser = argparse.ArgumentParser(description='SMB Session enumerator', formatter_class=argparse.RawDescriptionHelpFormatter, epilog=epilog)
+	parser = argparse.ArgumentParser(description='SMB Printnightmare enumerator', formatter_class=argparse.RawDescriptionHelpFormatter, epilog=epilog)
 	SMBConnectionParams.extend_parser(parser)
 	parser.add_argument('-v', '--verbose', action='count', default=0)
 	parser.add_argument('-w', '--smb-worker-count', type=int, default=100, help='Parallell count')
@@ -361,7 +367,7 @@ Output legend:
 			sys.exit(1)
 	
 
-	enumerator = SMBSessionEnum(
+	enumerator = SMBPrintnightmareEnum(
 		smb_url,
 		worker_count = args.smb_worker_count,
 		out_file = args.out_file,

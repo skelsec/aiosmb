@@ -77,14 +77,14 @@ class EPM:
 			_, err = await self.dce.connect()
 			if err is not None:
 				raise err
-			print('EPM bind')
+			#print('EPM bind')
 			_, err = await self.dce.bind(MSRPC_UUID_PORTMAP)
 			if err is not None:
 				raise err
-			print('EPM done')
+			#print('EPM done')
 			return True,None
 		except Exception as e:
-			print('EPM err %s' % e)
+			#print('EPM err %s' % e)
 			return False, e
 
 	async def map(self, remoteIf):

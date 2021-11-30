@@ -857,21 +857,21 @@ class SMBMachine:
 		except Exception as e:
 			return None, e
 
-	async def printnightmare(self, share, driverpath, environments = "Windows x64"):
+	async def printnightmare(self, share, driverpath, environments = "Windows x64", silent= False):
 		try:
 			_, err = await self.connect_rpc('RPRN')
 			if err is not None:
 				raise err
-			return await self.named_rpcs['RPRN'].printnightmare(share, driverpath = driverpath, environments = environments)
+			return await self.named_rpcs['RPRN'].printnightmare(share, driverpath = driverpath, environments = environments, silent = silent)
 		except Exception as e:
 			return None, e
 
-	async def par_printnightmare(self, share, driverpath, environments = "Windows x64"):
+	async def par_printnightmare(self, share, driverpath, environments = "Windows x64", silent= False):
 		try:
 			_, err = await self.connect_rpc('PAR')
 			if err is not None:
 				raise err
-			return await self.named_rpcs['PAR'].printnightmare(share, driverpath = driverpath, environments = environments)
+			return await self.named_rpcs['PAR'].printnightmare(share, driverpath = driverpath, environments = environments, silent = silent)
 		except Exception as e:
 			return None, e
 
