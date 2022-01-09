@@ -91,15 +91,21 @@ Socks4 proxy port : `9050`
 `smb+kerberos-password://TEST\victim:Passw0rd!1@10.10.10.2/?dc=10.10.10.2`
 #### Example 5 - KERBEROS with NT hash
 `smb+kerberos-nt://TEST\victim:f8963568a1ec62a3161d9d6449baba93@win2019ad.test.corp/?dc=10.10.10.2`
-#### Example 6 - KERBEROS using the SSPI in Windows
+#### Example 6 - KERBEROS with PFX certificate
+`smb2+kerberos-pfx://user.pfx:password@win2019ad.test.corp/?dc=10.10.10.2`
+#### Example 7 - KERBEROS with PEM certificate
+`smb2+kerberos-pem://cert.pem:key.pem@win2019ad.test.corp/?dc=10.10.10.2`
+#### Example 7 - KERBEROS with certificate from windows certificate store
+`smb2+kerberos-pem://cert.pem:key.pem@win2019ad.test.corp/?dc=10.10.10.2`
+#### Example 8 - KERBEROS using the SSPI in Windows
 `smb+sspi-kerberos://win2019ad.test.corp`
-#### Example 7 - Socks proxy and NTLM with password
+#### Example 9 - Socks proxy and NTLM with password
 `smb+ntlm-password://TEST\victim:Passw0rd!1@10.10.10.2/?proxyhost=127.0.0.1&proxyport=9050`
-#### Example 8 - NTLM with password with timeout higher than normal (60s)
+#### Example 10 - NTLM with password with timeout higher than normal (60s)
 `smb+ntlm-password://TEST\victim:Passw0rd!1@10.10.10.2/?timeout=60`
-#### Example 9 - Negoex certificate auth using PFX file. (eg. Azure P2P auth)
-`smb+negoex-certfile://certificate.pfx:certpass@10.10.10.2/`
-#### Example 10 - Negoex certstore auth using certificate from the current user's certstore (Windows only). (eg. Azure P2P auth)
+#### Example 11 - Negoex certificate auth using PFX file. (eg. Azure P2P auth)
+`smb+negoex-pfx://certificate.pfx:certpass@10.10.10.2/`
+#### Example 12 - Negoex certstore auth using certificate from the current user's certstore (Windows only). (eg. Azure P2P auth)
 `smb+negoex-certstore://<subject CN of the certificate to use>@10.10.10.2/`
 
 # TODO

@@ -23,7 +23,10 @@ class SMBCredentialTypes(enum.Enum):
 	KERBEROS_RC4 = 'kerberos-rc4'
 	KERBEROS_CCACHE = 'kerberos-ccache'
 	KERBEROS_KIRBI = 'kerberos-kirbi'
-	NEGOEX_CERTFILE = 'negoex_certfile'
+	KERBEROS_PFX = 'kerberos-pfx'
+	KERBEROS_PEM = 'kerberos-pem'
+	KERBEROS_CERTSTORE = 'kerberos-certstore'
+	NEGOEX_PFX = 'negoex-pfx'
 
 class SMBCredentialsSecretType(enum.Enum):
 	NT = 'NT'
@@ -37,7 +40,9 @@ class SMBCredentialsSecretType(enum.Enum):
 	KEYTAB = 'KEYTAB'
 	KIRBI = 'KIRBI'
 	NONE = 'NONE'
-	CERTFILE = 'CERTFILE'
+	PFX = 'PFX'
+	PEM = 'PEM'
+	PFXSTR = 'PFXSTR'
 	CERTSTORE = 'CERTSTORE'
 
 class SMBAuthProtocol(enum.Enum):
@@ -60,17 +65,17 @@ class SMBAuthProtocol(enum.Enum):
 	NEGOEX = 'NEGOEX'
 
 class SMBCredential:
-	def __init__(self, username = None, domain = None, secret = None, secret_type = None, authentication_type = None, settings = None, target = None):
+	def __init__(self, username = None, domain = None, secret = None, secret_type = None, authentication_type = None, settings = None, target = None, altname = None, altdomain = None):
 		self.username:str = username
 		self.domain:str = domain
 		self.secret:str = secret
 		self.secret_type:SMBCredentialsSecretType = secret_type #SMBCredentialsSecretType
 		self.target:SMBTarget = target #for kerberos authentication
+		self.altname:str = altname
+		self.altdomain:str = altdomain
 		
 		self.authentication_type:SMBAuthProtocol = authentication_type #kerberos or NTLM or ...
 		self.settings = settings
-			
-		#domain/user/auth_type/secret_type:secret@target_ip_hostname_fqdn:target_port/dc_ip
 
 	def __str__(self):
 		t = '==== SMBCredential ====\r\n'
@@ -135,7 +140,7 @@ class SMBCredential:
 			if creds.secret_type not in [SMBCredentialsSecretType.NT, SMBCredentialsSecretType.RC4, SMBCredentialsSecretType.PASSWORD, SMBCredentialsSecretType.AES, SMBCredentialsSecretType.CCACHE]:
 				raise Exception('KERBEROS authentication requires either password or NT hash or RC4 key or AES key or CCACHE file to be specified as secret!')
 		
-		elif creds.authentication_type in [SMBAuthProtocol.SSPI_NTLM,  SMBAuthProtocol.SSPI_KERBEROS]:
+		elif creds.authentication_type in [SMBAuthProtocol.SSPI_NTLM, SMBAuthProtocol.SSPI_KERBEROS]:
 			if platform.system() != 'Windows':
 				raise Exception('SSPI authentication on works on windows!')
 		

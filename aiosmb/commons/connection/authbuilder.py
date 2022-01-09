@@ -98,6 +98,35 @@ class AuthenticatorBuilder:
 				kc.username = creds.username
 				kc.domain = creds.domain
 			
+			elif creds.secret_type == SMBCredentialsSecretType.PFX:
+				kc = KerberosCredential.from_pfx_file(creds.username, creds.secret, username = creds.altname, domain = creds.altdomain)
+				creds.username = kc.username
+				creds.domain = kc.domain
+				target.domain = kc.domain
+			
+			elif creds.secret_type == SMBCredentialsSecretType.PFXSTR:
+				kc = KerberosCredential.from_pfx_string(creds.username, creds.secret, username = creds.altname, domain = creds.altdomain)
+				creds.username = kc.username
+				creds.domain = kc.domain
+				target.domain = kc.domain
+			
+			elif creds.secret_type == SMBCredentialsSecretType.PEM:
+				kc = KerberosCredential.from_pem_file(creds.username, creds.secret, username = creds.altname, domain = creds.altdomain)
+				creds.username = kc.username
+				creds.domain = kc.domain
+				target.domain = kc.domain
+			
+			elif creds.secret_type == SMBCredentialsSecretType.CERTSTORE:
+				# username is the CN of the certificate
+				# secret is the name of the certstore, default: MY
+				certstore = creds.secret
+				if creds.secret is None:
+					certstore = 'MY'
+				kc = KerberosCredential.from_windows_certstore(creds.username, certstore, username = creds.altname, domain = creds.altdomain)
+				creds.username = kc.username
+				creds.domain = kc.domain
+				target.domain = kc.domain
+			
 			else:
 				kc = KerberosCredential()
 				kc.username = creds.username

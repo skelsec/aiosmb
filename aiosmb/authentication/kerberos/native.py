@@ -19,7 +19,7 @@ from minikerberos.common import *
 from minikerberos.protocol.asn1_structs import AP_REP, EncAPRepPart, EncryptedData, Ticket
 #from minikerberos.gssapi.gssapi import get_gssapi
 from aiosmb.authentication.kerberos.gssapi import get_gssapi
-from aiosmb.commons.connection.proxy import  SMBProxyType
+from aiosmb.commons.connection.proxy import SMBProxyType
 from minikerberos.protocol.structures import ChecksumFlags
 from minikerberos.protocol.encryption import Enctype, Key, _enctype_table
 from minikerberos.protocol.constants import MESSAGE_TYPE

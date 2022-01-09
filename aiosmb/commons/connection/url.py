@@ -25,6 +25,8 @@ class SMBConnectionURL:
 		self.username = None
 		self.secret = None
 		self.is_anonymous = None
+		self.altname = None
+		self.altdomain = None
 		self.auth_settings = {}
 
 		#target
@@ -130,7 +132,9 @@ class SMBConnectionURL:
 			secret_type = self.secret_type, 
 			authentication_type = self.authentication_protocol, 
 			settings = self.auth_settings,
-			target = self.ip
+			target = self.ip,
+			altname = self.altname,
+			altdomain = self.altdomain
 		)
 	
 	def __str__(self):
@@ -293,6 +297,10 @@ class SMBConnectionURL:
 					self.server_ip = query[k][0]
 				elif k == 'fragment':
 					self.fragment = int(query[k][0])
+				elif k == 'altname':
+					self.altname = query[k][0]
+				elif k == 'altdomain':
+					self.altdomain = query[k][0]
 				elif k == 'dns':
 					self.dns = query[k] #multiple dns can be set, so not trimming here
 				elif k == 'compress':

@@ -13,6 +13,7 @@ import base64
 from aiosmb.authentication.negoex.protocol.messages import MESSAGE_TYPE, PKU2U_TOKEN_TYPE, generate_verify, generate_initiator_metadata, generate_init_nego, generate_ap_req, negoexts_parse_bytes
 from aiosmb.authentication.kerberos.gssapi import get_gssapi
 from minikerberos.pkinit import PKINIT
+from aiosmb.commons.connection.target import SMBTarget
 
 
 class SPNEGOEXAuthHandlerSettings:
@@ -31,9 +32,10 @@ class SPNEGOEXAuthHandlerSettings:
 class SPNEGOEXAuthHandler:
 	def __init__(self, settings):
 		self.settings = settings
-		self.target = None
+		self.target:SMBTarget = None
 		self.pkinit = None
 		self.gssapi = None
+		self.is_azure = False
 
 		self._convid = os.urandom(16)
 		self._msgctr = 0
@@ -47,9 +49,9 @@ class SPNEGOEXAuthHandler:
 	def setup(self):
 		self.target = self.settings.target
 		if self.settings.with_certstrore is False:
-			self.pkinit = PKINIT.from_pfx(self.settings.pfx12_file, self.settings.pfx12_file_pass, dh_params = self.settings.dh_params)
+			self.pkinit = PKINIT.from_pfx(self.settings.pfx12_file, self.settings.pfx12_file_pass, dh_params = self.settings.dh_params, is_azure = self.is_azure)
 		else:
-			self.pkinit = PKINIT.from_windows_certstore(self.settings.pfx12_file, certstore_name = 'MY', cert_serial = None, dh_params = self.settings.dh_params)
+			self.pkinit = PKINIT.from_windows_certstore(self.settings.pfx12_file, certstore_name = 'MY', cert_serial = None, dh_params = self.settings.dh_params, is_azure = self.is_azure)
 	
 	def get_session_key(self):
 		return self.session_key.contents
@@ -72,7 +74,13 @@ class SPNEGOEXAuthHandler:
 			self.iteractions += 1
 			#authdata should be 0 at this point
 
-			asreq = self.pkinit.build_asreq(target = self.target.get_hostname_or_ip(), kdcopts = ['forwardable','renewable','proxiable', 'canonicalize'])
+			if self.is_azure is True:
+				# kerberos service is on the same ip
+				asreq = self.pkinit.build_asreq(target = self.target.get_hostname_or_ip(), kdcopts = ['forwardable','renewable','proxiable', 'canonicalize'])
+			else:
+				if self.target.dc_ip is None:
+					raise Exception('DC IP must be set for kerberos auth!')
+				asreq = self.pkinit.build_asreq(kdcopts = ['forwardable','renewable','proxiable', 'canonicalize'])
 
 			negodata = generate_init_nego(self._msgctr, self._convid)
 			self._msgctr += 1
