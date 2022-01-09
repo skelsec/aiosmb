@@ -46,6 +46,26 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 		self.shares = {} #name -> share
 		self.__current_share = None
 		self.__current_directory = None
+	
+	async def do_coninfo(self):
+		try:
+			from aiosmb._version import __version__ as smbver
+			from asysocks._version import __version__ as socksver
+			from minikerberos._version import __version__ as kerbver
+			from winsspi._version import __version__ as winsspiver
+			from winacl._version import __version__ as winaclver
+
+			print(self.conn_url)
+			print('AIOSMB: %s' % smbver)
+			print('ASYSOCKS: %s' % socksver)
+			print('MINIKERBEROS: %s' % kerbver)
+			print('WINSSPI: %s' % winsspiver)
+			print('WINACL: %s' % winaclver)
+			return True, None
+		
+		except Exception as e:
+			traceback.print_exc()
+			return None, e
 
 	async def do_login(self, url = None):
 		"""Connects to the remote machine"""
