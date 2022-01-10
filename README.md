@@ -134,6 +134,8 @@ Socks4 proxy port : `9050`
 - a lot of other things
 
 # Kudos
-This project is heavily based on the [Impacket project](https://github.com/SecureAuthCorp/impacket) orignally by @agsolino.  
+This project is heavily based on the [Impacket](https://github.com/SecureAuthCorp/impacket) orignally by @agsolino.  
 The DCERPC strucutre definitions and DCERPC parsing in this project is almost identical to the Impacket project.  
-NEGOEX protocol implementation was based on [this project](https://github.com/morRubin/AzureADJoinedMachinePTC) created by @rubin_mor
+NEGOEX protocol implementation was based on [AzureADJoinedMachinePTC](https://github.com/morRubin/AzureADJoinedMachinePTC) created by @rubin_mor
+Certificate request functionality was based on [certi](https://github.com/zer1t0/certi) created by @zer1t0
+
