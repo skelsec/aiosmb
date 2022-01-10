@@ -12,12 +12,7 @@ from aiosmb.examples.scancommons.utils import *
 from aiosmb.commons.connection.url import SMBConnectionURL
 from aiosmb.commons.interfaces.machine import SMBMachine
 from aiosmb.commons.utils.univeraljson import UniversalEncoder
-
-
 from tqdm import tqdm
-
-
-
 
 ENUMRESFINAL_TSV_HDR = ['target', 'target_id', 'result', 'err']
 class EnumResultFinal:
@@ -103,20 +98,20 @@ class SMBPrintnightmareEnum:
 					raise err
 
 				nonexistentpath = "C:\\doesntexist\\%s.dll" % os.urandom(4).hex()
-				machine = SMBMachine(connection)
-				_, err = await asyncio.wait_for(machine.printnightmare(nonexistentpath, None, silent=True), 10)
-				if err is not None:
-					er = EnumResult(tid, target, 'OK')
-					if str(err).find('ERROR_PATH_NOT_FOUND') != -1:
-						er = EnumResult(tid, target, 'VULN')
-					await self.res_q.put(er)
+				async with SMBMachine(connection) as machine:
+					_, err = await asyncio.wait_for(machine.printnightmare(nonexistentpath, None, silent=True), 10)
+					if err is not None:
+						er = EnumResult(tid, target, 'OK')
+						if str(err).find('ERROR_PATH_NOT_FOUND') != -1:
+							er = EnumResult(tid, target, 'VULN')
+						await self.res_q.put(er)
 
-				_, err = await asyncio.wait_for(machine.par_printnightmare(nonexistentpath, None, silent=True), 10)
-				if err is not None:
-					er = EnumResult(tid, target, 'OK')
-					if str(err).find('ERROR_PATH_NOT_FOUND') != -1:
-						er = EnumResult(tid, target, 'VULN')
-					await self.res_q.put(er)
+					_, err = await asyncio.wait_for(machine.par_printnightmare(nonexistentpath, None, silent=True), 10)
+					if err is not None:
+						er = EnumResult(tid, target, 'OK')
+						if str(err).find('ERROR_PATH_NOT_FOUND') != -1:
+							er = EnumResult(tid, target, 'VULN')
+						await self.res_q.put(er)
 					
 
 		except asyncio.CancelledError:

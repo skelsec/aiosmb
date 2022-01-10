@@ -1,13 +1,33 @@
+![Supported Python versions](https://img.shields.io/badge/python-3.7+-blue.svg) [![Twitter](https://img.shields.io/twitter/follow/skelsec?label=skelsec&style=social)](https://twitter.com/intent/follow?screen_name=skelsec)
+
+:triangular_flag_on_post: This is the public repository of aioSMB, for latest version and updates please consider supporting us through https://porchetta.industries/
+
 # aiosmb
 Fully asynchronous SMB library written in pure python. Python 3.7+ ONLY
 
+## In partnership with
+
+<p align="center"><img height=150 width=300 src="https://user-images.githubusercontent.com/5151193/99304058-1cef5700-280f-11eb-8642-1f9553808d2d.png"/></p>
+
+## :triangular_flag_on_post: Sponsors
+
+If you want to sponsors this project and have the latest updates on this project, latest issues fixed, latest features, please support us on https://porchetta.industries/
+
+## Official Discord Channel
+
+Come hang out on Discord!
+
+[![Porchetta Industries](https://discordapp.com/api/guilds/736724457258745996/widget.png?style=banner3)](https://discord.gg/ycGXUxy)
+
+
 # Features
+Too many to list here, please check the examples.
 
 ## Authentication
 ### Kerberos
-|           | Kirbi | CCACHE | AES/RC4/DES keys | NT hash | Password | Certificate |
-|-----------|-------|--------|------------------|---------|----------|-------------|
-| Supported | Y     | Y      | Y                | Y       | Y        | Y           |
+|           | Kirbi | CCACHE | AES/RC4/DES keys | NT hash | Password | Certificate | Certificate (PFX/PEM) | Certstore (Windows) |
+|-----------|-------|--------|------------------|---------|----------|-------------|-----------------------|---------------------|
+| Supported | Y     | Y      | Y                | Y       | Y        | Y           | Y                     | Y                   |
 
 ### NTLM
 |           | LM hash | NT hash | Password |
