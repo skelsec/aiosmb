@@ -405,8 +405,8 @@ Output legend:
 	parser.add_argument('--filesd', action='store_true', help='Fetch file security descriptor')
 	parser.add_argument('--json', action='store_true', help='Output in JSON format')
 	parser.add_argument('--tsv', action='store_true', help='Output in TSV format. (TAB Separated Values)')
-	parser.add_argument('--es', '--exclude-share', nargs='*', help = 'Exclude shares with name specified')
-	parser.add_argument('--ed', '--exclude-dir', nargs='*', help = 'Exclude directories with name specified')
+	parser.add_argument('--es', '--exclude-share', action='append', help = 'Exclude shares with name specified')
+	parser.add_argument('--ed', '--exclude-dir', action='append', help = 'Exclude directories with name specified')
 	parser.add_argument('targets', nargs='*', help = 'Hostname or IP address or file with a list of targets')
 
 	args = parser.parse_args()
