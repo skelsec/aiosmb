@@ -36,7 +36,7 @@ class EnumResultFinal:
 		self.security_descriptor_sddl = None
 		self.unc_path = None
 
-		if self.otype != 'progress':
+		if self.otype in ['dir', 'file', 'share']:
 			self.unc_path = self.obj.unc_path
 			if self.otype == 'dir' or self.otype == 'file' or self.otype == 'share':
 				if self.otype == 'dir' or self.otype == 'file':
@@ -314,9 +314,6 @@ class SMBFileEnum:
 		except Exception as e:
 			logger.exception('result_processing')
 			asyncio.create_task(self.terminate())
-		finally:
-			if self.ext_result_q is not None:
-				await self.ext_result_q.put(EnumResultFinal(None, 'finished', None, None, None))
 
 	async def terminate(self):
 		for worker in self.workers:
@@ -356,7 +353,9 @@ class SMBFileEnum:
 				self.__total_targets += 1
 				await self.task_q.put((uid, target))
 				await asyncio.sleep(0)
-
+		
+		for _ in range(self.worker_count):
+			await self.task_q.put(None)
 		self.__gens_finished = True
 	
 	async def run(self):
@@ -373,6 +372,9 @@ class SMBFileEnum:
 		except Exception as e:
 			logger.exception('run')
 			return None, e
+		finally:
+			if self.ext_result_q is not None:
+				await self.ext_result_q.put(EnumResultFinal(None, 'finished', None, None, None))
 
 async def amain():
 	import argparse

@@ -291,6 +291,9 @@ class SMBAdminCheck:
 			return
 		except Exception as e:
 			logger.exception('result_processing main')
+		finally:
+			if self.ext_result_q is not None:
+				await self.ext_result_q.put(SMBAdminEnumResult(None, 'finished'))
 
 	async def terminate(self):
 		for worker in self.workers:

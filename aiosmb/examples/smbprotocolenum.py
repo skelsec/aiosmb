@@ -282,6 +282,9 @@ class SMBProtocolEnum:
 		except Exception as e:
 			logger.exception('result_processing')
 			asyncio.create_task(self.terminate())
+		finally:
+			if self.ext_result_q is not None:
+				await self.ext_result_q.put(SMBProtocolEnumResult(None, 'finished'))
 
 	async def terminate(self):
 		for worker in self.workers:
