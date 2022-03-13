@@ -33,12 +33,9 @@ from aiosmb.dcerpc.v5.structure import Structure
 from aiosmb.dcerpc.v5.uuid import uuidtup_to_bin, string_to_bin
 from aiosmb.dcerpc.v5.enum import Enum
 from aiosmb.dcerpc.v5.rpcrt import DCERPCException
-from aiosmb.crypto.DES import expand_DES_key
+from unicrypto.symmetric import expand_DES_key, MODE_ECB
 from asn1crypto.core import ObjectIdentifier
-from aiosmb.crypto.symmetric import RC4, DES
-from aiosmb.crypto.BASE import cipherMODE
-
-
+from unicrypto.symmetric import RC4, DES
 
 MSRPC_UUID_DRSUAPI = uuidtup_to_bin(('E3514235-4B06-11D1-AB04-00C04FC2DCD2','4.0'))
 
@@ -1395,8 +1392,8 @@ def deriveKey(baseKey):
 def removeDESLayer(cryptedHash, rid):
 	Key1,Key2 = deriveKey(rid)
 
-	Crypt1 = DES(Key1, cipherMODE.ECB)
-	Crypt2 = DES(Key2, cipherMODE.ECB)
+	Crypt1 = DES(Key1, MODE_ECB)
+	Crypt2 = DES(Key2, MODE_ECB)
 
 	decryptedHash = Crypt1.decrypt(cryptedHash[:8]) + Crypt2.decrypt(cryptedHash[8:])
 

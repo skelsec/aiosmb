@@ -3,8 +3,9 @@ import os
 import hmac
 import datetime
 
-from aiosmb.crypto.symmetric import DES
-from aiosmb.crypto.hashing import *
+from unicrypto.symmetric import DES
+from unicrypto import hmac
+from unicrypto.hashlib import md4, md5
 from aiosmb.authentication.ntlm.structures.challenge_response import *
 
 
@@ -159,7 +160,7 @@ class netlmv2:
 		else:
 			raise Exception('Unknown cred type!')
 
-		hm = hmac_md5(lm_hash)
+		hm = hmac.new(lm_hash, digestmod='md5')
 		hm.update(bytes.fromhex(self.ServerChallenge))
 		hm.update(bytes.fromhex(self.ChallengeFromClinet))
 
@@ -186,7 +187,7 @@ class netntlm_ess:
 		else:
 			nt_hash = bytes.fromhex(self.credentials.nt_hash)
 		
-		hm = hmac_md5(self.SessionBaseKey)
+		hm = hmac.new(self.SessionBaseKey, digestmod='md5')
 		hm.update(self.ServerChallenge)
 		hm.update(self.LMResponse.to_bytes()[:8])
 				
@@ -408,7 +409,7 @@ class netntlmv2:
 		if isinstance(self.NTResponse.Response, str):
 			response = bytes.fromhex(self.NTResponse.Response)
 
-		hm = hmac_md5(nt_hash_v2)
+		hm = hmac.new(nt_hash_v2, digestmod='md5')
 		hm.update(response)
 		return hm.digest()
 		
@@ -432,7 +433,7 @@ class netntlmv2:
 		cc = NTLMv2ClientChallenge.construct(timestamp, client_challenge, server_details)
 		temp = cc.to_bytes()
 		
-		hm = hmac_md5(nt_hash_v2)
+		hm = hmac.new(nt_hash_v2, digestmod='md5')
 		hm.update(server_challenge)
 		hm.update(temp)
 		
@@ -443,7 +444,7 @@ class netntlmv2:
 		ntlm_creds.NTResponse.ChallengeFromClinet = cc
 		
 			
-		hm = hmac_md5(nt_hash_v2)
+		hm = hmac.new(nt_hash_v2, digestmod='md5')
 		hm.update(server_challenge)
 		hm.update(client_challenge)
 		
@@ -452,7 +453,7 @@ class netntlmv2:
 		ntlm_creds.LMResponse.ChallengeFromClinet = client_challenge
 		
 		
-		hm = hmac_md5(nt_hash_v2)
+		hm = hmac.new(nt_hash_v2, digestmod='md5')
 		hm.update(NTProofStr)
 		ntlm_creds.SessionBaseKey = hm.digest()
 		
@@ -494,7 +495,7 @@ class netntlmv2:
 		# print(self.ServerChallenge)
 		# print(self.ChallengeFromClinet)
 
-		hm = hmac_md5(nt_hash)
+		hm = hmac.new(nt_hash, digestmod='md5')
 		hm.update(bytes.fromhex(self.ServerChallenge))
 		hm.update(bytes.fromhex(self.ChallengeFromClinet))
 
@@ -529,9 +530,9 @@ def LMOWFv2(Passwd, User, UserDom, PasswdHash = None):
 
 def NTOWFv2(Passwd, User, UserDom, PasswdHash = None):
 	if PasswdHash is not None:
-		fp = hmac_md5(PasswdHash)
+		fp = hmac.new(PasswdHash, digestmod='md5')
 	else:
-		fp = hmac_md5(NTOWFv1(Passwd))
+		fp = hmac.new(NTOWFv1(Passwd), digestmod='md5')
 	fp.update((User.upper() + UserDom).encode('utf-16le'))
 	return fp.digest()
 

@@ -36,12 +36,10 @@ from winacl.functions.constants import SE_OBJECT_TYPE
 from aiosmb.commons.smbcontainer import *
 from aiosmb.commons.connection.target import *
 
-from aiosmb.crypto.symmetric import aesCCMEncrypt, aesCCMDecrypt
-#from aiosmb.crypto.symmetric import aesGCMEncrypt, aesGCMDecrypt
-from aiosmb.crypto.BASE import cipherMODE
-from aiosmb.crypto.from_impacket import KDF_CounterMode, AES_CMAC
-from aiosmb.crypto.compression.lznt1 import compress as lznt1_compress
-from aiosmb.crypto.compression.lznt1 import decompress as lznt1_decompress
+from unicrypto.symmetric import AES, MODE_CCM
+from aiosmb.protocol.crypto.from_impacket import KDF_CounterMode, AES_CMAC
+from aiosmb.protocol.compression.lznt1 import compress as lznt1_compress
+from aiosmb.protocol.compression.lznt1 import decompress as lznt1_decompress
 
 class SMBConnectionStatus(enum.Enum):
 	NEGOTIATING = 'NEGOTIATING'
@@ -233,7 +231,7 @@ class SMBConnection:
 		if self.target.compression is True:
 			self.CompressionIds = [SMB2CompressionType.LZNT1]
 		self.SupportsChainedCompression = False
-		self.smb2_supported_encryptions = [SMB2Cipher.AES_128_CCM] #, , SMB2Cipher.AES_128_GCM
+		self.smb2_supported_encryptions = [SMB2Cipher.AES_128_CCM] #[SMB2Cipher.AES_128_GCM] #, , SMB2Cipher.AES_128_GCM
 		
 		self.preauth_ctx = hashlib.sha512
 
@@ -297,10 +295,13 @@ class SMBConnection:
 					msg = SMB2Transform.from_bytes(msg_data)
 					
 					if msg.header.EncryptionAlgorithm == SMB2Cipher.AES_128_CCM:
-						msg_data = aesCCMDecrypt(msg.data, msg_data[20:], self.DecryptionKey, msg.header.Nonce[:11], msg.header.Signature)
-					
+						# msg_data[20:52] is a part of the smb2_transform header. we could recalc this part but would be wasting cycles
+						ctx = AES(self.DecryptionKey, MODE_CCM ,msg.header.Nonce[:11], segment_size=16)
+						msg_data = ctx.decrypt(msg.data, msg_data[20:52], msg.header.Signature)
+						#msg_data = aesCCMDecrypt(msg.data, msg_data[20:52], self.DecryptionKey, msg.header.Nonce[:11], msg.header.Signature)
+
 					#elif msg.header.EncryptionAlgorithm == SMB2Cipher.AES_128_GCM:
-					#	msg_data = aesGCMDecrypt(msg.data, msg_data[20:], self.DecryptionKey, msg.header.Nonce[:12], msg.header.Signature)
+					#	msg_data = aesGCMDecrypt(msg.data, msg_data[20:52], self.DecryptionKey, msg.header.Nonce[:12], msg.header.Signature)
 
 					else:
 						raise Exception('Common encryption algo is %s but it is not implemented!' % msg.header.EncryptionAlgorithm)
@@ -810,7 +811,11 @@ class SMBConnection:
 		hdr.SessionId = self.SessionId
 
 		if self.CipherId == SMB2Cipher.AES_128_CCM:
-			enc_data, hdr.Signature = aesCCMEncrypt(msg_data, hdr.to_bytes()[20:], self.EncryptionKey, nonce)
+			ctx = AES(self.EncryptionKey, MODE_CCM, nonce, segment_size=16)
+			enc_data, hdr.Signature = ctx.encrypt(msg_data, hdr.to_bytes()[20:])
+			#enc_data, hdr.Signature = aesCCMEncrypt(msg_data, hdr.to_bytes()[20:], self.EncryptionKey, nonce)
+		#elif self.CipherId == SMB2Cipher.AES_128_GCM:
+		#	enc_data, hdr.Signature = aesGCMEncrypt(msg_data, hdr.to_bytes()[20:], self.EncryptionKey, nonce)
 
 		#elif self.CipherId == SMB2Cipher.AES_128_GCM:
 		#	nonce = os.urandom(12)

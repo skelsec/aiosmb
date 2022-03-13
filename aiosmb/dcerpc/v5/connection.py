@@ -8,7 +8,7 @@ from aiosmb.dcerpc.v5.uuid import uuidtup_to_bin, generate, stringver_to_bin, bi
 from aiosmb.dcerpc.v5.rpcrt import *
 from minikerberos.gssapi.gssapi import GSSAPIFlags
 from aiosmb.dcerpc.v5 import hresult_errors
-from aiosmb.crypto.symmetric import RC4
+from unicrypto.symmetric import RC4
 import sys
 
 

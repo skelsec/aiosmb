@@ -34,14 +34,11 @@ from aiosmb.dcerpc.v5.rpcrt import DCERPCException
 from aiosmb.dcerpc.v5.structure import Structure
 #from impacket import ntlm, crypto
 from aiosmb import logger as LOG
-from aiosmb.crypto.BASE import cipherMODE
-from aiosmb.crypto.symmetric import RC4, DES
-from aiosmb.crypto.AES import pureAES as AES
-from aiosmb.crypto.hashing import md4
-from aiosmb.crypto.DES import expand_DES_key
-
-import hmac
-import hashlib
+from unicrypto.symmetric import AES, DES, RC4, MODE_CFB, MODE_ECB, expand_DES_key
+from unicrypto.symmetric import AES, RC4, DES
+from unicrypto.hashlib import md4
+from unicrypto import hmac
+from unicrypto import hashlib
 
 MSRPC_UUID_NRPC = uuidtup_to_bin(('12345678-1234-ABCD-EF00-01234567CFFB', '1.0'))
 
@@ -1641,8 +1638,8 @@ def ComputeNetlogonCredential(inputData, Sk):
 	k3 = expand_DES_key(k1)
 	k2 = Sk[7:14]
 	k4 = expand_DES_key(k2)
-	Crypt1 = DES(k3, cipherMODE.ECB)
-	Crypt2 = DES(k4, cipherMODE.ECB)
+	Crypt1 = DES(k3, MODE_ECB)
+	Crypt2 = DES(k4, MODE_ECB)
 	cipherText = Crypt1.encrypt(inputData)
 	return Crypt2.encrypt(cipherText)
 
@@ -1743,13 +1740,13 @@ def decryptSequenceNumberRC4(sequenceNum, checkSum, sessionKey):
 def encryptSequenceNumberAES(sequenceNum, checkSum, sessionKey):
 	# [MS-NRPC] Section 3.3.4.2.1, point 9
 	IV = checkSum[:8] + checkSum[:8]
-	Cipher = AES(sessionKey, cipherMODE.CFB, IV = IV, segment_size = 1)
+	Cipher = AES(sessionKey, MODE_CFB, IV = IV, segment_size = 1)
 	return Cipher.encrypt(sequenceNum)
 
 def decryptSequenceNumberAES(sequenceNum, checkSum, sessionKey):
 	# [MS-NRPC] Section 3.3.4.2.1, point 9
 	IV = checkSum[:8] + checkSum[:8]
-	Cipher = AES(sessionKey, cipherMODE.CFB, IV = IV, segment_size = 1)
+	Cipher = AES(sessionKey, MODE_CFB, IV = IV, segment_size = 1)
 	return Cipher.decrypt(sequenceNum)
 
 def SIGN(data, confounder, sequenceNum, key, aes = False):
@@ -1801,7 +1798,7 @@ def SEAL(data, confounder, sequenceNum, key, aes = False):
 		return encrypted, signature
 	else:
 		IV = sequenceNum + sequenceNum
-		cipher = AES(XorKey, cipherMODE.CFB, IV = IV, segment_size = 1)
+		cipher = AES(XorKey, MODE_CFB, IV = IV, segment_size = 1)
 		cfounder = cipher.encrypt(confounder)
 		encrypted = cipher.encrypt(data)
 
@@ -1834,7 +1831,7 @@ def UNSEAL(data, auth_data, key, aes = False):
 	else:
 		sequenceNum = decryptSequenceNumberAES(auth_data['SequenceNumber'], auth_data['Checksum'],  key)
 		IV = sequenceNum + sequenceNum
-		cipher = AES(XorKey, cipherMODE.CFB, IV = IV, segment_size = 1)
+		cipher = AES(XorKey, MODE_CFB, IV = IV, segment_size = 1)
 		cfounder = cipher.decrypt(auth_data['Confounder'])
 		plain = cipher.decrypt(data)
 		return plain, cfounder

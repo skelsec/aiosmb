@@ -17,12 +17,10 @@
 #   [MS-SAMR] Section 2.2.11.1.1
 
 from struct import pack, unpack
+from unicrypto import hashlib
+from unicrypto import hmac
+from unicrypto.symmetric import AES, MODE_ECB
 
-import hashlib
-import hmac
-
-from aiosmb.crypto.symmetric import AES
-from aiosmb.crypto.BASE import cipherMODE
 
 def KDF_CounterMode(KI, Label, Context, L):
 # Implements NIST SP 800-108 Section 5.1, with PRF HMAC-SHA256
@@ -54,9 +52,9 @@ def KDF_CounterMode(KI, Label, Context, L):
 	K      = b''
 
 	for i in range(1,n+1):
-	   input = pack('>L', i) + Label + b'\x00' + Context + pack('>L',L)
-	   K = hmac.new(KI, input, hashlib.sha256).digest()
-	   result = result + K
+		input = pack('>L', i) + Label + b'\x00' + Context + pack('>L',L)
+		K = hmac.new(KI, input, hashlib.sha256).digest()
+		result = result + K
 
 	return result[:(L//8)]
 
@@ -110,7 +108,7 @@ def AES_CMAC(K, M, length):
 	const_Bsize = 16
 	const_Zero  = bytearray(16)
 
-	AES_128= AES(K, cipherMODE.ECB)
+	AES_128= AES(K, MODE_ECB)
 	M      = bytearray(M[:length])
 	K1, K2 = Generate_Subkey(K)
 	n      = len(M)//const_Bsize
@@ -168,7 +166,7 @@ def Generate_Subkey(K):
 #   +                                                                   +
 #   +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
-	AES_128 = AES(K, cipherMODE.ECB)
+	AES_128 = AES(K, MODE_ECB)
 
 	L = AES_128.encrypt(bytes(bytearray(16)))
 
