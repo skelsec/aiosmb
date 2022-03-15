@@ -1,7 +1,5 @@
 import enum
 import asyncio
-import hmac
-import hashlib
 import platform
 import copy
 import traceback
@@ -36,6 +34,8 @@ from winacl.functions.constants import SE_OBJECT_TYPE
 from aiosmb.commons.smbcontainer import *
 from aiosmb.commons.connection.target import *
 
+from unicrypto import hmac
+from unicrypto import hashlib
 from unicrypto.symmetric import AES, MODE_CCM
 from aiosmb.protocol.crypto.from_impacket import KDF_CounterMode, AES_CMAC
 from aiosmb.protocol.compression.lznt1 import compress as lznt1_compress

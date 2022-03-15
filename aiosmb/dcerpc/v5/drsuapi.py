@@ -21,7 +21,7 @@
 from __future__ import division
 from __future__ import print_function
 from builtins import bytes
-import hashlib
+from unicrypto import hashlib
 from struct import pack
 from six import PY2
 
