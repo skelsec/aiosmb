@@ -218,8 +218,6 @@ class SMBConnection:
 		self.DecryptionKey   = None
 
 		
-		
-
 		### SMB311 global
 		self.CompressAllRequests = False
 

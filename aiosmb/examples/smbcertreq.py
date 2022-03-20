@@ -18,12 +18,14 @@ from aiosmb.dcerpc.v5.common.connection.authentication import DCERPCAuth
 from aiosmb.dcerpc.v5.interfaces.endpointmgr import EPM
 
 from msldap.ldap_objects.adcertificatetemplate import EKUS_NAMES
-from oscrypto import asymmetric
-from csrbuilder import CSRBuilder
+from cryptography.hazmat.primitives.asymmetric import padding, rsa
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.serialization import Encoding, pkcs7, pkcs12, BestAvailableEncryption, load_pem_private_key
 from cryptography import x509
-from cryptography.x509.oid import ExtensionOID
+from cryptography.x509.oid import ExtensionOID, NameOID
+from asn1crypto import core
+
+PRINCIPAL_NAME = x509.ObjectIdentifier("1.3.6.1.4.1.311.20.2.3")
 
 
 async def amain(url, service, template, altname, onbehalf, cn = None, pfx_file = None, pfx_password = None, enroll_cert = None, enroll_password = None):
@@ -41,22 +43,36 @@ async def amain(url, service, template, altname, onbehalf, cn = None, pfx_file =
 			cn = '%s@%s' % (su.username, su.domain)
 		
 		print('[*] Using CN: %s' % cn)
+		
+		print('[+] Generating RSA privat key...')
+		key = rsa.generate_private_key(0x10001, 2048)
+
 		print('[+] Building certificate request...')
 		attributes = {
 			"CertificateTemplate": template,
 		}
+		csr = x509.CertificateSigningRequestBuilder()
+		csr = csr.subject_name(
+				x509.Name(
+					[
+						x509.NameAttribute(NameOID.COMMON_NAME, cn),
+					]
+				)
+			)
 
-		public_key, private_key = asymmetric.generate_pair('rsa', bit_size=2048)
-		builder = CSRBuilder(
-			{
-				'common_name': cn, #'victim@TEST.corp', #sorry Will
-			},
-			public_key
-		)
 		if altname:
-			builder.subject_alt_domains = [altname] # dunno why it's called alt_domains?
-		csr = builder.build(private_key).dump()
+			altname = core.UTF8String(altname).dump()
+			csr = csr.add_extension(
+				x509.SubjectAlternativeName(
+					[
+						x509.OtherName(PRINCIPAL_NAME, altname),
+					]
+				),
+				critical=False,
+			)
 
+		csr = csr.sign(key, hashes.SHA256())
+		
 		if onbehalf is not None:
 			agent_key = None
 			agent_cert = None
@@ -65,15 +81,16 @@ async def amain(url, service, template, altname, onbehalf, cn = None, pfx_file =
 				
 			pkcs7builder = pkcs7.PKCS7SignatureBuilder().set_data(csr).add_signer(agent_key, agent_cert, hashes.SHA1())
 			csr = pkcs7builder.sign(Encoding.DER, options=[pkcs7.PKCS7Options.Binary])
-
+		else:
+			csr = csr.public_bytes(Encoding.DER)
 		
 		print('[+] Connecting to EPM...')
-		target, err = await EPM.create_target(ip, ICPRRPC().service_uuid)
+		target, err = await EPM.create_target(ip, ICPRRPC().service_uuid, dc_ip = su.get_target().dc_ip, domain = su.get_target().domain)
 		if err is not None:
 			raise err
 		
 		print('[+] Connecting to ICRPR service...')
-		gssapi = AuthenticatorBuilder.to_spnego_cred(su.get_credential())
+		gssapi = AuthenticatorBuilder.to_spnego_cred(su.get_credential(), target)
 		auth = DCERPCAuth.from_smb_gssapi(gssapi)
 		connection = DCERPC5Connection(auth, target)
 		rpc, err = await ICPRRPC.from_rpcconnection(connection, perform_dummy=True)
@@ -108,7 +125,7 @@ async def amain(url, service, template, altname, onbehalf, cn = None, pfx_file =
 			ext = cert.extensions.get_extension_for_oid(ExtensionOID.SUBJECT_ALTERNATIVE_NAME)
 			for name in ext.value.get_values_for_type(x509.OtherName):
 				if name.type_id == x509.ObjectIdentifier("1.3.6.1.4.1.311.20.2.3"):
-					print('[*]   Certificate ALT NAME: %s' % name.value)
+					print('[*]   Certificate ALT NAME: %s' % core.UTF8String.load(name.value).native)
 					break
 			else:
 				print('[-]   Certificate doesnt have ALT NAME')
@@ -122,7 +139,7 @@ async def amain(url, service, template, altname, onbehalf, cn = None, pfx_file =
 		with open(pfx_file, 'wb') as f:
 			data = pkcs12.serialize_key_and_certificates(
 				name=b"",
-				key=load_pem_private_key(asymmetric.dump_private_key(private_key, None), password=None),
+				key=key,
 				cert=cert,
 				cas=None,
 				encryption_algorithm=BestAvailableEncryption(pfx_password.encode())

@@ -51,7 +51,8 @@ class EPM:
 		return EPM(connection, data_representation)
 
 	@staticmethod
-	async def create_target(ip, remoteIf, proxy:SMBProxy = None):
+	async def create_target(ip, remoteIf, proxy:SMBProxy = None, dc_ip:str = None, domain:str = None):
+		epm = None
 		try:
 			epm = EPM.from_address(ip, proxy = proxy)
 			_, err = await epm.connect()
@@ -62,7 +63,7 @@ class EPM:
 			if err is not None:
 				raise err
 			
-			return DCERPCTarget.from_connection_string(res, proxy = proxy), None
+			return DCERPCTarget.from_connection_string(res, proxy = proxy, dc_ip = dc_ip, domain = domain), None
 		except Exception as e:
 			return False, e
 		finally:

@@ -70,7 +70,7 @@ class AuthenticatorBuilder:
 				
 			if target.hostname is None:
 				raise Exception('target must have a domain name or hostname for kerberos!')
-				
+			
 			if target.dc_ip is None:
 				raise Exception('target must have a dc_ip for kerberos!')
 			

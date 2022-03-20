@@ -41,7 +41,7 @@ setup(
 	install_requires=[
 		'unicrypto>=0.0.4',
 		'asysocks>=0.1.5',
-		'minikerberos>=0.2.19',
+		'minikerberos>=0.2.20',
 		'winsspi>=0.0.9',
 		'prompt-toolkit>=3.0.2',
 		'winacl>=0.1.1',

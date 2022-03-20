@@ -101,13 +101,18 @@ class SMBKerberos:
 
 			if self.iterations == 0:
 				try:
-					#check TGS first, maybe ccache already has what we need
-					for target in self.ccred.ccache.list_targets():
-						# just printing this to debug...
-						logger.debug('CCACHE target SPN record: %s' % target)
-					tgs, encpart, self.session_key = await self.kc.get_TGS(self.spn)
-					
-					self.from_ccache = True
+					if self.ccred.ccache is not None:
+						#check TGS first, maybe ccache already has what we need
+						for target in self.ccred.ccache.list_targets():
+							# just printing this to debug...
+							logger.debug('CCACHE target SPN record: %s' % target)
+						tgs, encpart, self.session_key = await self.kc.get_TGS(self.spn)
+						
+						self.from_ccache = True
+					else:
+						tgt = await self.kc.get_TGT()
+						tgs, encpart, self.session_key = await self.kc.get_TGS(self.spn)
+				
 				except Exception as e:
 					# this is normal when no credentials stored in ccache
 					#tgt = await self.kc.get_TGT(override_etype=[18])
