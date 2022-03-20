@@ -17,7 +17,7 @@ from aiosmb.protocol.smb.message import SMBMessage
 from aiosmb.protocol.smb.commons import SMBSecurityMode
 from aiosmb.protocol.smb.commands import *
 from aiosmb.protocol.smb2.message import SMB2Message, SMB2Transform, SMB2Compression
-from aiosmb.protocol.smb2.commands.negotiate import SMB2ContextType, SMB2PreauthIntegrityCapabilities, SMB2HashAlgorithm, SMB2Cipher, SMB2CompressionType, SMB2CompressionFlags, SMB2EncryptionCapabilities, SMB2CompressionCapabilities
+from aiosmb.protocol.smb2.commands.negotiate import SMB2ContextType, SMB2PreauthIntegrityCapabilities, SMB2HashAlgorithm, SMB2Cipher, SMB2CompressionType, SMB2CompressionFlags, SMB2EncryptionCapabilities, SMB2CompressionCapabilities, SMB2SigningAlgorithm, SMB2SigningCapabilities
 from aiosmb.protocol.smb2.commands import *
 from aiosmb.protocol.smb2.headers import *
 from aiosmb.protocol.smb2.command_codes import *
@@ -36,8 +36,9 @@ from aiosmb.commons.connection.target import *
 
 from unicrypto import hmac
 from unicrypto import hashlib
-from unicrypto.symmetric import AES, MODE_CCM
-from aiosmb.protocol.crypto.from_impacket import KDF_CounterMode, AES_CMAC
+from unicrypto.symmetric import AES, MODE_CCM, MODE_GCM
+from unicrypto.cmac import AES_CMAC
+from unicrypto.kdf import KDF_CounterMode
 from aiosmb.protocol.compression.lznt1 import compress as lznt1_compress
 from aiosmb.protocol.compression.lznt1 import decompress as lznt1_decompress
 
@@ -231,7 +232,8 @@ class SMBConnection:
 		if self.target.compression is True:
 			self.CompressionIds = [SMB2CompressionType.LZNT1]
 		self.SupportsChainedCompression = False
-		self.smb2_supported_encryptions = [SMB2Cipher.AES_128_CCM] #[SMB2Cipher.AES_128_GCM] #, , SMB2Cipher.AES_128_GCM
+		self.supported_encryptions = [SMB2Cipher.AES_128_CCM] #[SMB2Cipher.AES_128_GCM], SMB2Cipher.AES_128_GCM
+		self.supported_signatures = None #[SMB2SigningAlgorithm.AES_CMAC]
 		
 		self.preauth_ctx = hashlib.sha512
 
@@ -300,7 +302,9 @@ class SMBConnection:
 						msg_data = ctx.decrypt(msg.data, msg_data[20:52], msg.header.Signature)
 						#msg_data = aesCCMDecrypt(msg.data, msg_data[20:52], self.DecryptionKey, msg.header.Nonce[:11], msg.header.Signature)
 
-					#elif msg.header.EncryptionAlgorithm == SMB2Cipher.AES_128_GCM:
+					elif msg.header.EncryptionAlgorithm == SMB2Cipher.AES_128_GCM:
+						ctx = AES(self.DecryptionKey, MODE_GCM, msg.header.Nonce[:12])
+						msg_data = ctx.decrypt(msg.data, msg_data[20:52], msg.header.Signature)
 					#	msg_data = aesGCMDecrypt(msg.data, msg_data[20:52], self.DecryptionKey, msg.header.Nonce[:12], msg.header.Signature)
 
 					else:
@@ -590,13 +594,22 @@ class SMBConnection:
 					)
 				)
 							
-				if self.smb2_supported_encryptions is not None:
+				if self.supported_encryptions is not None:
 					command.Capabilities |= NegotiateCapabilities.ENCRYPTION
 					command.NegotiateContextList.append(
 						SMB2EncryptionCapabilities.from_enc_list(
-							self.smb2_supported_encryptions
+							self.supported_encryptions
 						)
 					)
+				
+				if self.supported_signatures is not None:
+					#command.Capabilities |= NegotiateCapabilities.ENCRYPTION
+					command.NegotiateContextList.append(
+						SMB2SigningCapabilities.from_enc_list(
+							self.supported_signatures
+						)
+					)
+
 
 				if self.CompressionIds is not None:
 					command.NegotiateContextList.append(
@@ -644,6 +657,11 @@ class SMBConnection:
 						
 				if negctx.ContextType == SMB2ContextType.COMPRESSION_CAPABILITIES:
 					self.CompressionId = negctx.CompressionAlgorithms[0]
+				
+				#if negctx.ContextType == SMB2ContextType.SIGNING_CAPABILITIES:
+				#	#self.CompressionId = negctx.CompressionAlgorithms[0]
+				#	print('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!')
+				#	print(negctx)
 
 			logger.log(1, 'Server selected dialect: %s' % self.selected_dialect)
 					
@@ -795,27 +813,45 @@ class SMBConnection:
 				msg.header.Signature = digest[:16]
 		else:
 			if self.SigningKey:
-				msg_data = msg.to_bytes()	
+				msg_data = msg.to_bytes()
 				signature = AES_CMAC(self.SigningKey, msg_data, len(msg_data))
 				msg.header.Signature = signature
+				
+				#for dfuture ref
+				#msg_data = msg.to_bytes()
+				#ctx = AES(self.SigningKey, MODE_GCM, b'\x00'*11, segment_size=16)
+				#_, signature = ctx.encrypt(b'', msg_data)
+				#print(signature)
+				#msg.header.Signature = signature
 
 	
 	def encrypt_message(self, msg_data):
-		nonce = os.urandom(11)
-
-		hdr = SMB2Header_TRANSFORM()
-		hdr.Nonce = nonce + (b'\x00' * 5)
-		hdr.OriginalMessageSize = len(msg_data)
-
-		hdr.EncryptionAlgorithm = self.CipherId
-		hdr.SessionId = self.SessionId
-
 		if self.CipherId == SMB2Cipher.AES_128_CCM:
+			nonce = os.urandom(11)
+
+			hdr = SMB2Header_TRANSFORM()
+			hdr.Nonce = nonce + (b'\x00' * 5)
+			hdr.OriginalMessageSize = len(msg_data)
+
+			hdr.EncryptionAlgorithm = self.CipherId
+			hdr.SessionId = self.SessionId
+
 			ctx = AES(self.EncryptionKey, MODE_CCM, nonce, segment_size=16)
-			enc_data, hdr.Signature = ctx.encrypt(msg_data, hdr.to_bytes()[20:])
+			enc_data, hdr.Signature = ctx.encrypt(msg_data, hdr.to_bytes()[20:52])
 			#enc_data, hdr.Signature = aesCCMEncrypt(msg_data, hdr.to_bytes()[20:], self.EncryptionKey, nonce)
-		#elif self.CipherId == SMB2Cipher.AES_128_GCM:
-		#	enc_data, hdr.Signature = aesGCMEncrypt(msg_data, hdr.to_bytes()[20:], self.EncryptionKey, nonce)
+		
+		elif self.CipherId == SMB2Cipher.AES_128_GCM:
+			nonce = os.urandom(12)
+			
+			hdr = SMB2Header_TRANSFORM()
+			hdr.Nonce = nonce + (b'\x00' * 4)
+			hdr.OriginalMessageSize = len(msg_data)
+
+			hdr.EncryptionAlgorithm = self.CipherId
+			hdr.SessionId = self.SessionId
+
+			ctx = AES(self.EncryptionKey, MODE_GCM, nonce)
+			enc_data, hdr.Signature = ctx.encrypt(msg_data, hdr.to_bytes()[20:52])
 
 		#elif self.CipherId == SMB2Cipher.AES_128_GCM:
 		#	nonce = os.urandom(12)

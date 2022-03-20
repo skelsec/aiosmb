@@ -1,3 +1,4 @@
+from contextvars import Context
 import enum
 import io
 import datetime
@@ -151,7 +152,7 @@ class SMB2ContextType(enum.Enum):
 	NETNAME_NEGOTIATE_CONTEXT_ID = 0x0005 #The Data field contains the server name to which the client connects<14>.
 	TRANSPORT_CAPABILITIES = 0x0006 #The Data field contains transport capabilities, as specified in section 2.2.3.1.5.<15>
 	RDMA_TRANSFORM_CAPABILITIES = 0x0007 #The Data field contains a list of RDMA transforms, as specified in section 2.2.3.1.6.<16>
-	SMB2_SIGNING_CAPABILITIES = 0x0008
+	SIGNING_CAPABILITIES = 0x0008
 
 
 class SMB2HashAlgorithm(enum.Enum):
@@ -182,6 +183,8 @@ class SMB2NegotiateContext:
 			return SMB2NetnameNegotiateContextID.from_buffer(buff)
 		elif ContextType == SMB2ContextType.TRANSPORT_CAPABILITIES:
 			return SMB2TransportCapabilities.from_buffer(buff)
+		elif ContextType == SMB2ContextType.SIGNING_CAPABILITIES:
+			return SMB2SigningCapabilities.from_buffer(buff)
 			
 
 		else:
@@ -254,6 +257,8 @@ class SMB2PreauthIntegrityCapabilities:
 class SMB2Cipher(enum.Enum):
 	AES_128_CCM = 0x0001
 	AES_128_GCM = 0x0002
+	AES_256_CCM = 0x0003
+	AES_256_GCM = 0x0004
 
 
 class SMB2EncryptionCapabilities:
@@ -307,6 +312,66 @@ class SMB2EncryptionCapabilities:
 		t += 'CipherCount: %s\r\n' % self.CipherCount
 		for cipher in self.Ciphers:
 			t += 'Cipher: %s\r\n' % cipher.name
+
+		return t
+
+class SMB2SigningAlgorithm(enum.Enum):
+	HMAC_SHA256 = 0x0000
+	AES_CMAC = 0x0001
+	AES_GMAC = 0x0002
+
+
+class SMB2SigningCapabilities:
+	def __init__(self):
+		self.ContextType = SMB2ContextType.SIGNING_CAPABILITIES
+		self.DataLength  = None
+		self.Reserved    = 0
+
+		self.SigningAlgorithmCount = None
+		self.SigningAlgorithms = None
+
+	@staticmethod
+	def from_buffer(buff):
+		cap = SMB2SigningCapabilities()
+		cap.ContextType = SMB2ContextType(int.from_bytes(buff.read(2), byteorder = 'little', signed = False))
+		cap.DataLength  = int.from_bytes(buff.read(2), byteorder = 'little', signed = False)
+		cap.Reserved    = int.from_bytes(buff.read(4), byteorder = 'little', signed = False)
+		cap.SigningAlgorithmCount = int.from_bytes(buff.read(2), byteorder='little', signed = False)
+		cap.SigningAlgorithms = []
+
+		for _ in range(cap.SigningAlgorithmCount):
+			cap.SigningAlgorithms.append(SMB2SigningAlgorithm(int.from_bytes(buff.read(2), byteorder='little', signed = False)))
+
+		return cap
+
+	@staticmethod
+	def from_enc_list(supp_sig_list):
+		#supp_sig_list > a list of SMB2Cipher enums
+		s = SMB2SigningCapabilities()
+		s.SigningAlgorithms = supp_sig_list
+		s.SigningAlgorithmCount = len(supp_sig_list)
+		return s
+
+	def to_bytes(self):
+		data  = self.SigningAlgorithmCount.to_bytes(2, byteorder = 'little', signed=False)
+		for sig in self.SigningAlgorithms:
+			data += sig.value.to_bytes(2, byteorder = 'little', signed=False)
+
+		self.DataLength = len(data)
+		t = self.ContextType.value.to_bytes(2, byteorder = 'little', signed=False)
+		t += self.DataLength.to_bytes(2, byteorder = 'little', signed=False)
+		t += self.Reserved.to_bytes(4, byteorder = 'little', signed=False)
+		t += data
+
+
+		return t
+			
+
+	def __repr__(self):
+		t = '==== SMB2 Singing Capabilities ====\r\n'
+		t += 'SigningAlgorithmCount: %s\r\n' % self.SigningAlgorithmCount
+		for sig in self.SigningAlgorithms:
+			t += 'Sig: %s\r\n' % sig.name
 
 		return t
 
