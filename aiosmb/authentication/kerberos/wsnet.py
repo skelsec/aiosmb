@@ -15,7 +15,7 @@ from aiosmb.authentication.spnego.asn1_structs import KRB5Token
 from minikerberos.gssapi.gssapi import get_gssapi, GSSWrapToken
 from minikerberos.protocol.asn1_structs import AP_REQ, AP_REP, TGS_REP
 from minikerberos.protocol.encryption import Enctype, Key, _enctype_table
-from wsnet.clientauth import WSNETAuth
+from wsnet.pyodide.clientauth import WSNETAuth
 
 import enum
 import io
@@ -111,7 +111,7 @@ class SMBWSNetKerberosAuth:
 		self.iterations = 0
 		self.settings = settings
 		self.mode = 'CLIENT'
-		self.ksspi = WSNETAuth()
+		self.ksspi = None
 		self.client = None
 		self.target = None
 		self.gssapi = None
@@ -138,6 +138,8 @@ class SMBWSNetKerberosAuth:
 	
 	async def authenticate(self, authData = None, flags = ISC_REQ.CONNECTION, seq_number = 0, is_rpc = False):
 		try:
+			if self.ksspi is None:
+				self.ksspi = WSNETAuth()
 			if is_rpc == True:
 				if self.iterations == 0:
 					flags = ISC_REQ.CONFIDENTIALITY | \
@@ -148,14 +150,14 @@ class SMBWSNetKerberosAuth:
 							ISC_REQ.USE_DCE_STYLE
 					
 					
-					status, ctxattr, apreq, err = await self.ksspi.authenticate('KERBEROS', '', 'cifs/%s' % self.settings.target, 3, flags.value, authdata = b'')
+					status, ctxattr, apreq, err = await self.ksspi.authenticate('KERBEROS', '', 'cifs/%s' % self.settings.target.get_hostname(), 3, flags.value, authdata = b'')
 					if err is not None:
 						raise err
 					self.iterations += 1
 					return apreq, True, None
 				
 				elif self.iterations == 1:
-					status, ctxattr, data, err = await self.ksspi.authenticate('KERBEROS', '','cifs/%s' % self.settings.target, 3, flags.value, authdata = authData)
+					status, ctxattr, data, err = await self.ksspi.authenticate('KERBEROS', '','cifs/%s' % self.settings.target.get_hostname(), 3, flags.value, authdata = authData)
 					if err is not None:
 						return None, None, err
 					self.session_key, err = await self.ksspi.get_sessionkey()
@@ -181,7 +183,7 @@ class SMBWSNetKerberosAuth:
 			
 				
 			else:
-				status, ctxattr, apreq, err = await self.ksspi.authenticate('KERBEROS', '','cifs/%s' % self.settings.target, 3, flags.value, authdata = b'')
+				status, ctxattr, apreq, err = await self.ksspi.authenticate('KERBEROS', '','cifs/%s' % self.settings.target.get_hostname(), 3, flags.value, authdata = b'')
 				if err is not None:
 					return None, None, err
 				

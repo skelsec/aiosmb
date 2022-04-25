@@ -32,7 +32,7 @@ class SMBWSNetNTLMAuth:
 	def __init__(self, settings):
 		self.settings = settings
 		self.mode = None
-		self.sspi = WSNETAuth()
+		self.sspi = None
 		self.operator = None
 		self.client = None
 		self.target = None
@@ -73,6 +73,8 @@ class SMBWSNetNTLMAuth:
 	
 	async def authenticate(self, authData = b'', flags = None, seq_number = 0, is_rpc = False):
 		try:
+			if self.sspi is None:
+				self.sspi = WSNETAuth()
 			if is_rpc is True and flags is None:
 				flags = ISC_REQ.REPLAY_DETECT | ISC_REQ.CONFIDENTIALITY| ISC_REQ.USE_SESSION_KEY| ISC_REQ.INTEGRITY| ISC_REQ.SEQUENCE_DETECT| ISC_REQ.CONNECTION
 			elif flags is None:

@@ -42,7 +42,7 @@ setup(
 		'unicrypto>=0.0.5',
 		'asysocks>=0.1.7',
 		'minikerberos>=0.2.20',
-		'winsspi>=0.0.9',
+		'winsspi>=0.0.10',
 		'prompt-toolkit>=3.0.2',
 		'winacl>=0.1.1',
 		'six',
