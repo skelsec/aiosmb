@@ -197,7 +197,17 @@ class SAMRRPC:
 				yield group['Name'], group_sid, None
 			enumerationContext = resp['EnumerationContext'] 
 			status = NTStatus(resp['ErrorCode'])
-			
+
+	@red	
+	async def add_member_to_alias(self, alias_handle, sid):
+		resp, err = await samr.hSamrAddMemberToAlias(self.dce, alias_handle, sid)
+		if err is not None:
+			if err.error_code != NTStatus.MORE_ENTRIES.value:
+				raise err
+			resp = err.get_packet()
+		status = NTStatus(resp['ErrorCode'])
+		return resp, None
+
 	@red_gen
 	async def enumerate_users(self, domain_handle):
 		status = NTStatus.MORE_ENTRIES
