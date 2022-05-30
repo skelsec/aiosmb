@@ -206,7 +206,8 @@ class SAMRRPC:
 				raise err
 			resp = err.get_packet()
 		status = NTStatus(resp['ErrorCode'])
-		return resp, None
+		result = status == NTStatus.SUCCESS
+		return result, None
 
 	@red_gen
 	async def enumerate_users(self, domain_handle):

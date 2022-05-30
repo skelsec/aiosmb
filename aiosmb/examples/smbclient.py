@@ -288,8 +288,10 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			result, err = await self.machine.add_user_to_alias('Builtin', group_name, sid)
 			if err is not None:
 				raise err
+			if result:
+				print('Modification OK!')
 			else:
-				print(result)
+				print('Something went wrong, status != ok')
 			
 		except SMBException as e:
 			logger.debug(traceback.format_exc())

@@ -257,9 +257,10 @@ class SMBMachine:
 				raise Exception('No group found with name "%s"' % group_name)
 			
 			alias_handle, _ = await rr(self.named_rpcs['SAMR'].open_alias(domain_handle, target_group_rid))
-			targetsid = RPC_SID().fromCanonical(sid)
+			targetsid = RPC_SID()
+			targetsid.fromCanonical(sid)
 			result, _ = await rr(self.named_rpcs['SAMR'].add_member_to_alias(alias_handle, targetsid))
-
+			return result, None
 		except Exception as e:
 			return False, e		
 
