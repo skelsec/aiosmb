@@ -166,6 +166,26 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 		except Exception as e:
 			traceback.print_exc()
 
+
+	async def do_wsessions(self):
+		"""Lists sessions of connected users"""
+		try:
+			async for sess, err in self.machine.wkstlist_sessions():
+				if err is not None:
+					raise err
+				print("%s" % sess.username)
+		except SMBException as e:
+			logger.debug(traceback.format_exc())
+			print(e.pprint())
+		except SMBMachineException as e:
+			logger.debug(traceback.format_exc())
+			print(str(e))
+		except DCERPCException as e:
+			logger.debug(traceback.format_exc())
+			print(str(e))
+		except Exception as e:
+			traceback.print_exc()
+
 	async def do_domains(self):
 		"""Lists domain"""
 		try:

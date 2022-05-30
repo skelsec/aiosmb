@@ -17,7 +17,7 @@ from aiosmb.dcerpc.v5.interfaces.remoteregistry import RRPRPC
 from aiosmb.dcerpc.v5.interfaces.rprnmgr import RPRNRPC
 from aiosmb.dcerpc.v5.interfaces.tschmgr import TSCHRPC
 from aiosmb.dcerpc.v5.interfaces.parmgr import PARRPC
-
+from aiosmb.dcerpc.v5.interfaces.wkstmgr import WKSTRPC
 
 
 from aiosmb.dcerpc.v5 import tsch, scmr
@@ -56,6 +56,7 @@ class SMBMachine:
 			'TSCH' : TSCHRPC,
 			'PAR'  : PARRPC,
 			'SERVICEMGR' : REMSVCRPC,
+			'WKST' : WKSTRPC,
 		}
 
 		self.open_rpcs = {}
@@ -98,7 +99,7 @@ class SMBMachine:
 				#print('Tried to reopen service %s' % service_name)
 				return True, None
 			
-			if service_name in ['PAR', 'RPRN','SRVS','SAMR','RRP','TSCH', 'LSAD', 'SERVICEMGR']: #new service interface
+			if service_name in ['PAR', 'RPRN','SRVS','SAMR','RRP','TSCH', 'LSAD', 'SERVICEMGR', 'WKST']: #new service interface
 				self.named_rpcs[service_name], err = await self.named_rpcs_proto[service_name].from_smbconnection(self.connection, auth_level = self.force_rpc_auth)
 			else:
 				self.named_rpcs[service_name] = self.named_rpcs_proto[service_name](self.connection)
@@ -147,6 +148,22 @@ class SMBMachine:
 					yield None, err
 					return
 				sess = SMBUserSession(username = username, ip_addr = ip_addr.replace('\\','').strip())
+				self.sessions.append(sess)
+				yield sess, None
+		except Exception as e:
+			yield None, e
+
+	async def wkstlist_sessions(self, level = 1):
+		try:
+			_, err = await self.connect_rpc('WKST')
+			if err is not None:
+				raise err
+
+			async for username, ip_addr, err in self.named_rpcs['WKST'].list_sessions(level = level):
+				if err is not None:
+					yield None, err
+					return
+				sess = SMBUserSession(username = username)
 				self.sessions.append(sess)
 				yield sess, None
 		except Exception as e:
