@@ -15,7 +15,9 @@ async def filereader_test(connection_string, filename, proxy = None):
 	
 
 	epm = EPM(smb_connection, protocol = 'ncacn_ip_tcp')
-	await rr(epm.connect())
+	_, err = await epm.connect()
+	if err is not None:
+		raise err
 	data, exc = await epm.map(drsuapi.MSRPC_UUID_DRSUAPI)
 	#data, exc = await epm.lookup()
 	if exc is not None:

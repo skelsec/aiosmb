@@ -80,6 +80,7 @@ class SMBMachine:
 
 	def get_blocking_file(self):
 		"""
+		Please don't ever use this
 		Starts a file manager task and initializes the io queues
 		"""
 
@@ -200,9 +201,15 @@ class SMBMachine:
 			_, err = await self.connect_rpc('SAMR')
 			if err is not None:
 				raise err
-			domain_sid, _ = await rr(self.named_rpcs['SAMR'].get_domain_sid(domain_name))
-			domain_handle, _ = await rr(self.named_rpcs['SAMR'].open_domain(domain_sid))
-			async for name, rid, _ in rr_gen(self.named_rpcs['SAMR'].list_aliases(domain_handle)):
+			domain_sid, err = await self.named_rpcs['SAMR'].get_domain_sid(domain_name)
+			if err is not None:
+				raise err
+			domain_handle, err = await self.named_rpcs['SAMR'].open_domain(domain_sid)
+			if err is not None:
+				raise err
+			async for name, rid, err in self.named_rpcs['SAMR'].list_aliases(domain_handle):
+				if err is not None:
+					raise err
 				sid = '%s-%s' % (domain_sid, rid)
 				yield name, sid, None
 		
@@ -217,11 +224,19 @@ class SMBMachine:
 			_, err = await self.connect_rpc('LSAD')
 			if err is not None:
 				raise err
-			policy_handle, _ = await rr(self.named_rpcs['LSAD'].open_policy2())
-			domain_sid, _ = await rr(self.named_rpcs['SAMR'].get_domain_sid(domain_name))
-			domain_handle, _ = await rr(self.named_rpcs['SAMR'].open_domain(domain_sid))
+			policy_handle, err = await self.named_rpcs['LSAD'].open_policy2()
+			if err is not None:
+				raise err
+			domain_sid, err = await self.named_rpcs['SAMR'].get_domain_sid(domain_name)
+			if err is not None:
+				raise err
+			domain_handle, err = await self.named_rpcs['SAMR'].open_domain(domain_sid)
+			if err is not None:
+				raise err
 			target_group_rid = None
-			async for name, rid, _ in rr_gen(self.named_rpcs['SAMR'].list_aliases(domain_handle)):
+			async for name, rid, err in self.named_rpcs['SAMR'].list_aliases(domain_handle):
+				if err is not None:
+					raise err
 				if name == group_name:
 					target_group_rid = rid
 					break
@@ -229,14 +244,23 @@ class SMBMachine:
 			if target_group_rid is None:
 				raise Exception('No group found with name "%s"' % group_name)
 			
-			alias_handle, _ = await rr(self.named_rpcs['SAMR'].open_alias(domain_handle, target_group_rid))
-			async for sid, _ in rr_gen(self.named_rpcs['SAMR'].list_alias_members(alias_handle)):
-				async for domain_name, user_name, _ in rr_gen(self.named_rpcs['LSAD'].lookup_sids(policy_handle, [sid])):
+			alias_handle, err = await self.named_rpcs['SAMR'].open_alias(domain_handle, target_group_rid)
+			if err is not None:
+				raise err
+
+			async for sid, err in self.named_rpcs['SAMR'].list_alias_members(alias_handle):
+				if err is not None:
+					raise err
+				
+				async for domain_name, user_name, err in self.named_rpcs['LSAD'].lookup_sids(policy_handle, [sid]):
+					if err is not None:
+						raise err
 					yield domain_name, user_name, sid, None
+		
 		except Exception as e:
 			yield None, None, None, e
 
-	async def add_user_to_alias(self, domain_name, group_name, sid):
+	async def add_sid_to_group(self, domain_name, group_name, sid):
 		try:
 			_, err = await self.connect_rpc('SAMR')
 			if err is not None:
@@ -244,11 +268,20 @@ class SMBMachine:
 			_, err = await self.connect_rpc('LSAD')
 			if err is not None:
 				raise err
-			policy_handle, _ = await rr(self.named_rpcs['LSAD'].open_policy2())
-			domain_sid, _ = await rr(self.named_rpcs['SAMR'].get_domain_sid(domain_name))
-			domain_handle, _ = await rr(self.named_rpcs['SAMR'].open_domain(domain_sid))
+			policy_handle, err = await self.named_rpcs['LSAD'].open_policy2()
+			if err is not None:
+				raise err
+			domain_sid, err = await self.named_rpcs['SAMR'].get_domain_sid(domain_name)
+			if err is not None:
+				raise err
+			domain_handle, err = await self.named_rpcs['SAMR'].open_domain(domain_sid)
+			if err is not None:
+				raise err
 			target_group_rid = None
-			async for name, rid, _ in rr_gen(self.named_rpcs['SAMR'].list_aliases(domain_handle)):
+			async for name, rid, err in self.named_rpcs['SAMR'].list_aliases(domain_handle):
+				if err is not None:
+					raise err
+
 				if name == group_name:
 					target_group_rid = rid
 					break
@@ -256,10 +289,14 @@ class SMBMachine:
 			if target_group_rid is None:
 				raise Exception('No group found with name "%s"' % group_name)
 			
-			alias_handle, _ = await rr(self.named_rpcs['SAMR'].open_alias(domain_handle, target_group_rid))
+			alias_handle, err = await self.named_rpcs['SAMR'].open_alias(domain_handle, target_group_rid)
+			if err is not None:
+				raise err
 			targetsid = RPC_SID()
 			targetsid.fromCanonical(sid)
-			result, _ = await rr(self.named_rpcs['SAMR'].add_member_to_alias(alias_handle, targetsid))
+			result, err = await self.named_rpcs['SAMR'].add_member_to_alias(alias_handle, targetsid)
+			if err is not None:
+				raise err
 			return result, None
 		except Exception as e:
 			return False, e		
@@ -351,7 +388,9 @@ class SMBMachine:
 			if err is not None:
 				raise err
 			
-			async for service, _ in rr_gen(self.named_rpcs['SERVICEMGR'].list()):
+			async for service, err in self.named_rpcs['SERVICEMGR'].list():
+				if err is not None:
+					raise err
 				yield service, None
 		
 		except Exception as e:
@@ -379,18 +418,26 @@ class SMBMachine:
 						
 								
 				logger.debug('Fetching domains...')
-				async for domain, _ in rr_gen(self.named_rpcs['SAMR'].list_domains()):
+				async for domain, err in self.named_rpcs['SAMR'].list_domains():
+					if err is not None:
+						raise err
+
 					if domain == 'Builtin':
 						continue
 					if target_domain is None: #using th first available
 						target_domain = domain
 						logger.debug('Domain available: %s' % domain)
 
-			domain_sid, _ = await self.named_rpcs['SAMR'].get_domain_sid(target_domain)
-			domain_handle, _ = await self.named_rpcs['SAMR'].open_domain(domain_sid)
+			domain_sid, err = await self.named_rpcs['SAMR'].get_domain_sid(target_domain)
+			if err is not None:
+				raise err
+			domain_handle, err = await self.named_rpcs['SAMR'].open_domain(domain_sid)
+			if err is not None:
+				raise err
 			
 			async for username, user_sid, err in self.named_rpcs['SAMR'].list_domain_users(domain_handle):
 				yield username, user_sid, err
+		
 		except Exception as e:
 			yield None, None, e
 
@@ -430,8 +477,12 @@ class SMBMachine:
 								
 				else:
 					
-					domain_sid, _ = await self.named_rpcs['SAMR'].get_domain_sid(target_domain)
-					domain_handle, _ = await self.named_rpcs['SAMR'].open_domain(domain_sid)
+					domain_sid, err = await self.named_rpcs['SAMR'].get_domain_sid(target_domain)
+					if err is not None:
+						raise err
+					domain_handle, err = await self.named_rpcs['SAMR'].open_domain(domain_sid)
+					if err is not None:
+						raise err
 					async for username, user_sid, err in self.named_rpcs['SAMR'].list_domain_users(domain_handle):
 						if err is not None:
 							yield None, err

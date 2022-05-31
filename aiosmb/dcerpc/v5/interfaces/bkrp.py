@@ -7,7 +7,6 @@ from aiosmb.wintypes.ntstatus import NTStatus
 from aiosmb.dcerpc.v5.rpcrt import DCERPCException
 from aiosmb import logger
 from aiosmb.commons.utils.extb import pprint_exc
-from aiosmb.commons.utils.decorators import red_gen, red, rr
 from aiosmb.dcerpc.v5.dtypes import NULL
 from aiosmb.dcerpc.v5.rpcrt import RPC_C_AUTHN_LEVEL_NONE, RPC_C_AUTHN_LEVEL_PKT_INTEGRITY, RPC_C_AUTHN_LEVEL_PKT_PRIVACY, DCERPCException, RPC_C_AUTHN_GSS_NEGOTIATE, RPC_C_AUTHN_LEVEL_CONNECT
 
@@ -23,7 +22,6 @@ class SMBBKRP:
 		await self.close()
 		return True,None
 	
-	@red
 	async def close(self):
 		if self.dce:
 			try:
@@ -34,7 +32,6 @@ class SMBBKRP:
 		
 		return True,None
 
-	@red
 	async def connect(self, open = True):
 		rpctransport = SMBDCEFactory(self.connection, filename=r'\protected_storage')
 		self.dce = rpctransport.get_dce_rpc()

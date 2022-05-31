@@ -3200,7 +3200,9 @@ async def hNetrpGetFileSecurity(dce, shareName, lpFileName, requestedInformation
     request['ShareName'] = shareName
     request['lpFileName'] = lpFileName
     request['RequestedInformation'] = requestedInformation
-    retVal, _ = await rr(dce.request(request))
+    retVal, err = await dce.request(request)
+    if err is not None:
+        return None, err
     return b''.join(retVal['SecurityDescriptor']['Buffer']), None
 
 async def hNetrpSetFileSecurity(dce, shareName, lpFileName, securityInformation, securityDescriptor):

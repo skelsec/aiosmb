@@ -285,7 +285,7 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 	async def do_addsidtolocalgroup(self, group_name, sid):
 		"""Add member (by SID) to a local group"""
 		try:
-			result, err = await self.machine.add_user_to_alias('Builtin', group_name, sid)
+			result, err = await self.machine.add_sid_to_group('Builtin', group_name, sid)
 			if err is not None:
 				raise err
 			if result:

@@ -2731,7 +2731,6 @@ async def hSamrGetAliasMembership(dce, domainHandle, sidArray):
 	request['SidArray']['Count'] = len(sidArray['Sids'])
 	return await dce.request(request)
 
-@red
 async def hSamrChangePasswordUser(dce, userHandle, oldPassword, newPassword):
 	raise Exception('Not implemented, needs additional work!')
 	request = SamrChangePasswordUser()
@@ -2756,7 +2755,6 @@ async def hSamrChangePasswordUser(dce, userHandle, oldPassword, newPassword):
 
 	return await dce.request(request)
 
-@red
 async def hSamrUnicodeChangePasswordUser2(dce, serverName='\x00', userName='', oldPassword='', newPassword='', oldPwdHashLM = '', oldPwdHashNT = ''):
 	raise Exception('Not implemented, needs additional work!')
 	request = SamrUnicodeChangePasswordUser2()

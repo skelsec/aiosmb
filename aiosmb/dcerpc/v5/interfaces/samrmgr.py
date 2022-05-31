@@ -84,17 +84,20 @@ class SAMRRPC:
 		except Exception as e:
 			return None, e
 	
-	@red
 	async def open(self):
 		if not self.dce:
-			await rr(self.connect())
-		
-		ans, _= await rr(samr.hSamrConnect(self.dce))
+			_, err = await self.connect()
+			if err is not None:
+				raise err
+
+		ans, err = await samr.hSamrConnect(self.dce)
+		if err is not None:
+			raise err
+
 		self.handle = ans['ServerHandle']
 
 		return True,None
 	
-	@red
 	async def close(self):
 		if self.dce:
 			for dhandle in self.domain_handles:
@@ -121,160 +124,204 @@ class SAMRRPC:
 		
 		return True,None
 		
-	@red
 	async def close_handle(self, handle):
-		resp, _ = await rr(samr.hSamrCloseHandle(self.dce, handle))
-		return resp, None
-	
-	@red
-	async def get_info(self, domain_handle, domainInformationClass = samr.DOMAIN_INFORMATION_CLASS.DomainGeneralInformation2):
-		resp, _ = await rr(samr.hSamrQueryInformationDomain(self.dce, domain_handle, domainInformationClass = domainInformationClass))
-		return resp, None
-	
-	@red_gen
-	async def list_domains(self):
-		status = NTStatus.MORE_ENTRIES
-		enumerationContext = 0
-		while status == NTStatus.MORE_ENTRIES:
-			resp, err = await samr.hSamrEnumerateDomainsInSamServer(self.dce, self.handle, enumerationContext = enumerationContext)
-			if err is not None:
-				if err.error_code != NTStatus.MORE_ENTRIES.value:
-					raise err
-				resp = err.get_packet()
-			
-			for domain in resp['Buffer']['Buffer']:
-				yield domain['Name'], None
-			
-			enumerationContext = resp['EnumerationContext']
-			status = NTStatus(resp['ErrorCode'])
-	
-	@red
-	async def get_domain_sid(self, domain_name):
-		resp, _ = await rr(samr.hSamrLookupDomainInSamServer(self.dce, self.handle, domain_name))
-
-		self.domain_ids[resp['DomainId'].formatCanonical()] = resp['DomainId']
-		return resp['DomainId'].formatCanonical(), None
-	
-	@red
-	async def open_domain(self, domain_sid, access_level = samr.MAXIMUM_ALLOWED):
-		resp, _ = await rr(samr.hSamrOpenDomain(self.dce, self.handle, domainId = self.domain_ids[domain_sid], desiredAccess = access_level))
-		self.domain_handles[resp['DomainHandle']] = domain_sid
-		return resp['DomainHandle'], None
-	
-	@red_gen
-	async def list_domain_users(self, domain_handle):
-		user_type = samr.USER_NORMAL_ACCOUNT
-		status = NTStatus.MORE_ENTRIES
-		enumerationContext = 0
-		while status == NTStatus.MORE_ENTRIES:
-			resp, err = await samr.hSamrEnumerateUsersInDomain(self.dce, domain_handle, user_type, enumerationContext=enumerationContext)
-			if err is not None:
-				if err.error_code != NTStatus.MORE_ENTRIES.value:
-					yield None, None, err
-					return
-				resp = err.get_packet()
-
-			for user in resp['Buffer']['Buffer']:
-				user_sid = '%s-%s' % (self.domain_handles[domain_handle], user['RelativeId'])
-				yield user['Name'], user_sid, None
-
-			enumerationContext = resp['EnumerationContext'] 
-			status = NTStatus(resp['ErrorCode'])
-
-	@red_gen	
-	async def list_domain_groups(self, domain_handle):
-		status = NTStatus.MORE_ENTRIES
-		enumerationContext = 0
-		while status == NTStatus.MORE_ENTRIES:
-			resp, err = await samr.hSamrEnumerateGroupsInDomain(self.dce, domain_handle, enumerationContext=enumerationContext)
-			if err is not None:
-				if err.error_code != NTStatus.MORE_ENTRIES.value:
-					raise err
-				resp = err.get_packet()
-
-			for group in resp['Buffer']['Buffer']:
-				group_sid = '%s-%s' % (self.domain_handles[domain_handle], group['RelativeId'])
-				yield group['Name'], group_sid, None
-			enumerationContext = resp['EnumerationContext'] 
-			status = NTStatus(resp['ErrorCode'])
-
-	@red	
-	async def add_member_to_alias(self, alias_handle, sid):
-		resp, err = await samr.hSamrAddMemberToAlias(self.dce, alias_handle, sid)
+		resp, err = await samr.hSamrCloseHandle(self.dce, handle)
 		if err is not None:
-			if err.error_code != NTStatus.MORE_ENTRIES.value:
+			return None, err
+		return resp, None
+	
+	async def get_info(self, domain_handle, domainInformationClass = samr.DOMAIN_INFORMATION_CLASS.DomainGeneralInformation2):
+		resp, err = await samr.hSamrQueryInformationDomain(self.dce, domain_handle, domainInformationClass = domainInformationClass)
+		if err is not None:
+			return None, err
+		return resp, None
+	
+	async def list_domains(self):
+		try:
+			status = NTStatus.MORE_ENTRIES
+			enumerationContext = 0
+			while status == NTStatus.MORE_ENTRIES:
+				resp, err = await samr.hSamrEnumerateDomainsInSamServer(self.dce, self.handle, enumerationContext = enumerationContext)
+				if err is not None:
+					if err.error_code != NTStatus.MORE_ENTRIES.value:
+						raise err
+					resp = err.get_packet()
+				
+				for domain in resp['Buffer']['Buffer']:
+					yield domain['Name'], None
+				
+				enumerationContext = resp['EnumerationContext']
+				status = NTStatus(resp['ErrorCode'])
+		except Exception as e:
+			yield None, e
+	
+	async def get_domain_sid(self, domain_name):
+		try:
+			resp, err = await samr.hSamrLookupDomainInSamServer(self.dce, self.handle, domain_name)
+			if err is not None:
 				raise err
-			resp = err.get_packet()
-		status = NTStatus(resp['ErrorCode'])
-		result = status == NTStatus.SUCCESS
-		return result, None
 
-	@red_gen
+			self.domain_ids[resp['DomainId'].formatCanonical()] = resp['DomainId']
+			return resp['DomainId'].formatCanonical(), None
+		except Exception as e:
+			return None, e
+	
+	async def open_domain(self, domain_sid, access_level = samr.MAXIMUM_ALLOWED):
+		try:
+			resp, err = await samr.hSamrOpenDomain(self.dce, self.handle, domainId = self.domain_ids[domain_sid], desiredAccess = access_level)
+			self.domain_handles[resp['DomainHandle']] = domain_sid
+			return resp['DomainHandle'], None
+		except Exception as e:
+			return None, e
+	
+
+	async def list_domain_users(self, domain_handle):
+		try:
+			user_type = samr.USER_NORMAL_ACCOUNT
+			status = NTStatus.MORE_ENTRIES
+			enumerationContext = 0
+			while status == NTStatus.MORE_ENTRIES:
+				resp, err = await samr.hSamrEnumerateUsersInDomain(self.dce, domain_handle, user_type, enumerationContext=enumerationContext)
+				if err is not None:
+					if err.error_code != NTStatus.MORE_ENTRIES.value:
+						raise err
+						return
+					resp = err.get_packet()
+
+				for user in resp['Buffer']['Buffer']:
+					user_sid = '%s-%s' % (self.domain_handles[domain_handle], user['RelativeId'])
+					yield user['Name'], user_sid, None
+
+				enumerationContext = resp['EnumerationContext'] 
+				status = NTStatus(resp['ErrorCode'])
+		except Exception as e:
+			yield None, None, e
+
+	async def list_domain_groups(self, domain_handle):
+		try:
+			status = NTStatus.MORE_ENTRIES
+			enumerationContext = 0
+			while status == NTStatus.MORE_ENTRIES:
+				resp, err = await samr.hSamrEnumerateGroupsInDomain(self.dce, domain_handle, enumerationContext=enumerationContext)
+				if err is not None:
+					if err.error_code != NTStatus.MORE_ENTRIES.value:
+						raise err
+					resp = err.get_packet()
+
+				for group in resp['Buffer']['Buffer']:
+					group_sid = '%s-%s' % (self.domain_handles[domain_handle], group['RelativeId'])
+					yield group['Name'], group_sid, None
+				enumerationContext = resp['EnumerationContext'] 
+				status = NTStatus(resp['ErrorCode'])
+		except Exception as e:
+			yield None, None, e
+	
+	async def add_member_to_alias(self, alias_handle, sid):
+		try:
+			resp, err = await samr.hSamrAddMemberToAlias(self.dce, alias_handle, sid)
+			if err is not None:
+				if err.error_code != NTStatus.MORE_ENTRIES.value:
+					raise err
+				resp = err.get_packet()
+			status = NTStatus(resp['ErrorCode'])
+			result = status == NTStatus.SUCCESS
+			return result, None
+		except Exception as e:
+			return None, e
+
 	async def enumerate_users(self, domain_handle):
-		status = NTStatus.MORE_ENTRIES
-		enumerationContext = 0
-		while status == NTStatus.MORE_ENTRIES:
-			resp, err = await samr.hSamrEnumerateUsersInDomain(self.dce, domain_handle,  enumerationContext=enumerationContext)
-			if err is not None:
-				if err.error_code != NTStatus.MORE_ENTRIES.value:
-					raise err
-				resp = err.get_packet()
+		try:
+			status = NTStatus.MORE_ENTRIES
+			enumerationContext = 0
+			while status == NTStatus.MORE_ENTRIES:
+				resp, err = await samr.hSamrEnumerateUsersInDomain(self.dce, domain_handle,  enumerationContext=enumerationContext)
+				if err is not None:
+					if err.error_code != NTStatus.MORE_ENTRIES.value:
+						raise err
+					resp = err.get_packet()
 
-			for user in resp['Buffer']['Buffer']:
-				user_sid = '%s-%s' % (self.domain_handles[domain_handle], user['RelativeId'])
-				yield user['Name'], user_sid, None
-			enumerationContext = resp['EnumerationContext'] 
-			status = NTStatus(resp['ErrorCode'])
+				for user in resp['Buffer']['Buffer']:
+					user_sid = '%s-%s' % (self.domain_handles[domain_handle], user['RelativeId'])
+					yield user['Name'], user_sid, None
+				enumerationContext = resp['EnumerationContext'] 
+				status = NTStatus(resp['ErrorCode'])
+		except Exception as e:
+			yield None, None, e
 
-	@red
 	async def open_user(self, domain_handle, user_id, access_level = samr.MAXIMUM_ALLOWED):
-		resp, _ = await rr(samr.hSamrOpenUser(self.dce, domain_handle, userId=user_id, desiredAccess = access_level))
-		self.user_handles[resp['UserHandle']] = self.domain_handles[domain_handle]
-		return resp['UserHandle'], None
-	
-	@red
-	async def get_user_info(self, user_handle, userInformationClass = samr.USER_INFORMATION_CLASS.UserGeneralInformation):
-		resp, _ = await rr(samr.hSamrQueryInformationUser(self.dce, user_handle, userInformationClass = userInformationClass))
-		return resp, None
-	
-	@red_gen
-	async def get_user_group_memberships(self, user_handle):
-		resp, _ = await rr(samr.hSamrGetGroupsForUser(self.dce, user_handle))
-		
-		for group in resp['Groups']['Groups']:
-			yield '%s-%s' % (self.user_handles[user_handle], group['RelativeId']) , None
-
-	@red_gen
-	async def list_aliases(self, domain_handle):
-		status = NTStatus.MORE_ENTRIES
-		enumerationContext = 0
-		while status == NTStatus.MORE_ENTRIES:
-			resp, err = await samr.hSamrEnumerateAliasesInDomain(self.dce, domain_handle, enumerationContext=enumerationContext)
+		try:
+			resp, err = await samr.hSamrOpenUser(self.dce, domain_handle, userId=user_id, desiredAccess = access_level)
 			if err is not None:
-				if err.error_code != NTStatus.MORE_ENTRIES.value:
-					raise err
-				resp = err.get_packet()
+				raise err
+			self.user_handles[resp['UserHandle']] = self.domain_handles[domain_handle]
+			return resp['UserHandle'], None
+		except Exception as e:
+			return None, e
+	
+	async def get_user_info(self, user_handle, userInformationClass = samr.USER_INFORMATION_CLASS.UserGeneralInformation):
+		try:
+			resp, err = await samr.hSamrQueryInformationUser(self.dce, user_handle, userInformationClass = userInformationClass)
+			return resp, None
+		except Exception as e:
+			return None, e
 
-			for alias in resp['Buffer']['Buffer']:
-				yield alias['Name'] , alias['RelativeId'], None
+	
+	async def get_user_group_memberships(self, user_handle):
+		try:
+			resp, err = await samr.hSamrGetGroupsForUser(self.dce, user_handle)
+			if err is not None:
+				raise err
 			
-			enumerationContext = resp['EnumerationContext'] 
-			status = NTStatus(resp['ErrorCode'])
+			for group in resp['Groups']['Groups']:
+				yield '%s-%s' % (self.user_handles[user_handle], group['RelativeId']) , None
+		except Exception as e:
+			yield None, e
 
-	@red
+	async def list_aliases(self, domain_handle):
+		try:
+			status = NTStatus.MORE_ENTRIES
+			enumerationContext = 0
+			while status == NTStatus.MORE_ENTRIES:
+				resp, err = await samr.hSamrEnumerateAliasesInDomain(self.dce, domain_handle, enumerationContext=enumerationContext)
+				if err is not None:
+					if err.error_code != NTStatus.MORE_ENTRIES.value:
+						raise err
+					resp = err.get_packet()
+
+				for alias in resp['Buffer']['Buffer']:
+					yield alias['Name'] , alias['RelativeId'], None
+				
+				enumerationContext = resp['EnumerationContext'] 
+				status = NTStatus(resp['ErrorCode'])
+		except Exception as e:
+			yield None, None, e
+
 	async def open_alias(self, domain_handle, alias_id):
-		resp, _ = await rr(samr.hSamrOpenAlias(self.dce, domain_handle, aliasId=alias_id))
-		self.alias_handles[resp['AliasHandle']] = self.domain_handles[domain_handle]
-		return resp['AliasHandle'], None
+		try:
+			resp, err = await samr.hSamrOpenAlias(self.dce, domain_handle, aliasId=alias_id)
+			if err is not None:
+				raise err
+			self.alias_handles[resp['AliasHandle']] = self.domain_handles[domain_handle]
+			return resp['AliasHandle'], None
+		except Exception as e:
+			return None, e
 	
-	@red_gen
 	async def list_alias_members(self, alias_handle):
-		resp, _ = await rr(samr.hSamrGetMembersInAlias(self.dce, alias_handle))
-			
-		for sidr in resp['Members']['Sids']:
-			yield sidr['SidPointer'].formatCanonical(), None
+		try:
+			resp, err = await samr.hSamrGetMembersInAlias(self.dce, alias_handle)
+			if err is not None:
+				raise err
+
+			for sidr in resp['Members']['Sids']:
+				yield sidr['SidPointer'].formatCanonical(), None
+		except Exception as e:
+			yield None, e
 	
-	@red
 	async def get_security_info(self, handle, securityInformation = DACL_SECURITY_INFORMATION):
-		resp, _ = await rr(samr.hSamrQuerySecurityObject(self.dce, handle, securityInformation))
-		return resp, None
+		try:
+			resp, err = await samr.hSamrQuerySecurityObject(self.dce, handle, securityInformation)
+			if err is not None:
+				raise err
+			return resp, None
+		except Exception as e:
+			return None, e
