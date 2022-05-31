@@ -282,6 +282,29 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 		except Exception as e:
 			traceback.print_exc()
 
+	async def do_addsidtolocalgroup(self, group_name, sid):
+		"""Add member (by SID) to a local group"""
+		try:
+			result, err = await self.machine.add_user_to_alias('Builtin', group_name, sid)
+			if err is not None:
+				raise err
+			if result:
+				print('Modification OK!')
+			else:
+				print('Something went wrong, status != ok')
+			
+		except SMBException as e:
+			logger.debug(traceback.format_exc())
+			print(e.pprint())
+		except SMBMachineException as e:
+			logger.debug(traceback.format_exc())
+			print(str(e))
+		except DCERPCException as e:
+			logger.debug(traceback.format_exc())
+			print(str(e))
+		except Exception as e:
+			traceback.print_exc()
+
 	async def do_use(self, share_name):
 		"""selects share to be used"""
 		try:

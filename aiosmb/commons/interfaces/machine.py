@@ -18,6 +18,7 @@ from aiosmb.dcerpc.v5.interfaces.rprnmgr import RPRNRPC
 from aiosmb.dcerpc.v5.interfaces.tschmgr import TSCHRPC
 from aiosmb.dcerpc.v5.interfaces.parmgr import PARRPC
 from aiosmb.dcerpc.v5.interfaces.wkstmgr import WKSTRPC
+from aiosmb.dcerpc.v5.dtypes import RPC_SID
 
 
 from aiosmb.dcerpc.v5 import tsch, scmr
@@ -235,7 +236,33 @@ class SMBMachine:
 		except Exception as e:
 			yield None, None, None, e
 
+	async def add_user_to_alias(self, domain_name, group_name, sid):
+		try:
+			_, err = await self.connect_rpc('SAMR')
+			if err is not None:
+				raise err
+			_, err = await self.connect_rpc('LSAD')
+			if err is not None:
+				raise err
+			policy_handle, _ = await rr(self.named_rpcs['LSAD'].open_policy2())
+			domain_sid, _ = await rr(self.named_rpcs['SAMR'].get_domain_sid(domain_name))
+			domain_handle, _ = await rr(self.named_rpcs['SAMR'].open_domain(domain_sid))
+			target_group_rid = None
+			async for name, rid, _ in rr_gen(self.named_rpcs['SAMR'].list_aliases(domain_handle)):
+				if name == group_name:
+					target_group_rid = rid
+					break
 
+			if target_group_rid is None:
+				raise Exception('No group found with name "%s"' % group_name)
+			
+			alias_handle, _ = await rr(self.named_rpcs['SAMR'].open_alias(domain_handle, target_group_rid))
+			targetsid = RPC_SID()
+			targetsid.fromCanonical(sid)
+			result, _ = await rr(self.named_rpcs['SAMR'].add_member_to_alias(alias_handle, targetsid))
+			return result, None
+		except Exception as e:
+			return False, e		
 
 	async def list_directory(self, directory):
 		_, err = await directory.list(self.connection)
@@ -587,12 +614,12 @@ class SMBMachine:
 			logger.debug('Deleting temp file...')
 			_, err = await temp.delete()
 			if err is not None:
-				logger.debug('Failed to delete temp file!')
+				logger.warning('Failed to delete temp file!')
 
 			logger.debug('Deleting service...')
 			_, err = await self.delete_service(service_name)
 			if err is not None:
-				logger.debug('Failed to delete service!')
+				logger.warning('Failed to delete service!')
 			
 			yield None, None
 
