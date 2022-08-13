@@ -766,10 +766,6 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			traceback.print_exc()
 			return None, e
 
-
-	
-
-
 	async def do_get(self, file_name):
 		"""Download a file from the remote share to the current folder"""
 		try:
@@ -795,6 +791,7 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 								break
 							outfile.write(data)
 							pbar.update(len(data))
+			
 			return True, None
 		except SMBException as e:
 			logger.debug(traceback.format_exc())

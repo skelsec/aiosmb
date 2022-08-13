@@ -2,7 +2,8 @@ import asyncio
 import traceback
 
 from aiosmb.dcerpc.v5.ndr import NDRCALL
-from aiosmb.dcerpc.v5.transport.selector import DCERPCTransportSelector
+from aiosmb.dcerpc.v5.transport.tcp import DCERPCTCPTransport
+from aiosmb.dcerpc.v5.transport.smb import DCERPCSMBTransport
 from aiosmb.dcerpc.v5.structure import unpack
 from aiosmb.dcerpc.v5.uuid import uuidtup_to_bin, generate, stringver_to_bin, bin_to_uuidtup
 from aiosmb.dcerpc.v5.rpcrt import *
@@ -70,11 +71,17 @@ class DCERPC5Connection:
 		Selects the correct transport layer based on the self.target and starts it
 		"""
 		try:
-			selector = DCERPCTransportSelector()
-			self.transport = await selector.select(self.target)
-			_, err = await self.transport.connect()
-			if err is not None:
-				raise err
+			if self.target.rpcprotocol == 'ncacn_ip_tcp':
+				self.transport = DCERPCTCPTransport(self.target)
+				await self.transport.connect()
+
+			elif self.target.rpcprotocol == 'ncacn_np':
+				self.transport = DCERPCSMBTransport(self.target)
+				_, err = await self.transport.connect()
+				if err is not None:
+					raise err
+			else:
+				raise NotImplementedError()
 
 			return True, None
 		except Exception as e:
@@ -684,7 +691,6 @@ class DCERPC5Connection:
 						#	   self.__sessionKey, 
 						#	   False)
 					elif self.auth_type == RPC_C_AUTHN_GSS_NEGOTIATE:
-						#signature = self.__gss.GSS_GetMIC(self.__sessionKey, plain_data, self.__sequence)
 						signature = await self.gssapi.gssapi.sign(plain_data, self.__sequence)
 
 				rpc_packet['sec_trailer'] = sec_trailer.getData()
@@ -715,15 +721,15 @@ class DCERPC5Connection:
 			return None, e
 
 		
-	def alter_ctx(self, newUID, bogus_binds = 0):
-		answer = self.__class__(self.transport)
-
-		answer.set_credentials(self.__username, self.__password, self.__domain, self.__lmhash, self.__nthash,
-							   self.__aesKey, self.__TGT, self.__TGS)
-		answer.set_auth_type(self.__auth_type)
-		answer.set_auth_level(self.__auth_level)
-
-		answer.set_ctx_id(self.ctx+1)
-		answer.__callid = self.callid
-		answer.bind(newUID, alter = 1, bogus_binds = bogus_binds, transfer_syntax = bin_to_uuidtup(self.transfer_syntax))
-		return answer
+	#def alter_ctx(self, newUID, bogus_binds = 0):
+	#	answer = self.__class__(self.transport)
+	#
+	#	answer.set_credentials(self.__username, self.__password, self.__domain, self.__lmhash, self.__nthash,
+	#						   self.__aesKey, self.__TGT, self.__TGS)
+	#	answer.set_auth_type(self.__auth_type)
+	#	answer.set_auth_level(self.__auth_level)
+	#
+	#	answer.set_ctx_id(self.ctx+1)
+	#	answer.__callid = self.callid
+	#	answer.bind(newUID, alter = 1, bogus_binds = bogus_binds, transfer_syntax = bin_to_uuidtup(self.transfer_syntax))
+	#	return answer

@@ -1,11 +1,10 @@
 import ipaddress
 import copy
+from typing import List
 
-from aiosmb.commons.connection.proxy import SMBProxy
 from aiosmb.dcerpc.v5.common.connection.connectionstring import DCERPCStringBinding
-
-
-# TODO: this is disgusting, need to clean it up :()
+from asysocks.unicomm.common.proxy import UniProxyTarget
+from asysocks.unicomm.common.target import UniTarget, UniProto
 
 class DCERPCTargetType:
 	UDP = 'UDP'
@@ -15,18 +14,12 @@ class DCERPCTargetType:
 	LOCAL = 'LOCAL'
 
 
-class DCERPCTarget:
-	def __init__(self, connection_string:str, ttype, proxy = None, timeout = 1):
-		self.ip = None
-		self.hostname = None
-		self.dc_ip = None
-		self.domain = None
+class DCERPCTarget(UniTarget):
+	def __init__(self, connection_string:str, ip, port, protocol, rpcprotocol, proxies = None, timeout = 1, hostname = None, domain = None, dc_ip = None):
+		UniTarget.__init__(self, ip, port, protocol, timeout, hostname = hostname, proxies = proxies, domain = domain, dc_ip = dc_ip)
 		self.smb_connection = None #not all types have this
 		self.connection_string = connection_string
-		self.type = ttype
-		self.timeout = timeout
-		self.proxy = None
-		self.protocol = None #eg. ncap_np
+		self.rpcprotocol = rpcprotocol
 
 	def get_hostname_or_ip(self):
 		if self.smb_connection is not None:
@@ -34,13 +27,6 @@ class DCERPCTarget:
 		if self.hostname is None:
 			return self.ip
 		return self.hostname
-
-	def set_hostname_or_ip(self, ip):
-		try:
-			self.ip = str(ipaddress.ip_address(ip))
-		except:
-			self.hostname = ip
-			self.ip = ip
 	
 	def to_target_string(self) -> str:
 		if self.hostname is None:
@@ -58,14 +44,14 @@ class DCERPCTarget:
 		return target
 
 	@staticmethod
-	def from_connection_string(s, smb_connection = None, timeout = 1, proxy:SMBProxy = None, dc_ip:str = None, domain:str = None):
+	def from_connection_string(s, smb_connection = None, timeout = 1, proxies:List[UniProxyTarget] = None, dc_ip:str = None, domain:str = None):
 		if isinstance(s, str):
 			connection_string = DCERPCStringBinding(s)
 		elif isinstance(s, DCERPCStringBinding):
 			connection_string = s
 		else:
 			raise Exception('Unknown string binding type %s' % type(s))
-			
+		
 		na = connection_string.get_network_address()
 		ps = connection_string.get_protocol_sequence()
 		if ps == 'ncadg_ip_udp':
@@ -92,23 +78,13 @@ class DCERPCTarget:
 		else:
 			raise Exception('Unknown DCERPC protocol %s' % ps)
 
-		if proxy is not None:
-			tp = copy.deepcopy(proxy)
-			if isinstance(tp.target, list):
-				tp.target[-1].endpoint_ip = target.ip
-				tp.target[-1].endpoint_port = target.port
-				tp.target[-1].timeout = target.timeout
-			else:
-				tp.target.endpoint_ip = target.ip
-				tp.target.endpoint_port = target.port
-				tp.target.timeout = target.timeout
-			
-			target.proxy = tp
+		if proxies is not None:
+			target.proxies = copy.deepcopy(proxies)
 
 
 		if smb_connection is not None:
-			if smb_connection.target.proxy is not None:
-				target.proxy = copy.deepcopy(smb_connection.target.proxy)
+			if smb_connection.target.proxies is not None:
+				target.proxies = copy.deepcopy(smb_connection.target.proxies)
 			
 		return target
 
@@ -121,43 +97,80 @@ class DCERPCTarget:
 
 
 class DCERPCTCPTarget(DCERPCTarget):
-	def __init__(self, connection_string, ip, port, timeout = 1, proxy = None, dc_ip:str = None, domain:str = None):
-		DCERPCTarget.__init__(self, connection_string, DCERPCTargetType.TCP, timeout = timeout, proxy=proxy)
-		self.set_hostname_or_ip(ip)
-		self.port = int(port)
-		self.protocol = 'ncacn_ip_tcp'
-		self.dc_ip = dc_ip
-		self.domain = domain
+	def __init__(self, connection_string, ip, port, timeout = 1, proxies = None, dc_ip:str = None, domain:str = None):
+		DCERPCTarget.__init__(
+			self, 
+			connection_string, 
+			ip, 
+			int(port), 
+			UniProto.CLIENT_TCP, 
+			'ncacn_ip_tcp', 
+			proxies = proxies, 
+			timeout = timeout, 
+			hostname = None, 
+			domain = domain, 
+			dc_ip = dc_ip
+		)
 
 class DCERPCUDPTarget(DCERPCTarget):
-	def __init__(self, connection_string, ip, port, timeout = 1):
-		DCERPCTarget.__init__(self, connection_string, DCERPCTargetType.UDP, timeout = timeout)
-		self.set_hostname_or_ip(ip)
-		self.port = int(port)
-		self.protocol = 'ncadg_ip_udp'
+	def __init__(self, connection_string, ip, port, timeout = 1, proxies = None, dc_ip:str = None, domain:str = None):
+		DCERPCTarget.__init__(
+			self, 
+			connection_string, 
+			ip, 
+			int(port), 
+			UniProto.CLIENT_UDP, 
+			'ncadg_ip_udp', 
+			proxies = proxies, 
+			timeout = timeout, 
+			hostname = None, 
+			domain = domain, 
+			dc_ip = dc_ip
+		)
 
 class DCERPCSMBTarget(DCERPCTarget):
 	def __init__(self, connection_string, ip, pipe = None, smb_connection = None, timeout = 1):
-		DCERPCTarget.__init__(self, connection_string, DCERPCTargetType.SMB, timeout = timeout)
-		self.set_hostname_or_ip(ip)
+		DCERPCTarget.__init__(
+			self, 
+			connection_string, 
+			ip, 
+			None, 
+			UniProto.CLIENT_TCP, 
+			'ncacn_np', 
+			proxies = smb_connection.target.proxies, 
+			timeout = timeout, 
+			hostname = None, 
+			domain = smb_connection.target.domain, 
+			dc_ip = smb_connection.target.dc_ip
+		)
 		self.pipe = pipe
 		self.smb_connection = smb_connection #storing the smb connection if already exists...
-		self.dc_ip = self.smb_connection.target.dc_ip
-		self.protocol = 'ncacn_np'
 
 class DCERPCHTTPTarget(DCERPCTarget):
-	def __init__(self, connection_string, ip, port, timeout = 1):
-		DCERPCTarget.__init__(self, connection_string, DCERPCTargetType.HTTP, timeout = timeout)
+	def __init__(self, connection_string, ip, port, timeout = 1, proxies = None, domain = None, dc_ip = None):
+		DCERPCTarget.__init__(
+			self, 
+			connection_string,
+			ip,
+			port, 
+			UniProto.CLIENT_TCP,
+			'ncacn_http',
+			proxies = proxies, 
+			timeout = timeout, 
+			hostname = None, 
+			domain = domain, 
+			dc_ip = dc_ip
+		)
 		self.set_hostname_or_ip(ip)
 		self.port = int(port)
-		self.protocol = 'ncacn_http'
 
 class DCERPCLocalTarget(DCERPCTarget):
 	def __init__(self, connection_string, ip, port, timeout = 1):
+		raise NotImplementedError()
 		DCERPCTarget.__init__(self, connection_string, DCERPCTargetType.LOCAL, timeout = timeout)
 		self.set_hostname_or_ip(ip)
 		self.port = int(port)
-		self.protocol = 'ncalocal'
+		self.rpcprotocol = 'ncalocal'
 
 
 

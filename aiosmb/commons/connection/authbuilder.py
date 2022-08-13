@@ -4,13 +4,11 @@ import os
 
 import copy
 from aiosmb.commons.connection.credential import *
-from aiosmb.commons.connection.proxy import  SMBProxyType
 from aiosmb.authentication.spnego.native import SPNEGO
 from aiosmb.authentication.ntlm.native import NTLMAUTHHandler, NTLMHandlerSettings
 from aiosmb.authentication.kerberos.native import SMBKerberos
 from aiosmb.authentication.negoex.native import SPNEGOEXAuthHandlerSettings, SPNEGOEXAuthHandler
 from minikerberos.common.target import KerberosTarget
-from minikerberos.common.proxy import KerberosProxy
 from minikerberos.common.creds import KerberosCredential
 from minikerberos.common.spn import KerberosSPN
 
@@ -24,7 +22,7 @@ class AuthenticatorBuilder:
 		pass
 	
 	@staticmethod
-	def to_spnego_cred(creds, target = None):
+	def to_spnego_cred(creds, target:SMBTarget = None):
 		if creds.authentication_type == SMBAuthProtocol.NEGOEX:
 			with_certstrore = creds.secret_type == SMBCredentialsSecretType.CERTSTORE
 			settings = SPNEGOEXAuthHandlerSettings(creds.username, creds.secret, target, dh_params = None, with_certstrore = with_certstrore)
@@ -152,22 +150,12 @@ class AuthenticatorBuilder:
 			kcred = SMBKerberosCredential()
 			kcred.ccred = kc
 			kcred.spn = KerberosSPN.from_target_string(target.to_target_string())
-			
-			if target.proxy is not None:
-				if target.proxy.type in [SMBProxyType.WSNET, SMBProxyType.SOCKS5, SMBProxyType.SOCKS5_SSL, SMBProxyType.SOCKS4, SMBProxyType.SOCKS4_SSL]:
-					kcred.target = KerberosTarget(target.dc_ip)
-					kcred.target.proxy = KerberosProxy()
-					kcred.target.proxy.target = copy.deepcopy(target.proxy.target)
-					kcred.target.proxy.target[-1].endpoint_ip = target.dc_ip
-					kcred.target.proxy.target[-1].endpoint_port = 88
-				
-				elif target.proxy.type in [SMBProxyType.MULTIPLEXOR, SMBProxyType.MULTIPLEXOR_SSL]:
-					kcred.target = KerberosTarget(target.dc_ip)
-					kcred.target.proxy = copy.deepcopy(target.proxy)
 
+			if target.dc_ip is None:
+				raise Exception('Target must have dc_ip specified for kerberos!')
 
-			else:
-				kcred.target = KerberosTarget(target.dc_ip)
+			proxies = copy.deepcopy(target.proxies)
+			kcred.target = KerberosTarget(target.dc_ip, proxies=proxies)
 			handler = SMBKerberos(kcred)
 			#setting up SPNEGO
 			spneg = SPNEGO()

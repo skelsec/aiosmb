@@ -2,8 +2,9 @@ import enum
 from urllib.parse import urlparse, parse_qs
 from aiosmb.commons.interfaces.file import SMBFile
 from aiosmb.commons.connection.credential import SMBCredential, SMBCredentialsSecretType, SMBAuthProtocol
-from aiosmb.commons.connection.proxy import SMBProxy
-from aiosmb.commons.connection.target import SMBTarget, SMBConnectionDialect, SMBConnectionProtocol
+from aiosmb.commons.connection.target import SMBTarget, SMBConnectionDialect
+from asysocks.unicomm.common.target import UniTarget, UniProto
+from asysocks.unicomm.common.proxy import UniProxyTarget
 from aiosmb.commons.connection.authbuilder import AuthenticatorBuilder
 from aiosmb.connection import SMBConnection
 from getpass import getpass
@@ -11,6 +12,12 @@ import base64
 import ipaddress
 import copy
 
+
+smburlconnection_param2var = {
+	'TCP' : UniProto.CLIENT_TCP,
+	'UDP' : UniProto.CLIENT_UDP,
+	'QUIC' : UniProto.CLIENT_QUIC,
+}
 
 class SMBConnectionURL:
 	def __init__(self, connection_url, credential:SMBCredential = None, target:SMBTarget = None):
@@ -98,7 +105,7 @@ class SMBConnectionURL:
 			timeout = self.timeout, 
 			dc_ip= self.dc_ip, 
 			domain = self.domain, 
-			proxy = self.get_proxy(),
+			proxies = self.get_proxy(),
 			protocol=self.protocol,
 		)
 		t.update_dialect(self.dialect)
@@ -158,10 +165,10 @@ class SMBConnectionURL:
 		connection_tags = schemes[0].split('-')
 		if len(connection_tags) > 1:
 			self.dialect = SMBConnectionDialect(connection_tags[0])
-			self.protocol = SMBConnectionProtocol(connection_tags[1])
+			self.protocol = smburlconnection_param2var[connection_tags[1]]
 		else:
 			self.dialect = SMBConnectionDialect(connection_tags[0])
-			self.protocol = SMBConnectionProtocol.TCP
+			self.protocol = UniProto.CLIENT_TCP
 
 		if len(schemes) == 1:
 			self.authentication_protocol = SMBAuthProtocol.NTLM
@@ -265,9 +272,9 @@ class SMBConnectionURL:
 		self.ip = url_e.hostname
 		if url_e.port:
 			self.port = url_e.port
-		elif self.protocol == SMBConnectionProtocol.TCP:
+		elif self.protocol == UniProto.CLIENT_TCP:
 			self.port = 445
-		elif self.protocol == SMBConnectionProtocol.QUIC:
+		elif self.protocol == UniProto.CLIENT_QUIC:
 			self.port = 443
 		else:
 			raise Exception('Port must be provided!')
@@ -311,7 +318,7 @@ class SMBConnectionURL:
 					self.auth_settings[k[len('same'):]] = query[k]
 		
 		if proxy_present is True:
-			self.proxy = SMBProxy.from_params(self.connection_url)
+			self.proxy = UniProxyTarget.from_url_params(self.connection_url, endpoint_port= self.port)
 			
 if __name__ == '__main__':
 	from aiosmb.commons.interfaces.file import SMBFile

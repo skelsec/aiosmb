@@ -10,8 +10,11 @@
 import ipaddress
 import enum
 import copy
+from typing import List
 
-from aiosmb.commons.connection.proxy import SMBProxy
+from asysocks.unicomm.common.target import UniTarget, UniProto
+from asysocks.unicomm.common.proxy import UniProxyProto, UniProxyTarget
+
 from aiosmb.protocol.common import NegotiateDialects, SMB2_NEGOTIATE_DIALTECTS_2, SMB2_NEGOTIATE_DIALTECTS_3, SMB2_NEGOTIATE_DIALTECTS
 
 class SMBConnectionDialect(enum.Enum):
@@ -38,12 +41,7 @@ smb_negotiate_dialect_lookup = {
 	SMBConnectionDialect.SMB311 : NegotiateDialects.SMB311,
 }
 
-class SMBConnectionProtocol(enum.Enum):
-	TCP = 'TCP'
-	UDP = 'UDP'
-	QUIC = 'QUIC'
-
-class SMBTarget:
+class SMBTarget(UniTarget):
 	"""
 	"""
 	def __init__(self, ip:str = None, 
@@ -52,27 +50,20 @@ class SMBTarget:
 						timeout:int = 1, 
 						dc_ip:str =None, 
 						domain:str = None, 
-						proxy:SMBProxy = None,
-						protocol:SMBConnectionProtocol = SMBConnectionProtocol.TCP,
+						proxies:List[UniProxyTarget] = None,
+						protocol:UniProto = UniProto.CLIENT_TCP,
 						path:str = None):
-		self.ip:str = ip
-		self.port:int = port
-		self.hostname:str = hostname
-		self.timeout:int = timeout
-		self.dc_ip:str = dc_ip
-		self.domain:str = domain
-		self.proxy:SMBProxy = proxy
-		self.protocol:SMBConnectionProtocol = protocol
-		self.preferred_dialects:SMBConnectionDialect = SMB2_NEGOTIATE_DIALTECTS_2
-
+		UniTarget.__init__(self, ip, port, protocol, timeout, hostname = hostname, proxies = proxies, domain = domain, dc_ip = dc_ip)
+		
 		self.path:str = path #for holding remote file path
-
+		self.preferred_dialects:SMBConnectionDialect = SMB2_NEGOTIATE_DIALTECTS_2
+		
 		#this is mostly for advanced users
 		self.MaxTransactSize:int = 0x100000
 		self.MaxReadSize:int = 0x100000
 		self.MaxWriteSize:int = 0x100000
-		self.SMBPendingTimeout:int = 5
-		self.SMBPendingMaxRenewal:int = None
+		self.PendingTimeout:int = 5
+		self.PendingMaxRenewal:int = None
 		self.compression:bool = False
 
 
@@ -105,15 +96,15 @@ class SMBTarget:
 			timeout = self.timeout, 
 			dc_ip= self.dc_ip, 
 			domain = self.domain, 
-			proxy = copy.deepcopy(self.proxy),
+			proxies = copy.deepcopy(self.proxies),
 			protocol = self.protocol
 		)
 
 		t.MaxTransactSize = self.MaxTransactSize
 		t.MaxReadSize = self.MaxReadSize
 		t.MaxWriteSize = self.MaxWriteSize
-		t.SMBPendingTimeout = self.SMBPendingTimeout
-		t.SMBPendingMaxRenewal = self.SMBPendingMaxRenewal
+		t.PendingTimeout = self.PendingTimeout
+		t.PendingMaxRenewal = self.PendingMaxRenewal
 
 		return t
 	
@@ -141,26 +132,14 @@ class SMBTarget:
 	
 		return st
 		
-	def get_ip(self):
-		if not self.ip and not self.hostname:
-			raise Exception('SMBTarget must have ip or hostname defined!')
-		return self.ip if self.ip is not None else self.hostname
-		
-	def get_hostname(self):
-		return self.hostname
-	
-	def get_hostname_or_ip(self):
-		if self.hostname:
-			return self.hostname
-		return self.ip
-	
-	def get_port(self):
-		return self.port
-		
 	def __str__(self):
 		t = '==== SMBTarget ====\r\n'
 		for k in self.__dict__:
-			t += '%s: %s\r\n' % (k, self.__dict__[k])
+			if isinstance(self.__dict__[k], list):
+				for x in self.__dict__[k]:
+					t += '    %s: %s\r\n' % (k, x)
+			else:
+				t += '%s: %s\r\n' % (k, self.__dict__[k])
 			
 		return t
 		

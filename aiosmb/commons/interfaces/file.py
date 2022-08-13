@@ -215,7 +215,7 @@ class SMBFile:
 		
 		buffer = b''
 		if size > self.__connection.MaxReadSize:
-			i, rem = divmod(size, self.__connection.MaxReadSize)
+			i = size // self.__connection.MaxReadSize
 			for _ in range(i+1):
 				data, remaining, err = await self.__connection.read(self.tree_id, self.file_id, offset = offset, length = self.__connection.MaxReadSize)
 				offset += len(data)

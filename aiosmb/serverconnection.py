@@ -334,7 +334,7 @@ class SMBServerConnection:
 				#print(msg)
 				
 				#if msg.header.Status == NTStatus.PENDING:
-				#	self.pending_table[msg.header.MessageId] = SMBPendingMsg(msg.header.MessageId, self.OutstandingResponses, self.OutstandingResponsesEvent, timeout = self.target.SMBPendingTimeout, max_renewal=self.target.SMBPendingMaxRenewal)
+				#	self.pending_table[msg.header.MessageId] = SMBPendingMsg(msg.header.MessageId, self.OutstandingResponses, self.OutstandingResponsesEvent, timeout = self.target.PendingTimeout, max_renewal=self.target.PendingMaxRenewal)
 				#	await self.pending_table[msg.header.MessageId].run()
 				#	continue
 

@@ -106,6 +106,7 @@ class DRSUAPIRPC:
 		Creates the connection to the service using an established SMBConnection.
 		This connection will use the given SMBConnection as transport layer.
 		"""
+		epm = None
 		try:
 			if auth_level is None:
 				#for SMB connection no extra auth needed

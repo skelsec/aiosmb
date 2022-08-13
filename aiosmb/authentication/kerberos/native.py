@@ -19,14 +19,10 @@ from minikerberos.common import *
 from minikerberos.protocol.asn1_structs import AP_REP, EncAPRepPart, EncryptedData, Ticket
 #from minikerberos.gssapi.gssapi import get_gssapi
 from aiosmb.authentication.kerberos.gssapi import get_gssapi
-from aiosmb.commons.connection.proxy import SMBProxyType
 from minikerberos.protocol.structures import ChecksumFlags
 from minikerberos.protocol.encryption import Enctype, Key, _enctype_table
 from minikerberos.protocol.constants import MESSAGE_TYPE
 from minikerberos.aioclient import AIOKerberosClient
-from minikerberos.network.aioclientsockssocket import AIOKerberosClientSocksSocket
-from minikerberos.common.proxy import KerberosProxy
-
 from aiosmb import logger
 
 class SMBKerberos:
@@ -69,21 +65,7 @@ class SMBKerberos:
 
 	async def setup_kc(self):
 		try:
-			if self.target.proxy is None or isinstance(self.target.proxy, KerberosProxy) is True:
-				self.kc = AIOKerberosClient(self.ccred, self.target)
-
-
-			elif self.target.proxy.type in [SMBProxyType.MULTIPLEXOR, SMBProxyType.MULTIPLEXOR_SSL]:
-				from aiosmb.network.multiplexornetwork import MultiplexorProxyConnection
-				mpc = MultiplexorProxyConnection(self.target) 
-				socks_proxy, err = await mpc.connect(is_kerberos = True)
-				if err is not None:
-					raise err
-
-				self.kc = AIOKerberosClient(self.ccred, socks_proxy)
-
-			else:
-				raise Exception('Unknown proxy type %s' % self.target.proxy.type)
+			self.kc = AIOKerberosClient(self.ccred, self.target)
 
 			return None, None
 		except Exception as e:
