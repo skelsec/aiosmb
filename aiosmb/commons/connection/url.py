@@ -1,17 +1,20 @@
 import enum
 from urllib.parse import urlparse, parse_qs
 from aiosmb.commons.interfaces.file import SMBFile
-from aiosmb.commons.connection.credential import SMBCredential, SMBCredentialsSecretType, SMBAuthProtocol
 from aiosmb.commons.connection.target import SMBTarget, SMBConnectionDialect
 from asysocks.unicomm.common.target import UniTarget, UniProto
 from asysocks.unicomm.common.proxy import UniProxyTarget
-from aiosmb.commons.connection.authbuilder import AuthenticatorBuilder
 from aiosmb.connection import SMBConnection
 from getpass import getpass
 import base64
 import ipaddress
 import copy
 
+from uniauth.common.credentials import UniCredential
+from uniauth.common.credentials.ntlm import NTLMCredential
+from uniauth.common.credentials.kerberos import KerberosCredential
+from uniauth.common.credentials.spnego import SPNEGOCredential
+from uniauth.common.constants import UniAuthProtocol, UniAuthSecret, UniAuthSubProtocol
 
 smburlconnection_param2var = {
 	'TCP' : UniProto.CLIENT_TCP,
@@ -20,12 +23,13 @@ smburlconnection_param2var = {
 }
 
 class SMBConnectionURL:
-	def __init__(self, connection_url, credential:SMBCredential = None, target:SMBTarget = None):
+	def __init__(self, connection_url, credential:UniCredential = None, target:SMBTarget = None):
 		self.connection_url = connection_url
 		self.credential = credential
 		self.target = target
 
 		#credential
+		self.authentication_subprotocol = UniAuthSubProtocol.NATIVE
 		self.authentication_protocol = None
 		self.secret_type = None
 		self.domain = None
@@ -35,6 +39,7 @@ class SMBConnectionURL:
 		self.altname = None
 		self.altdomain = None
 		self.auth_settings = {}
+		self.etypes = [23,17,18]
 
 		#target
 		self.dialect = None
@@ -50,7 +55,7 @@ class SMBConnectionURL:
 		self.compression = False
 
 		#proxy
-		self.proxy= None
+		self.proxies= None
 
 		if self.connection_url is not None:
 			self.parse()
@@ -58,7 +63,7 @@ class SMBConnectionURL:
 	def get_connection(self):
 		credential = self.get_credential()
 		target = self.get_target()
-		spneg = AuthenticatorBuilder.to_spnego_cred(credential, target)
+		spneg = SPNEGOCredential([credential]).build_context()
 		
 		return SMBConnection(spneg, target)
 
@@ -75,17 +80,17 @@ class SMBConnectionURL:
 			target.hostname = ip_or_hostname
 			target.ip = ip_or_hostname
 
-		spneg = AuthenticatorBuilder.to_spnego_cred(credential, target)
+		spneg = credential.build_context()
 		
 		return SMBConnection(spneg, target)
 
 	def get_file(self):
 		return SMBFile.from_smburl(self)
 
-	def get_proxy(self):
+	def get_proxies(self):
 		if self.target is not None:
-			return copy.deepcopy(self.target.proxy)
-		return self.proxy
+			return copy.deepcopy(self.target.proxies)
+		return self.proxies
 
 	def get_target(self):
 		if self.target is not None:
@@ -105,7 +110,7 @@ class SMBConnectionURL:
 			timeout = self.timeout, 
 			dc_ip= self.dc_ip, 
 			domain = self.domain, 
-			proxies = self.get_proxy(),
+			proxies = self.get_proxies(),
 			protocol=self.protocol,
 		)
 		t.update_dialect(self.dialect)
@@ -132,17 +137,28 @@ class SMBConnectionURL:
 	def get_credential(self):
 		if self.credential is not None:
 			return copy.deepcopy(self.credential)
-		return SMBCredential(
-			username = self.username,
-			domain = self.domain, 
-			secret = self.secret, 
-			secret_type = self.secret_type, 
-			authentication_type = self.authentication_protocol, 
-			settings = self.auth_settings,
-			target = self.ip,
-			altname = self.altname,
-			altdomain = self.altdomain
-		)
+		
+		if self.authentication_protocol == UniAuthProtocol.NTLM:
+			t = NTLMCredential(
+				self.secret, 
+				self.username, 
+				self.domain, 
+				self.secret_type,
+				subprotocol = self.authentication_subprotocol
+			)
+		elif self.authentication_protocol == UniAuthProtocol.KERBEROS:
+			t = KerberosCredential(
+				self.secret,
+				self.username,
+				self.domain,
+				self.secret_type,
+				altname = self.altname,
+				altdomain = self.altdomain,
+				etypes = self.etypes,
+				subprotocol = self.authentication_subprotocol,
+				target = UniTarget(self.dc_ip, port=88, protocol=UniProto.CLIENT_TCP, proxies=self.get_proxies())
+			)
+		return t
 	
 	def __str__(self):
 		t = '==== SMBConnectionURL ====\r\n'
@@ -171,49 +187,35 @@ class SMBConnectionURL:
 			self.protocol = UniProto.CLIENT_TCP
 
 		if len(schemes) == 1:
-			self.authentication_protocol = SMBAuthProtocol.NTLM
-			self.secret_type = SMBCredentialsSecretType.NONE
+			self.authentication_protocol = UniAuthProtocol.NTLM
+			self.secret_type = UniAuthSecret.NONE
 			return
 
 		auth_tags = schemes[1].replace('-','_')
 		try:
-			self.authentication_protocol = SMBAuthProtocol(auth_tags)
+			self.authentication_protocol = UniAuthProtocol(auth_tags)
 		except:
 			auth_tags = schemes[1].split('-')
 			#print(auth_tags)
 			if len(auth_tags) > 1:
-				if auth_tags[0] == 'MULTIPLEXOR':
-					if auth_tags[1] == 'SSL':
-						if len(auth_tags) == 2:
-							self.authentication_protocol = SMBAuthProtocol.MULTIPLEXOR_SSL_NTLM
-						else:
-							if auth_tags[2] == 'NTLM':
-								self.authentication_protocol = SMBAuthProtocol.MULTIPLEXOR_SSL_NTLM
-							elif auth_tags[2] == 'KERBEROS':
-								self.authentication_protocol = SMBAuthProtocol.MULTIPLEXOR_SSL_KERBEROS
-					else:
-						if auth_tags[1] == 'NTLM':
-							self.authentication_protocol = SMBAuthProtocol.MULTIPLEXOR_NTLM
-						elif auth_tags[1] == 'KERBEROS':
-							self.authentication_protocol = SMBAuthProtocol.MULTIPLEXOR_KERBEROS
-				elif auth_tags[0] == 'SSPI':
-					if auth_tags[1] == 'NTLM':
-						self.authentication_protocol = SMBAuthProtocol.SSPI_NTLM
-					elif auth_tags[1] == 'KERBEROS':
-						self.authentication_protocol = SMBAuthProtocol.SSPI_KERBEROS
-				else:
-					self.authentication_protocol = SMBAuthProtocol(auth_tags[0])
-					self.secret_type = SMBCredentialsSecretType(auth_tags[1])
-			else:
-				if auth_tags[0] == 'MULTIPLEXOR':
-					self.authentication_protocol = SMBAuthProtocol.MULTIPLEXOR_NTLM
-				elif auth_tags[0] == 'MULTIPLEXOR_SSL':
-					self.authentication_protocol = SMBAuthProtocol.MULTIPLEXOR_SSL_NTLM
 				if auth_tags[0] == 'SSPI':
-					self.authentication_protocol = SMBAuthProtocol.SSPI_NTLM
+					if auth_tags[1] == 'NTLM':
+						self.authentication_protocol = UniAuthProtocol.NTLM
+						self.authentication_subprotocol = UniAuthSubProtocol.SSPI
+						
+					elif auth_tags[1] == 'KERBEROS':
+						self.authentication_protocol = UniAuthProtocol.KERBEROS
+						self.authentication_subprotocol = UniAuthSubProtocol.SSPI
 				else:
-					self.authentication_protocol = SMBAuthProtocol(auth_tags[0])
-				if self.authentication_protocol == SMBAuthProtocol.KERBEROS:
+					self.authentication_protocol = UniAuthProtocol(auth_tags[0])
+					self.secret_type = UniAuthSecret(auth_tags[1])
+			else:
+				if auth_tags[0] == 'SSPI':
+					self.authentication_protocol = UniAuthProtocol.NTLM
+					self.authentication_subprotocol = UniAuthSubProtocol.SSPI
+				else:
+					self.authentication_protocol = UniAuthProtocol(auth_tags[0])
+				if self.authentication_protocol == UniAuthProtocol.KERBEROS:
 					raise Exception('For kerberos auth you need to specify the secret type in the connection string!')
 
 
@@ -232,35 +234,34 @@ class SMBConnectionURL:
 		
 		self.secret = url_e.password
 		
-		if self.secret_type == SMBCredentialsSecretType.PWPROMPT:
-			self.secret_type = SMBCredentialsSecretType.PASSWORD
+		if self.secret_type == UniAuthSecret.PWPROMPT:
+			self.secret_type = UniAuthSecret.PASSWORD
 			self.secret = getpass()
 
-		if self.secret_type == SMBCredentialsSecretType.PWHEX:
-			self.secret_type = SMBCredentialsSecretType.PASSWORD
+		if self.secret_type == UniAuthSecret.PWHEX:
+			self.secret_type = UniAuthSecret.PASSWORD
 			self.secret = bytes.fromhex(self.secret).decode()
 		
-		if self.secret_type == SMBCredentialsSecretType.PWB64:
-			self.secret_type = SMBCredentialsSecretType.PASSWORD
+		if self.secret_type == UniAuthSecret.PWB64:
+			self.secret_type = UniAuthSecret.PASSWORD
 			self.secret = base64.b64decode(self.secret).decode()
 		
 		if self.secret is None and self.username is None:
 			self.is_anonymous = True
 		
-		if self.authentication_protocol == SMBAuthProtocol.NTLM and self.secret_type is None:
+		if self.authentication_protocol == UniAuthProtocol.NTLM and self.secret_type is None:
 			if self.is_anonymous == True:
-				self.secret_type = SMBCredentialsSecretType.NONE
+				self.secret_type = UniAuthSecret.NONE
 			else:
 				if len(self.secret) == 32:
 					try:
 						bytes.fromhex(self.secret)
 					except:
-						self.secret_type = SMBCredentialsSecretType.NT
+						self.secret_type = UniAuthSecret.NT
 					else:
-						self.secret_type = SMBCredentialsSecretType.PASSWORD
+						self.secret_type = UniAuthSecret.PASSWORD
 
-		elif self.authentication_protocol in [SMBAuthProtocol.SSPI_KERBEROS, SMBAuthProtocol.SSPI_NTLM, 
-												SMBAuthProtocol.MULTIPLEXOR_NTLM, SMBAuthProtocol.MULTIPLEXOR_KERBEROS]:
+		elif self.authentication_subprotocol == UniAuthSubProtocol.SSPI:
 			if self.username is None:
 				self.username = '<CURRENT>'
 			if self.domain is None:
@@ -318,7 +319,7 @@ class SMBConnectionURL:
 					self.auth_settings[k[len('same'):]] = query[k]
 		
 		if proxy_present is True:
-			self.proxy = UniProxyTarget.from_url_params(self.connection_url, endpoint_port= self.port)
+			self.proxies = UniProxyTarget.from_url_params(self.connection_url, endpoint_port= self.port)
 			
 if __name__ == '__main__':
 	from aiosmb.commons.interfaces.file import SMBFile

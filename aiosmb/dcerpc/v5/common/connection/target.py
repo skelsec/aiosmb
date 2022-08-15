@@ -52,6 +52,9 @@ class DCERPCTarget(UniTarget):
 		else:
 			raise Exception('Unknown string binding type %s' % type(s))
 		
+		if domain is None and smb_connection is not None:
+			domain = smb_connection.target.domain
+
 		na = connection_string.get_network_address()
 		ps = connection_string.get_protocol_sequence()
 		if ps == 'ncadg_ip_udp':

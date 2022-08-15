@@ -6,7 +6,6 @@ import traceback
 import datetime
 
 from aiosmb import logger
-from aiosmb.authentication.spnego.native import SPNEGO
 from aiosmb.commons.exceptions import *
 from aiosmb.transport.netbios import NetBIOSPacketizer
 from aiosmb.protocol.smb.command_codes import SMBCommand
@@ -141,7 +140,7 @@ class SMBConnection:
 	"""
 	Connection class for network connectivity and SMB messages management (sending/recieveing/singing/encrypting).
 	"""
-	def __init__(self, gssapi:SPNEGO, target:SMBTarget, preserve_gssapi:bool = True, nosign:bool = False):
+	def __init__(self, gssapi, target:SMBTarget, preserve_gssapi:bool = True, nosign:bool = False):
 		self.nosign = nosign
 		self.gssapi = gssapi
 		self.original_gssapi = None
@@ -669,7 +668,7 @@ class SMBConnection:
 			while status == NTStatus.MORE_PROCESSING_REQUIRED and maxiter > 0:
 				command = SESSION_SETUP_REQ()
 				try:
-					command.Buffer, res, err  = await self.gssapi.authenticate(authdata)
+					command.Buffer, res, err  = await self.gssapi.authenticate(authdata, spn=self.target.to_target_string())
 					if err is not None:
 						raise err
 					if fake_auth == True:
@@ -715,10 +714,9 @@ class SMBConnection:
 				maxiter -= 1
 			
 			if rply.header.Status == NTStatus.SUCCESS:
-				command.Buffer, res, err  = await self.gssapi.authenticate(authdata)
+				command.Buffer, res, err  = await self.gssapi.authenticate(authdata, spn=self.target.to_target_string())
 				if err is not None:
 					raise err
-
 
 				if self.gssapi.is_guest() is True:
 					self.signing_required = False

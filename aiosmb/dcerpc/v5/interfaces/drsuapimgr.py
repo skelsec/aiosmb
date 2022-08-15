@@ -108,6 +108,8 @@ class DRSUAPIRPC:
 		"""
 		epm = None
 		try:
+			if domain is None:
+				domain = connection.target.domain
 			if auth_level is None:
 				#for SMB connection no extra auth needed
 				auth_level = RPC_C_AUTHN_LEVEL_PKT_PRIVACY

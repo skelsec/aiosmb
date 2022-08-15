@@ -128,8 +128,8 @@ class DCERPC5Connection:
 				if self.auth_type == RPC_C_AUTHN_WINNT:
 					
 					#seal flag MUST be turned on in the handshake flags!!!!!!!
-					#it is "signaled via the is_rpc variable"
-					auth, res, err = await self.gssapi.ntlm.authenticate(None, is_rpc = True)
+					#it is "signaled via the is_rpc variable"0
+					auth, res, err = await self.gssapi.ntlm.authenticate(None, spn=self.target.to_target_string())
 					if err is not None:
 						return None, err
 
@@ -145,8 +145,8 @@ class DCERPC5Connection:
 								GSSAPIFlags.GSS_C_REPLAY_FLAG | \
 								GSSAPIFlags.GSS_C_MUTUAL_FLAG | \
 								GSSAPIFlags.GSS_C_DCE_STYLE,
-						seq_number = 0, 
-						is_rpc = True
+						#seq_number = 0, 
+						spn=self.target.to_target_string()
 					)
 					if err is not None:
 						return None, err
@@ -215,29 +215,28 @@ class DCERPC5Connection:
 
 			if self.auth_level != RPC_C_AUTHN_LEVEL_NONE:
 				if self.auth_type == RPC_C_AUTHN_WINNT:
-					response, res, err = await self.gssapi.ntlm.authenticate(bindResp['auth_data'], is_rpc = True)
+					response, res, err = await self.gssapi.ntlm.authenticate(bindResp['auth_data'], spn=self.target.to_target_string())
 					if err is not None:
 						return None, err
 					
 					self.__sessionKey = self.gssapi.ntlm.get_session_key()
-					
 
 				elif self.auth_type == RPC_C_AUTHN_NETLOGON:
 					response = None
 				elif self.auth_type == RPC_C_AUTHN_GSS_NEGOTIATE:
 					response, res, err  = await self.gssapi.gssapi.authenticate(
-						bindResp['auth_data'], 
-						is_rpc = True, 
+						bindResp['auth_data'],
 						flags = GSSAPIFlags.GSS_C_CONF_FLAG |\
 							GSSAPIFlags.GSS_C_INTEG_FLAG | \
 							GSSAPIFlags.GSS_C_SEQUENCE_FLAG | \
 							GSSAPIFlags.GSS_C_REPLAY_FLAG | \
 							GSSAPIFlags.GSS_C_MUTUAL_FLAG | \
-							GSSAPIFlags.GSS_C_DCE_STYLE
+							GSSAPIFlags.GSS_C_DCE_STYLE,
+						spn=self.target.to_target_string()
 					)
 					if err is not None:
 						return None, err
-																								
+					
 					self.__sessionKey = self.gssapi.gssapi.get_session_key()
 
 				self.__sequence = 0
@@ -332,8 +331,10 @@ class DCERPC5Connection:
 				raise err
 			
 			answer, err = await self.recv()
+			print('answer %s' % answer)
 			if err is not None:
 				raise err
+			
 			
 			__import__(request.__module__)
 			module = sys.modules[request.__module__]
@@ -518,9 +519,9 @@ class DCERPC5Connection:
 							#self.__sequence += 1
 						elif self.auth_type == RPC_C_AUTHN_GSS_NEGOTIATE:
 							if self.__sequence > 0:
-								answer, cfounder = await self.gssapi.gssapi.decrypt(answer, self.__sequence, direction='init', auth_data=auth_data)
-																		
-
+								print('enc ans %s' % answer)
+								answer, cfounder = await self.gssapi.gssapi.decrypt(answer, self.__sequence, direction='init', auth_data=auth_data)					
+								print('answer %s' % answer)
 					elif sec_trailer['auth_level'] == RPC_C_AUTHN_LEVEL_PKT_INTEGRITY:
 						if self.auth_type == RPC_C_AUTHN_WINNT:
 							ntlmssp = auth_data[12:]
@@ -567,6 +568,7 @@ class DCERPC5Connection:
 			
 			return retAnswer, None
 		except Exception as e:
+			print('EEEERORORORORORO')
 			return None, e
 
 	
@@ -665,6 +667,9 @@ class DCERPC5Connection:
 						#sealedMessage, signature = nrpc.SEAL(plain_data, self.__confounder, self.__sequence, self.__sessionKey, False)
 					elif self.auth_type == RPC_C_AUTHN_GSS_NEGOTIATE:
 						sealedMessage, signature = await self.gssapi.gssapi.encrypt(plain_data, self.__sequence)
+						
+						print('sealedMessage %s' % sealedMessage)
+						print('signature     %s' % signature.hex())
 
 					rpc_packet['pduData'] = sealedMessage
 
@@ -698,6 +703,7 @@ class DCERPC5Connection:
 
 				self.__sequence += 1
 
+			print('FULL PACKET: %s' % rpc_packet.get_packet())
 			_, err = await self.transport.send(rpc_packet.get_packet(), forceWriteAndx = forceWriteAndx, forceRecv = forceRecv)
 			if err is not None:
 				raise err

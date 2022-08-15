@@ -58,16 +58,16 @@ class SMBFile:
 		return SMBFile.from_uncpath(unc)
 	
 	@staticmethod
-	def from_smburl(smburl):
+	def from_smbtarget(target):
 		"""
 		Creates SMBFile object from the SMBUrl object
 		"""
-		if smburl.path is None:
+		if target.path is None:
 			return None
 		
-		fpath = smburl.path.replace('/','\\')
+		fpath = target.path.replace('/','\\')
 		temp = '\\\\%s%s'
-		unc = temp % (smburl.get_target().get_hostname_or_ip(), fpath)
+		unc = temp % (target.get_hostname_or_ip(), fpath)
 		return SMBFile.from_uncpath(unc)
 
 	@staticmethod

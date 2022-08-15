@@ -10,7 +10,8 @@ from aiosmb.examples.smbpathcompleter import SMBPathCompleter
 
 from aiosmb import logger
 from aiosmb._version import __banner__
-from aiosmb.commons.connection.url import SMBConnectionURL
+#from aiosmb.commons.connection.url import SMBConnectionURL
+from aiosmb.commons.connection.factory import SMBConnectionFactory
 from aiosmb.commons.interfaces.machine import SMBMachine
 from aiosmb.commons.interfaces.share import SMBShare
 from aiosmb.commons.utils.decorators import rr, rr_gen, red, red_gen, ef_gen
@@ -36,7 +37,7 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 		aiocmd.PromptToolkitCmd.__init__(self, ignore_sigint=False) #Setting this to false, since True doesnt work on windows...
 		self.conn_url = None
 		if url is not None:
-			self.conn_url = SMBConnectionURL(url)
+			self.conn_url = SMBConnectionFactory.from_url(url)
 		self.connection = None
 		self.machine = None
 		self.is_anon = False
