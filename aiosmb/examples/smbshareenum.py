@@ -379,7 +379,6 @@ class SMBFileEnum:
 async def amain():
 	import argparse
 	import sys
-	from aiosmb.commons.connection.params import SMBConnectionParams
 
 	epilog = """
 Output legend:
@@ -392,7 +391,6 @@ Output legend:
 """
 
 	parser = argparse.ArgumentParser(description='SMB Share enumerator', formatter_class=argparse.RawDescriptionHelpFormatter, epilog=epilog)
-	SMBConnectionParams.extend_parser(parser)
 	parser.add_argument('-v', '--verbose', action='count', default=0)
 	parser.add_argument('--depth', type=int, default=3, help='Recursion depth, -1 means infinite')
 	parser.add_argument('-w', '--smb-worker-count', type=int, default=100, help='Parallell count')
@@ -428,15 +426,7 @@ Output legend:
 	if args.tsv is True:
 		output_type = 'tsv'
 
-	smb_url = None
-	if args.url is not None:
-		smb_url = args.url
-	else:
-		try:
-			smb_url = SMBConnectionParams.parse_args(args)
-		except Exception as e:
-			print('Either URL or all connection parameters must be set! Error: %s' % str(e))
-			sys.exit(1)
+	smb_url = args.url
 
 	exclude_share = []
 	if args.es is not None:

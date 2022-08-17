@@ -40,10 +40,9 @@ setup(
 	python_requires='>=3.7',
 	install_requires=[
 		'unicrypto>=0.0.5',
+		'uniauth>=0.0.1',
 		'asysocks>=0.2.0',
 		'minikerberos>=0.3.0',
-		'uniauth>=0.0.1',
-		'winsspi>=0.0.10',
 		'prompt-toolkit>=3.0.2',
 		'winacl>=0.1.1',
 		'six',
