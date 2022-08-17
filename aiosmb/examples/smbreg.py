@@ -3,7 +3,7 @@ import asyncio
 
 from aiosmb import logger
 from aiosmb.commons.connection.params import SMBConnectionParams
-from aiosmb.commons.connection.url import SMBConnectionURL
+from aiosmb.commons.connection.factory import SMBConnectionFactory
 from aiosmb.commons.interfaces.machine import SMBMachine
 from aiosmb.dcerpc.v5.common.service import SMBServiceStatus
 from aiosmb.external.aiocmd.aiocmd import aiocmd
@@ -55,7 +55,7 @@ async def amain():
 		c = SMBREG_COMMAND(c.upper())
 		commands.append((c, path))
 
-	connection = SMBConnectionURL(smb_url).get_connection()
+	connection = SMBConnectionFactory.from_url(smb_url).get_connection()
 	_, err = await connection.login()
 	if err is not None:
 		print('Login failed! Reason: %s' % str(err))

@@ -331,7 +331,6 @@ class DCERPC5Connection:
 				raise err
 			
 			answer, err = await self.recv()
-			print('answer %s' % answer)
 			if err is not None:
 				raise err
 			
@@ -519,9 +518,7 @@ class DCERPC5Connection:
 							#self.__sequence += 1
 						elif self.auth_type == RPC_C_AUTHN_GSS_NEGOTIATE:
 							if self.__sequence > 0:
-								print('enc ans %s' % answer)
-								answer, cfounder = await self.gssapi.gssapi.decrypt(answer, self.__sequence, direction='init', auth_data=auth_data)					
-								print('answer %s' % answer)
+								answer, cfounder = await self.gssapi.gssapi.decrypt(answer, self.__sequence, direction='init', auth_data=auth_data)
 					elif sec_trailer['auth_level'] == RPC_C_AUTHN_LEVEL_PKT_INTEGRITY:
 						if self.auth_type == RPC_C_AUTHN_WINNT:
 							ntlmssp = auth_data[12:]
@@ -568,7 +565,6 @@ class DCERPC5Connection:
 			
 			return retAnswer, None
 		except Exception as e:
-			print('EEEERORORORORORO')
 			return None, e
 
 	
@@ -667,10 +663,6 @@ class DCERPC5Connection:
 						#sealedMessage, signature = nrpc.SEAL(plain_data, self.__confounder, self.__sequence, self.__sessionKey, False)
 					elif self.auth_type == RPC_C_AUTHN_GSS_NEGOTIATE:
 						sealedMessage, signature = await self.gssapi.gssapi.encrypt(plain_data, self.__sequence)
-						
-						print('sealedMessage %s' % sealedMessage)
-						print('signature     %s' % signature.hex())
-
 					rpc_packet['pduData'] = sealedMessage
 
 				elif self.auth_level == RPC_C_AUTHN_LEVEL_PKT_INTEGRITY: 
@@ -703,7 +695,6 @@ class DCERPC5Connection:
 
 				self.__sequence += 1
 
-			print('FULL PACKET: %s' % rpc_packet.get_packet())
 			_, err = await self.transport.send(rpc_packet.get_packet(), forceWriteAndx = forceWriteAndx, forceRecv = forceRecv)
 			if err is not None:
 				raise err

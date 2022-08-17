@@ -1,26 +1,20 @@
 
 import asyncio
-import enum
+import os
 import uuid
 import logging
 import json
-import ipaddress
 
 from aiosmb import logger
 from aiosmb.examples.scancommons.targetgens import *
 from aiosmb.examples.scancommons.internal import *
 from aiosmb.examples.scancommons.utils import *
-from aiosmb.commons.connection.url import SMBConnectionURL
+from aiosmb.commons.connection.factory import SMBConnectionFactory
 from aiosmb.commons.interfaces.machine import SMBMachine
 from aiosmb.commons.utils.univeraljson import UniversalEncoder
-
-
 from tqdm import tqdm
 
-
-
-
-ENUMRESFINAL_TSV_HDR = ['target', 'target_id', 'interface', 'err']
+ENUMRESFINAL_TSV_HDR = ['target', 'target_id', 'result', 'err']
 class EnumResultFinal:
 	def __init__(self, obj, otype, err, target, target_id):
 		self.obj = obj
@@ -29,18 +23,17 @@ class EnumResultFinal:
 		self.target = target
 		self.target_id = target_id
 
-		self.interface = None
+		self.result = None
 
-		if self.otype == 'interface':
-			self.interface = self.obj['address']
-
+		if self.otype == 'result':
+			self.result = self.obj
 
 	def __str__(self):
 		if self.err is not None:
-			return '[E] %s | %s' % (self.unc_path, self.err)
+			return '[E] %s | %s | %s' % (self.target, self.target_id, self.err)
 
-		elif self.otype == 'interface':
-			return '[I] %s | %s | %s ' % (self.target, self.target_id, self.interface)
+		elif self.otype == 'result':
+			return '[R] %s | %s | %s' % (self.target, self.target_id, self.result)
 
 		elif self.otype == 'progress':
 			return '[P][%s/%s][%s] %s' % (self.obj.total_targets, self.obj.total_finished, str(self.obj.gens_finished), self.obj.current_finished)
@@ -52,7 +45,7 @@ class EnumResultFinal:
 		return {
 			'target' : self.target,
 			'target_id' : self.target_id,
-			'interface' : self.interface,
+			'result' : self.result,
 			'otype' : self.otype,
 			'err' : self.err,
 		}
@@ -69,12 +62,12 @@ class EnumResultFinal:
 		return '\t'.join(data)
 
 
-class SMBInterfaceEnum:
-	def __init__(self, smb_url, worker_count = 10, enum_url = False, out_file = None, show_pbar = True, max_items = None, max_runtime = None, task_q = None, res_q = None, output_type = 'str', ext_result_q = None):
+class SMBPrintnightmareEnum:
+	def __init__(self, smb_url:SMBConnectionFactory, worker_count = 10, enum_url = False, out_file = None, show_pbar = True, max_runtime = None, task_q = None, res_q = None, output_type = 'str', ext_result_q = None):
 		self.target_gens = []
 		self.smb_mgr = smb_url
 		if isinstance(smb_url, str):
-			self.smb_mgr = SMBConnectionURL(smb_url)
+			self.smb_mgr = SMBConnectionFactory.from_url(smb_url)
 		self.worker_count = worker_count
 		self.task_q = task_q
 		self.res_q = res_q
@@ -83,7 +76,6 @@ class SMBInterfaceEnum:
 		self.enum_url = enum_url
 		self.out_file = out_file
 		self.show_pbar = show_pbar
-		self.max_items = max_items
 		self.max_runtime = max_runtime
 		self.output_type = output_type
 		self.ext_result_q = ext_result_q
@@ -105,13 +97,22 @@ class SMBInterfaceEnum:
 				if err is not None:
 					raise err
 
-				machine = SMBMachine(connection)
-				ifs, err = await machine.list_interfaces()
-				if err is not None:
-					raise err
-				for iface in ifs:
-					er = EnumResult(tid, target, iface)
-					await self.res_q.put(er)
+				nonexistentpath = "C:\\doesntexist\\%s.dll" % os.urandom(4).hex()
+				async with SMBMachine(connection) as machine:
+					_, err = await asyncio.wait_for(machine.printnightmare(nonexistentpath, None, silent=True), 10)
+					if err is not None:
+						er = EnumResult(tid, target, 'OK')
+						if str(err).find('ERROR_PATH_NOT_FOUND') != -1:
+							er = EnumResult(tid, target, 'VULN')
+						await self.res_q.put(er)
+
+					_, err = await asyncio.wait_for(machine.par_printnightmare(nonexistentpath, None, silent=True), 10)
+					if err is not None:
+						er = EnumResult(tid, target, 'OK')
+						if str(err).find('ERROR_PATH_NOT_FOUND') != -1:
+							er = EnumResult(tid, target, 'VULN')
+						await self.res_q.put(er)
+					
 
 		except asyncio.CancelledError:
 			return
@@ -151,7 +152,7 @@ class SMBInterfaceEnum:
 			if self.show_pbar is True:
 				pbar = {}
 				pbar['targets']    = tqdm(desc='Targets     ', unit='', position=0)
-				pbar['ifaces']     = tqdm(desc='Interfaces  ', unit='', position=1)
+				pbar['vulnerable'] = tqdm(desc='Vulnerable  ', unit='', position=1)
 				pbar['connerrors'] = tqdm(desc='Conn Errors ', unit='', position=2)
 
 			out_buffer = []
@@ -225,12 +226,12 @@ class SMBInterfaceEnum:
 							
 					if er.result is not None:
 						if self.ext_result_q is not None:
-							await self.ext_result_q.put(EnumResultFinal(er.result, 'interface', None, er.target, er.target_id))
-						out_buffer.append(EnumResultFinal(er.result, 'interface', None, er.target, er.target_id))
+							await self.ext_result_q.put(EnumResultFinal(er.result, 'result', None, er.target, er.target_id))
+						out_buffer.append(EnumResultFinal(er.result, 'result', None, er.target, er.target_id))
 						self.__total_sessions += 1
 							
-						if self.show_pbar is True:
-							pbar['ifaces'].update(1)
+						if self.show_pbar is True and er.result.startswith('VULN') is True:
+							pbar['vulnerable'].update(1)
 					
 					if er.status == EnumResultStatus.ERROR:
 						self.__total_errors += 1
@@ -313,12 +314,15 @@ async def amain():
 
 	epilog = """
 Output legend:
-    [I] Interface
+    [S] Share
+    [D] Dictionary
+    [F] File
     [E] Error
+    [M] Maxed (max items limit reached for directory)
     [P] Progress (current/total)
 """
 
-	parser = argparse.ArgumentParser(description='SMB Interface enumerator', formatter_class=argparse.RawDescriptionHelpFormatter, epilog=epilog)
+	parser = argparse.ArgumentParser(description='SMB Printnightmare enumerator', formatter_class=argparse.RawDescriptionHelpFormatter, epilog=epilog)
 	SMBConnectionParams.extend_parser(parser)
 	parser.add_argument('-v', '--verbose', action='count', default=0)
 	parser.add_argument('-w', '--smb-worker-count', type=int, default=100, help='Parallell count')
@@ -358,7 +362,7 @@ Output legend:
 			sys.exit(1)
 	
 
-	enumerator = SMBInterfaceEnum(
+	enumerator = SMBPrintnightmareEnum(
 		smb_url,
 		worker_count = args.smb_worker_count,
 		out_file = args.out_file,

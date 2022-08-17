@@ -22,14 +22,13 @@ class SMBConnectionFactory:
 		return SMBConnectionFactory(credential, target)
 
 	def get_connection(self):
-		credential = self.get_credential()
+		spneg = self.get_credential()
 		target = self.get_target()
-		spneg = SPNEGOCredential([credential]).build_context()
 		
 		return SMBConnection(spneg, target)
 
 	def create_connection_newtarget(self, ip_or_hostname):
-		credential = self.get_credential()
+		spneg = self.get_credential()
 		#credential.target = ip_or_hostname
 		target = self.get_target()
 
@@ -40,8 +39,6 @@ class SMBConnectionFactory:
 		except:
 			target.hostname = ip_or_hostname
 			target.ip = ip_or_hostname
-
-		spneg = credential.build_context()
 		
 		return SMBConnection(spneg, target)
 
@@ -55,7 +52,7 @@ class SMBConnectionFactory:
 		return copy.deepcopy(self.target)
 
 	def get_credential(self):
-		return copy.deepcopy(self.credential)
+		return SPNEGOCredential([copy.deepcopy(self.credential)]).build_context() 
 	
 	def __str__(self):
 		t = '==== SMBConnectionFactory ====\r\n'

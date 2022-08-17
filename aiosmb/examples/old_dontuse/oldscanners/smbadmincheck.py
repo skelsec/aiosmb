@@ -11,7 +11,7 @@ from aiosmb.examples.scancommons.internal import *
 from aiosmb.examples.scancommons.utils import *
 from aiosmb.commons.utils.univeraljson import UniversalEncoder
 
-from aiosmb.commons.connection.url import SMBConnectionURL
+from aiosmb.commons.connection.factory import SMBConnectionFactory
 from aiosmb.commons.interfaces.machine import SMBMachine
 from aiosmb.commons.interfaces.share import SMBShare
 from aiosmb.dcerpc.v5.interfaces.remoteregistry import RRPRPC
@@ -99,7 +99,7 @@ class SMBAdminCheck:
 		self.target_gens = []
 		self.smb_mgr = smb_url
 		if isinstance(smb_url, str):
-			self.smb_mgr = SMBConnectionURL(smb_url)
+			self.smb_mgr = SMBConnectionFactory.from_url(smb_url)
 		self.worker_count = worker_count
 		self.task_q = None
 		self.res_q = None

@@ -1487,14 +1487,14 @@ async def ctest(cu):
 
 
 if __name__ == '__main__':
-	from aiosmb.commons.connection.url import SMBConnectionURL
+	from aiosmb.commons.connection.factory import SMBConnectionFactory
 
 	logger.setLevel(2)
 	url = 'smb+ntlm-password://TEST\\victim:Passw0rd!1@10.10.10.2'
 	#url = 'smb222+ntlm-password://TEST\\victim:Passw0rd!1@10.10.10.2'
 	#url = 'smb202+ntlm-password://work\\work:work@10.10.10.103'
 	#url = 'smb+ntlm-password://smbtest\\smbtest:smbtest@10.200.200.154'
-	cu = SMBConnectionURL(url)
+	cu = SMBConnectionFactory.from_url(url)
 	
 	asyncio.run(ctest(cu))
 	

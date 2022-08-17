@@ -10,11 +10,9 @@ from aiosmb.examples.smbpathcompleter import SMBPathCompleter
 
 from aiosmb import logger
 from aiosmb._version import __banner__
-#from aiosmb.commons.connection.url import SMBConnectionURL
 from aiosmb.commons.connection.factory import SMBConnectionFactory
 from aiosmb.commons.interfaces.machine import SMBMachine
 from aiosmb.commons.interfaces.share import SMBShare
-from aiosmb.commons.utils.decorators import rr, rr_gen, red, red_gen, ef_gen
 from aiosmb.commons.exceptions import SMBException, SMBMachineException
 from aiosmb.dcerpc.v5.rpcrt import DCERPCException
 
@@ -74,12 +72,9 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			if self.conn_url is None and url is None:
 				print('No url was set, cant do logon')
 			if url is not None:
-				self.conn_url = SMBConnectionURL(url)
+				self.conn_url = SMBConnectionFactory.from_url(url)
 
-			cred = self.conn_url.get_credential()
-			
-			if cred.secret is None and cred.username is None and cred.domain is None:
-				self.is_anon = True			
+			cred = self.conn_url.get_credential()				
 			
 			self.connection  = self.conn_url.get_connection()
 			
@@ -89,6 +84,7 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			_, err = await self.connection.login()
 			if err is not None:
 				raise err
+			self.is_anon = self.connection.gssapi.is_guest()
 			self.machine = SMBMachine(self.connection)
 			if self.silent is False:
 				print('Login success')

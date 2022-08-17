@@ -5,7 +5,7 @@ import logging
 
 from aiosmb import logger
 from aiosmb._version import __banner__
-from aiosmb.commons.connection.url import SMBConnectionURL
+from aiosmb.commons.connection.factory import SMBConnectionFactory
 from aiosmb.dcerpc.v5.interfaces.even6 import Even6RPC
 
 """
@@ -14,7 +14,7 @@ Query example:
 """
 
 async def amain(url, src = "Security", query = '*', max_entries = 100):
-	su = SMBConnectionURL(url)
+	su = SMBConnectionFactory.from_url(url)
 	conn = su.get_connection()
 
 	_, err = await conn.login()

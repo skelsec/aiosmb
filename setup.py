@@ -40,8 +40,9 @@ setup(
 	python_requires='>=3.7',
 	install_requires=[
 		'unicrypto>=0.0.5',
-		'asysocks>=0.1.7',
-		'minikerberos>=0.2.20',
+		'asysocks>=0.2.0',
+		'minikerberos>=0.3.0',
+		'uniauth>=0.0.1',
 		'winsspi>=0.0.10',
 		'prompt-toolkit>=3.0.2',
 		'winacl>=0.1.1',
@@ -61,11 +62,9 @@ setup(
 		'console_scripts': [
 			'asmbclient = aiosmb.examples.smbclient:main',
 			'asmbshareenum = aiosmb.examples.smbshareenum:main',
-			'asmbprotocolenum = aiosmb.examples.smbprotocolenum:main',
-			'asmbosenum = aiosmb.examples.smbosenum:main',
 			'asmbgetfile = aiosmb.examples.smbgetfile:main',
-			'asmbadmincheck = aiosmb.examples.smbadmincheck:main',
 			'asmbcertreq = aiosmb.examples.smbcertreq:main',
+			'asmbscanner = aiosmb.examples.scanners.__main__:main'
 		],
 
 	}

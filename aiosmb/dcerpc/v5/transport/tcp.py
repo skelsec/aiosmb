@@ -1,6 +1,6 @@
 import asyncio
 from asysocks.unicomm.client import UniClient
-from asysocks.unicomm.common.packetizers.base import Packetizer
+from asysocks.unicomm.common.packetizers import Packetizer
 from aiosmb.dcerpc.v5.rpcrt import MSRPCRespHeader
 
 class DCERPCPacketizer(Packetizer):
@@ -70,6 +70,11 @@ class DCERPCTCPTransport:
 	async def recv(self, x):
 		data = await self.packets.get()
 		return data, None
+		#try:
+		#	data = await self.connection.read_one()
+		#	return data, None
+		#except Exception as e:
+		#	return None, e
 
 	async def connect(self):
 		packetizer = DCERPCPacketizer()

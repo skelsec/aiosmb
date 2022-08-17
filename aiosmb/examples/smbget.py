@@ -6,7 +6,7 @@ import uuid
 import asyncio
 from pathlib import PureWindowsPath
 
-from aiosmb.commons.connection.url import SMBConnectionURL
+from aiosmb.commons.connection.factory import SMBConnectionFactory
 from aiosmb.commons.interfaces.file import SMBFile
 
 
@@ -49,7 +49,7 @@ class ListTargetGen:
 
 class SMBGET:
 	def __init__(self, smb_url, show_progress = False):
-		self.smb_mgr = SMBConnectionURL(smb_url)
+		self.smb_mgr = SMBConnectionFactory.from_url(smb_url)
 		self.target_gens = []
 		self.task_q = None
 		self.__total_targets = 0

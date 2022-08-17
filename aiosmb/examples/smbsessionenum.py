@@ -10,7 +10,7 @@ from aiosmb import logger
 from aiosmb.examples.scancommons.targetgens import *
 from aiosmb.examples.scancommons.internal import *
 from aiosmb.examples.scancommons.utils import *
-from aiosmb.commons.connection.url import SMBConnectionURL
+from aiosmb.commons.connection.factory import SMBConnectionFactory
 from aiosmb.commons.interfaces.machine import SMBMachine
 from aiosmb.commons.utils.univeraljson import UniversalEncoder
 
@@ -73,11 +73,11 @@ class EnumResultFinal:
 
 
 class SMBSessionEnum:
-	def __init__(self, smb_url:SMBConnectionURL, worker_count = 10, enum_url = False, out_file = None, show_pbar = True, max_runtime = None, task_q = None, res_q = None, output_type = 'str', ext_result_q = None):
+	def __init__(self, smb_url:SMBConnectionFactory, worker_count = 10, enum_url = False, out_file = None, show_pbar = True, max_runtime = None, task_q = None, res_q = None, output_type = 'str', ext_result_q = None):
 		self.target_gens = []
 		self.smb_mgr = smb_url
 		if isinstance(smb_url, str):
-			self.smb_mgr = SMBConnectionURL(smb_url)
+			self.smb_mgr = SMBConnectionFactory.from_url(smb_url)
 		self.worker_count = worker_count
 		self.task_q = task_q
 		self.res_q = res_q

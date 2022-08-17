@@ -531,12 +531,12 @@ async def ConnectRegistryTest(rs):
 		print(value_data)
 
 async def amain():
-	from aiosmb.commons.connection.url import SMBConnectionURL
+	from aiosmb.commons.connection.factory import SMBConnectionFactory
 	from aiosmb.connection import SMBConnection
 	import traceback
 
 	url = 'smb2+ntlm-password://TEST\\Administrator:Passw0rd!1@10.10.10.2'
-	su = SMBConnectionURL(url)
+	su = SMBConnectionFactory.from_url(url)
 	conn = su.get_connection()
 
 	_, err = await conn.login()

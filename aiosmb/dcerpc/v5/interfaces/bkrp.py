@@ -73,10 +73,10 @@ class SMBBKRP:
 async def amain(url):
 	import traceback
 	import hashlib
-	from aiosmb.commons.connection.url import SMBConnectionURL
+	from aiosmb.commons.connection.factory import SMBConnectionFactory
 	from aiosmb.commons.interfaces.machine import SMBMachine
 
-	url = SMBConnectionURL(url)
+	url = SMBConnectionFactory.from_url(url)
 	connection = url.get_connection()
 	_, err = await connection.login()
 	if err is not None:

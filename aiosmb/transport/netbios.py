@@ -1,5 +1,5 @@
 
-from asysocks.unicomm.common.packetizers.base import Packetizer
+from asysocks.unicomm.common.packetizers import Packetizer
 
 class NetBIOSPacketizer(Packetizer):
 	def __init__(self, buffer_size = 65535):
