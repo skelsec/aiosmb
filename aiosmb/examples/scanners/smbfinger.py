@@ -1,7 +1,7 @@
 
 from asysocks.unicomm.common.scanner.common import *
 from aiosmb.commons.connection.factory import SMBConnectionFactory
-from uniauth.protocols.ntlm.structures.serverinfo import NTLMSERVERINFO_TSV_HDR, NTLMServerInfo
+from asyauth.protocols.ntlm.structures.serverinfo import NTLMSERVERINFO_TSV_HDR, NTLMServerInfo
 
 class SMBFingerRes:
 	def __init__(self, res:NTLMServerInfo):

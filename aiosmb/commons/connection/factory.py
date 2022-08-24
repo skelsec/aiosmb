@@ -6,8 +6,8 @@ from getpass import getpass
 import ipaddress
 import copy
 
-from uniauth.common.credentials import UniCredential
-from uniauth.common.credentials.spnego import SPNEGOCredential
+from asyauth.common.credentials import UniCredential
+from asyauth.common.credentials.spnego import SPNEGOCredential
 
 class SMBConnectionFactory:
 	def __init__(self, credential:UniCredential = None, target:SMBTarget = None):

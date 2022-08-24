@@ -15,11 +15,13 @@ class DCERPCTargetType:
 
 
 class DCERPCTarget(UniTarget):
-	def __init__(self, connection_string:str, ip, port, protocol, rpcprotocol, proxies = None, timeout = 1, hostname = None, domain = None, dc_ip = None):
-		UniTarget.__init__(self, ip, port, protocol, timeout, hostname = hostname, proxies = proxies, domain = domain, dc_ip = dc_ip)
-		self.smb_connection = None #not all types have this
+	def __init__(self, connection_string:str, ip, port, protocol, rpcprotocol, proxies = None, timeout = 1, hostname = None, domain = None, dc_ip = None, smb_connection = None, pipe=None):
 		self.connection_string = connection_string
 		self.rpcprotocol = rpcprotocol
+		self.pipe = pipe
+		self.smb_connection = smb_connection #storing the smb connection if already exists...
+		UniTarget.__init__(self, ip, port, protocol, timeout, hostname = hostname, proxies = proxies, domain = domain, dc_ip = dc_ip)
+		
 
 	def get_hostname_or_ip(self):
 		if self.smb_connection is not None:
@@ -28,11 +30,14 @@ class DCERPCTarget(UniTarget):
 			return self.ip
 		return self.hostname
 	
+	#def to_target_string(self) -> str:
+	#	if self.hostname is None:
+	#		raise Exception('Hostname is None!')
+	#	if self.domain is None:
+	#		raise Exception('Domain is None!')
+	#	return 'cifs/%s@%s' % (self.hostname, self.domain)
+
 	def to_target_string(self) -> str:
-		if self.hostname is None:
-			raise Exception('Hostname is None!')
-		if self.domain is None:
-			raise Exception('Domain is None!')
 		return 'cifs/%s@%s' % (self.hostname, self.domain)
 
 	@staticmethod
@@ -144,10 +149,10 @@ class DCERPCSMBTarget(DCERPCTarget):
 			timeout = timeout, 
 			hostname = None, 
 			domain = smb_connection.target.domain, 
-			dc_ip = smb_connection.target.dc_ip
+			dc_ip = smb_connection.target.dc_ip,
+			smb_connection = smb_connection,
+			pipe = pipe
 		)
-		self.pipe = pipe
-		self.smb_connection = smb_connection #storing the smb connection if already exists...
 
 class DCERPCHTTPTarget(DCERPCTarget):
 	def __init__(self, connection_string, ip, port, timeout = 1, proxies = None, domain = None, dc_ip = None):

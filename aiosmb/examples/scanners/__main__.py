@@ -8,7 +8,7 @@ from aiosmb.examples.scanners.smbproto import SMBProtocolScanner
 from aiosmb.examples.scanners.smbadmin import SMBAdminScanner
 from aiosmb.examples.scanners.smbsession import SMBSessionScanner
 from aiosmb.examples.scanners.smbprintnightmare import SMBPrintnightmareScanner
-	
+from aiosmb.examples.scanners.smbfile import SMBFileScanner
 
 smbscan_options = {
 	'finger'    : (SMBFingerScanner, "SMB Finger grabs OS info. Only works with NTLM auth"),
@@ -17,6 +17,7 @@ smbscan_options = {
 	'admin'     : (SMBAdminScanner, "Checks if giver user is admin on the remote hosts"),
 	'session'   : (SMBSessionScanner, "Lists SMB sessions"),
 	'printnightmare': (SMBPrintnightmareScanner, "Checks hosts for printnightmare vulnerability"),
+	'file' : (SMBFileScanner, 'Enumerates files and shares')
 }
 
 async def amain():
@@ -65,9 +66,12 @@ Scanner types (-s param):
 				return
 			executors.append(smbscan_options[scantype][0](connectionfactory))
 			
+	timeout = args.timeout
+	if 'file' in scantypes:
+		timeout = None
 		
 	tgen = UniTargetGen.from_list(args.targets)
-	scanner = UniScanner('SMBFinger', executors, [tgen], worker_count=args.worker_count, host_timeout=args.timeout)
+	scanner = UniScanner('SMBScanner', executors, [tgen], worker_count=args.worker_count, host_timeout=timeout)
 	await scanner.scan_and_process(progress=args.no_progress, out_file=args.out_file, include_errors=args.errors)
 
 def main():
