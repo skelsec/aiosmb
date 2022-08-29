@@ -1,5 +1,5 @@
 
-from aiosmb.commons.connection.url import SMBConnectionURL
+from aiosmb.commons.connection.factory import SMBConnectionFactory
 from aiosmb.commons.connection.credential import SMBCredentialTypes
 
 SMB_CONNECTION_PARAM_MANDATORY = ['domain','user','password','auth_type', 'timeout', 'protocol']

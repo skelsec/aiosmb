@@ -10,7 +10,7 @@ import os
 
 from aiosmb import logger
 from aiosmb._version import __banner__
-from aiosmb.commons.connection.url import SMBConnectionURL
+from aiosmb.commons.connection.factory import SMBConnectionFactory
 from aiosmb.dcerpc.v5.interfaces.icprmgr import ICPRRPC
 from aiosmb.dcerpc.v5.connection import DCERPC5Connection
 from aiosmb.commons.connection.authbuilder import AuthenticatorBuilder
@@ -36,7 +36,7 @@ async def amain(url, service, template, altname, onbehalf, cn = None, pfx_file =
 			pfx_password = 'admin'
 		
 		print('[+] Parsing connection parameters...')
-		su = SMBConnectionURL(url)
+		su = SMBConnectionFactory.from_url(url)
 		ip = su.get_target().get_hostname_or_ip()
 
 		if cn is None:

@@ -3,14 +3,14 @@
 import asyncio
 
 from aiosmb.commons.scanner.common.comms import EnumResult, EnumResultStatus
-from aiosmb.commons.connection.url import SMBConnectionURL
+from aiosmb.commons.connection.factory import SMBConnectionFactory
 from aiosmb.commons.interfaces.machine import SMBMachine
 
 
 class SMBScanner:
 	def __init__(self, smb_url, worker_count = 100, depth = 3, enum_url = True):
 		self.target_gens = []
-		self.smb_mgr = SMBConnectionURL(smb_url)
+		self.smb_mgr = SMBConnectionFactory.from_url(smb_url)
 		self.worker_count = worker_count
 		self.task_q = None
 		self.res_q = None

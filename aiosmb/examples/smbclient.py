@@ -10,10 +10,9 @@ from aiosmb.examples.smbpathcompleter import SMBPathCompleter
 
 from aiosmb import logger
 from aiosmb._version import __banner__
-from aiosmb.commons.connection.url import SMBConnectionURL
+from aiosmb.commons.connection.factory import SMBConnectionFactory
 from aiosmb.commons.interfaces.machine import SMBMachine
 from aiosmb.commons.interfaces.share import SMBShare
-from aiosmb.commons.utils.decorators import rr, rr_gen, red, red_gen, ef_gen
 from aiosmb.commons.exceptions import SMBException, SMBMachineException
 from aiosmb.dcerpc.v5.rpcrt import DCERPCException
 
@@ -36,7 +35,7 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 		aiocmd.PromptToolkitCmd.__init__(self, ignore_sigint=False) #Setting this to false, since True doesnt work on windows...
 		self.conn_url = None
 		if url is not None:
-			self.conn_url = SMBConnectionURL(url)
+			self.conn_url = SMBConnectionFactory.from_url(url)
 		self.connection = None
 		self.machine = None
 		self.is_anon = False
@@ -52,14 +51,12 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			from aiosmb._version import __version__ as smbver
 			from asysocks._version import __version__ as socksver
 			from minikerberos._version import __version__ as kerbver
-			from winsspi._version import __version__ as winsspiver
 			from winacl._version import __version__ as winaclver
 
 			print(self.conn_url)
 			print('AIOSMB: %s' % smbver)
 			print('ASYSOCKS: %s' % socksver)
 			print('MINIKERBEROS: %s' % kerbver)
-			print('WINSSPI: %s' % winsspiver)
 			print('WINACL: %s' % winaclver)
 			return True, None
 		
@@ -73,12 +70,9 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			if self.conn_url is None and url is None:
 				print('No url was set, cant do logon')
 			if url is not None:
-				self.conn_url = SMBConnectionURL(url)
+				self.conn_url = SMBConnectionFactory.from_url(url)
 
-			cred = self.conn_url.get_credential()
-			
-			if cred.secret is None and cred.username is None and cred.domain is None:
-				self.is_anon = True			
+			cred = self.conn_url.get_credential()				
 			
 			self.connection  = self.conn_url.get_connection()
 			
@@ -88,6 +82,7 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			_, err = await self.connection.login()
 			if err is not None:
 				raise err
+			self.is_anon = self.connection.gssapi.is_guest()
 			self.machine = SMBMachine(self.connection)
 			if self.silent is False:
 				print('Login success')
@@ -766,10 +761,6 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			traceback.print_exc()
 			return None, e
 
-
-	
-
-
 	async def do_get(self, file_name):
 		"""Download a file from the remote share to the current folder"""
 		try:
@@ -795,6 +786,7 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 								break
 							outfile.write(data)
 							pbar.update(len(data))
+			
 			return True, None
 		except SMBException as e:
 			logger.debug(traceback.format_exc())

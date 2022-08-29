@@ -116,31 +116,30 @@ class READ_REPLY:
 
 	@staticmethod
 	def from_bytes(bbuff):
-		return READ_REPLY.from_buffer(io.BytesIO(bbuff))
+		#return READ_REPLY.from_buffer(io.BytesIO(bbuff))
 
-		#msg = READ_REPLY()
-		#msg.StructureSize   = int.from_bytes(bbuff[:2], byteorder='little')
-		#assert msg.StructureSize == 17
-		#msg.DataOffset = int.from_bytes(bbuff[2:3], byteorder='little')
-		#msg.Reserved  = int.from_bytes(bbuff[3:4], byteorder='little')
-		#msg.DataLength = int.from_bytes(bbuff[4:8], byteorder = 'little')
-		#msg.DataRemaining = int.from_bytes(bbuff[8:12], byteorder = 'little')
-		#msg.Reserved2 = int.from_bytes(bbuff[12:16], byteorder = 'little')
-		#
-		##buff.seek(msg.DataOffset, io.SEEK_SET)
-		#msg.Buffer= bbuff[msg.DataOffset:msg.DataOffset+ msg.DataLength]
-		#return msg
+		msg = READ_REPLY()
+		msg.StructureSize   = int.from_bytes(bbuff[:2], byteorder='little')
+		msg.DataOffset = int.from_bytes(bbuff[2:3], byteorder='little')
+		msg.Reserved  = bbuff[3:4]
+		msg.DataLength = int.from_bytes(bbuff[4:8], byteorder = 'little')
+		msg.DataRemaining = int.from_bytes(bbuff[8:12], byteorder = 'little')
+		msg.Reserved2 = bbuff[12:16]
+		
+		#buff.seek(msg.DataOffset, io.SEEK_SET)
+		msg.Buffer= bbuff[msg.DataOffset-64:msg.DataOffset+ msg.DataLength -64]
+		return msg
 
 	@staticmethod
 	def from_buffer(buff):
 		msg = READ_REPLY()
 		msg.StructureSize   = int.from_bytes(buff.read(2), byteorder='little')
-		assert msg.StructureSize == 17
+		#assert msg.StructureSize == 17
 		msg.DataOffset = int.from_bytes(buff.read(1), byteorder='little')
-		msg.Reserved  = int.from_bytes(buff.read(1), byteorder='little')
+		msg.Reserved  = buff.read(1) #int.from_bytes(buff.read(1), byteorder='little')
 		msg.DataLength = int.from_bytes(buff.read(4), byteorder = 'little')
 		msg.DataRemaining = int.from_bytes(buff.read(4), byteorder = 'little')
-		msg.Reserved2 = int.from_bytes(buff.read(4), byteorder = 'little')
+		msg.Reserved2 = buff.read(4) #int.from_bytes(buff.read(4), byteorder = 'little')
 		
 		buff.seek(msg.DataOffset, io.SEEK_SET)
 		msg.Buffer= buff.read(msg.DataLength)

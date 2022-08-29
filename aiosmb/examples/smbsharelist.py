@@ -1,11 +1,11 @@
 
 import asyncio
-from aiosmb.commons.connection.url import SMBConnectionURL
+from aiosmb.commons.connection.factory import SMBConnectionFactory
 from aiosmb.commons.interfaces.machine import SMBMachine
 
 async def test(url_str):
 
-	url = SMBConnectionURL(url_str)
+	url = SMBConnectionFactory.from_url(url_str)
 	connection = url.get_connection()
 	_, err = await connection.login()
 	if err is not None:

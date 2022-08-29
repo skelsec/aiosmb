@@ -69,18 +69,19 @@ class SMB2Message:
 
 	@staticmethod
 	def from_bytes(bbuff):
-		return SMB2Message.from_buffer(io.BytesIO(bbuff))
+		return SMB2Message.from_buffer(io.BytesIO(bbuff), bbuff)
 
 	@staticmethod
-	def from_buffer(buff):
+	def from_buffer(buff, bbuff = None):
+		#print(bbuff)
 		msg = SMB2Message()
-		if SMB2Message.isAsync(buff):
+		msg.header = SMB2Header_SYNC.from_buffer(buff)
+		if SMB2HeaderFlag.SMB2_FLAGS_ASYNC_COMMAND in msg.header.Flags:
+			buff.seek(0,0)
 			msg.header = SMB2Header_ASYNC.from_buffer(buff)
-		else:
-			msg.header = SMB2Header_SYNC.from_buffer(buff)
 			
 		# maybe it's an error...
-		# not sure this is the best way to check fot he error message
+		# not sure this is the best way to check for the error message
 		if msg.header.Status != NTStatus.SUCCESS and SMB2HeaderFlag.SMB2_FLAGS_SERVER_TO_REDIR in msg.header.Flags:
 			if not (msg.header.Status == NTStatus.MORE_PROCESSING_REQUIRED and msg.header.Command.name == 'SESSION_SETUP'):
 				pos = buff.tell()
@@ -90,19 +91,25 @@ class SMB2Message:
 					msg.command = ERROR_REPLY.from_buffer(buff)
 					return msg
 
-		classname = msg.header.Command.name
-		try:
-			if SMB2HeaderFlag.SMB2_FLAGS_SERVER_TO_REDIR in msg.header.Flags:
-				classname += '_REPLY'
-			else:
-				classname += '_REQ'
-			msg.command = command2object[classname].from_buffer(buff)
-		except Exception as e:
 
-			import traceback
-			traceback.print_exc()
-			#print('Could not find command implementation! %s' % str(e))
-			msg.command = SMB2NotImplementedCommand.from_buffer(buff)
+		if SMB2HeaderFlag.SMB2_FLAGS_SERVER_TO_REDIR in msg.header.Flags and msg.header.Command == SMB2Command.READ:
+			msg.command = READ_REPLY.from_bytes(bbuff[64:])
+			#msg.command = READ_REPLY.from_buffer(buff)
+
+		else:
+			classname = msg.header.Command.name
+			try:
+				if SMB2HeaderFlag.SMB2_FLAGS_SERVER_TO_REDIR in msg.header.Flags:
+					classname += '_REPLY'
+				else:
+					classname += '_REQ'
+				msg.command = command2object[classname].from_buffer(buff)
+			except Exception as e:
+
+				import traceback
+				traceback.print_exc()
+				#print('Could not find command implementation! %s' % str(e))
+				msg.command = SMB2NotImplementedCommand.from_buffer(buff)
 
 		return msg
 
@@ -115,7 +122,7 @@ class SMB2Message:
 		buff.seek(16, io.SEEK_SET)
 		flags = SMB2HeaderFlag(int.from_bytes(buff.read(4), byteorder='little', signed = False))
 		buff.seek(pos, io.SEEK_SET)
-		return SMB2HeaderFlag.SMB2_FLAGS_ASYNC_COMMAND in flags
+		return 
 
 	def to_bytes(self):
 		t  = self.header.to_bytes()

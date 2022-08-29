@@ -1,5 +1,5 @@
-from os import stat
 import traceback
+from typing import List
 from aiosmb.dcerpc.v5.epm import *
 from aiosmb.dcerpc.v5.connection import DCERPC5Connection
 from aiosmb.dcerpc.v5.common.connection.target import DCERPCTarget
@@ -10,8 +10,7 @@ from aiosmb.dcerpc.v5.rpcrt import RPC_C_AUTHN_LEVEL_NONE,\
 	RPC_C_AUTHN_LEVEL_PKT,\
 	RPC_C_AUTHN_LEVEL_PKT_INTEGRITY,\
 	RPC_C_AUTHN_LEVEL_PKT_PRIVACY
-
-from aiosmb.commons.connection.proxy import SMBProxy
+from asysocks.unicomm.common.proxy import UniProxyTarget
 
 """
 EPM is a bit special interface, as it seems it doesn't require authentication?
@@ -27,12 +26,12 @@ class EPM:
 			self.data_representation = uuidtup_to_bin(('8a885d04-1ceb-11c9-9fe8-08002b104860', '2.0'))
 
 	@staticmethod
-	def from_address(ip, port:int = 135, protocol:str = 'ncacn_ip_tcp', data_representation = None, proxy:SMBProxy = None):
+	def from_address(ip, port:int = 135, protocol:str = 'ncacn_ip_tcp', data_representation = None, proxies:List[UniProxyTarget] = None):
 		"""
 		Sets up the EPM object from IP/hostname port protocol parameters
 		"""
 		dcerpc_target_str = r'%s:%s[%s]' % (protocol, ip, port)
-		target = DCERPCTarget.from_connection_string(dcerpc_target_str, proxy = proxy)
+		target = DCERPCTarget.from_connection_string(dcerpc_target_str, proxies = proxies)
 		auth = None
 		connection = DCERPC5Connection(auth, target)
 		connection.set_auth_type(RPC_C_AUTHN_LEVEL_NONE)
@@ -44,17 +43,17 @@ class EPM:
 		Sets up the EPM connection from an existing SMB connection
 		"""
 		dcerpc_target_str = r'%s:%s[%s]' % (protocol, smb_connection.target.get_hostname_or_ip(), port)
-		target = DCERPCTarget.from_connection_string(dcerpc_target_str, proxy=smb_connection.target.proxy)
+		target = DCERPCTarget.from_connection_string(dcerpc_target_str, proxies=smb_connection.target.proxies)
 		auth = DCERPCAuth.from_smb_gssapi(smb_connection.gssapi)
 		connection = DCERPC5Connection(auth, target)
 		connection.set_auth_type(RPC_C_AUTHN_LEVEL_NONE)
 		return EPM(connection, data_representation)
 
 	@staticmethod
-	async def create_target(ip, remoteIf, proxy:SMBProxy = None, dc_ip:str = None, domain:str = None):
+	async def create_target(ip, remoteIf, proxies:List[UniProxyTarget] = None, dc_ip:str = None, domain:str = None):
 		epm = None
 		try:
-			epm = EPM.from_address(ip, proxy = proxy)
+			epm = EPM.from_address(ip, proxies = proxies)
 			_, err = await epm.connect()
 			if err is not None:
 				raise err
@@ -63,7 +62,7 @@ class EPM:
 			if err is not None:
 				raise err
 			
-			return DCERPCTarget.from_connection_string(res, proxy = proxy, dc_ip = dc_ip, domain = domain), None
+			return DCERPCTarget.from_connection_string(res, proxies = proxies, dc_ip = dc_ip, domain = domain), None
 		except Exception as e:
 			return False, e
 		finally:
@@ -105,7 +104,7 @@ class EPM:
 			protId = EPMProtocolIdentifier()
 			protId['ProtIdentifier'] = FLOOR_RPCV5_IDENTIFIER
 
-			if self.dce.target.protocol == 'ncacn_np':
+			if self.dce.target.rpcprotocol == 'ncacn_np':
 				pipeName = EPMPipeName()
 				pipeName['PipeName'] = b'\x00'
 
@@ -113,14 +112,14 @@ class EPM:
 				hostName['HostName'] = b('%s\x00' % self.dce.target.ip)
 				transportData = pipeName.getData() + hostName.getData()
 
-			elif self.dce.target.protocol == 'ncacn_ip_tcp':
+			elif self.dce.target.rpcprotocol == 'ncacn_ip_tcp':
 				portAddr = EPMPortAddr()
 				portAddr['IpPort'] = 0
 
 				hostAddr = EPMHostAddr()
 				hostAddr['Ip4addr'] = b'\x00\x00\x00\x00' #socket.inet_aton('0.0.0.0')
 				transportData = portAddr.getData() + hostAddr.getData()
-			elif self.dce.target.protocol == 'ncacn_http':
+			elif self.dce.target.rpcprotocol == 'ncacn_http':
 				portAddr = EPMPortAddr()
 				portAddr['PortIdentifier'] = FLOOR_HTTP_IDENTIFIER
 				portAddr['IpPort'] = 0
@@ -153,18 +152,18 @@ class EPM:
 			tower = EPMTower(b''.join(resp['ITowers'][0]['Data']['tower_octet_string']))
 			# Now let's parse the result and return an stringBinding
 			result = None
-			if self.dce.target.protocol == 'ncacn_np':
+			if self.dce.target.rpcprotocol == 'ncacn_np':
 				# Pipe Name should be the 4th floor
 				pipeName = EPMPipeName(tower['Floors'][3].getData())
-				result = 'ncacn_np:%s[%s]' % (self.dce.target.ip, pipeName['PipeName'].decode('utf-8')[:-1])
-			elif self.dce.target.protocol == 'ncacn_ip_tcp':
+				result = 'ncacn_np:%s[%s]' % (self.dce.target.get_hostname_or_ip(), pipeName['PipeName'].decode('utf-8')[:-1])
+			elif self.dce.target.rpcprotocol == 'ncacn_ip_tcp':
 				# Port Number should be the 4th floor
 				portAddr = EPMPortAddr(tower['Floors'][3].getData())
-				result = 'ncacn_ip_tcp:%s[%s]' % (self.dce.target.ip, portAddr['IpPort'])
-			elif self.dce.target.protocol == 'ncacn_http':
+				result = 'ncacn_ip_tcp:%s[%s]' % (self.dce.target.get_hostname_or_ip(), portAddr['IpPort'])
+			elif self.dce.target.rpcprotocol == 'ncacn_http':
 				# Port Number should be the 4th floor
 				portAddr = EPMPortAddr(tower['Floors'][3].getData())
-				result = 'ncacn_http:%s[%s]' % (self.dce.target.ip, portAddr['IpPort'])
+				result = 'ncacn_http:%s[%s]' % (self.dce.target.get_hostname_or_ip(), portAddr['IpPort'])
 			
 			return result, None
 		except Exception as e:

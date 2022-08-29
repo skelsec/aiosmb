@@ -2,13 +2,13 @@
 import asyncio
 import logging
 
-from aiosmb.commons.connection.url import SMBConnectionURL
+from aiosmb.commons.connection.factory import SMBConnectionFactory
 from aiosmb import logger
 
 import tqdm
 
 async def amain(url, outfilename, progress = True):
-	smburl = SMBConnectionURL(url)
+	smburl = SMBConnectionFactory.from_url(url)
 	connection = smburl.get_connection()
 	smbfile = smburl.get_file()
 
