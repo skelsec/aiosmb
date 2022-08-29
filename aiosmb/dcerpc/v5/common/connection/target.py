@@ -1,17 +1,9 @@
-import ipaddress
 import copy
 from typing import List
 
 from aiosmb.dcerpc.v5.common.connection.connectionstring import DCERPCStringBinding
 from asysocks.unicomm.common.proxy import UniProxyTarget
 from asysocks.unicomm.common.target import UniTarget, UniProto
-
-class DCERPCTargetType:
-	UDP = 'UDP'
-	TCP = 'TCP'
-	SMB = 'SMB'
-	HTTP = 'HTTP'
-	LOCAL = 'LOCAL'
 
 
 class DCERPCTarget(UniTarget):
@@ -38,6 +30,8 @@ class DCERPCTarget(UniTarget):
 	#	return 'cifs/%s@%s' % (self.hostname, self.domain)
 
 	def to_target_string(self) -> str:
+		if self.smb_connection is not None:
+			return self.smb_connection.target.to_target_string()
 		return 'cifs/%s@%s' % (self.hostname, self.domain)
 
 	@staticmethod
@@ -76,7 +70,7 @@ class DCERPCTarget(UniTarget):
 			named_pipe = connection_string.get_endpoint()
 			if named_pipe:
 				named_pipe = named_pipe[len(r'\pipe'):]
-				target = DCERPCSMBTarget(connection_string, na, named_pipe, smb_connection=smb_connection, timeout = timeout)
+				target = DCERPCSMBTarget(connection_string, na, pipe=named_pipe, smb_connection=smb_connection, timeout = timeout)
 			else:
 				target = DCERPCSMBTarget(connection_string, na, smb_connection=smb_connection, timeout = timeout)
 		elif ps == 'ncalocal':
