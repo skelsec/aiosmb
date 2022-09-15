@@ -1005,7 +1005,16 @@ class SMBMachine:
 			return await self.named_rpcs['SERVICEMGR'].check_service_status(service_name)
 		except Exception as e:
 			return None, e
-
+	
+	async def get_backupkeys(self):
+		try:
+			_, err = await self.connect_rpc('LSAD')
+			if err is not None:
+				raise err
+			return await self.named_rpcs['LSAD'].get_backupkeys()
+		except Exception as e:
+			return None, e
+	
 
 	#### TODO SECTION
 

@@ -9,6 +9,7 @@ from aiosmb.dcerpc.v5.dtypes import NULL
 from aiosmb.dcerpc.v5.interfaces.endpointmgr import EPM
 from aiosmb.connection import SMBConnection
 from aiosmb.dcerpc.v5.connection import DCERPC5Connection
+from aiosmb.dcerpc.v5.uuid import bin_to_string
 from aiosmb.dcerpc.v5.rpcrt import RPC_C_AUTHN_LEVEL_NONE,\
 	RPC_C_AUTHN_LEVEL_CONNECT,\
 	RPC_C_AUTHN_LEVEL_CALL,\
@@ -16,8 +17,10 @@ from aiosmb.dcerpc.v5.rpcrt import RPC_C_AUTHN_LEVEL_NONE,\
 	RPC_C_AUTHN_LEVEL_PKT_INTEGRITY,\
 	RPC_C_AUTHN_LEVEL_PKT_PRIVACY,\
 	DCERPCException, RPC_C_AUTHN_GSS_NEGOTIATE
+from unicrypto.symmetric import cipherMODE, DES, expand_DES_key
+from winacl.dtyp.wcee.backupkey import PREFERRED_BACKUP_KEY
+from winacl.dtyp.wcee.pvkfile import PVKFile
 
-		
 class LSADRPC:
 	def __init__(self):
 		self.service_pipename = r'\lsarpc'
@@ -62,7 +65,8 @@ class LSADRPC:
 			service.dce.set_auth_level(auth_level)
 			if auth_level is None:
 				service.dce.set_auth_level(RPC_C_AUTHN_LEVEL_PKT_PRIVACY) #secure default :P
-			
+				#service.dce.set_auth_level(RPC_C_AUTHN_LEVEL_NONE) #secure default :P
+
 			_, err = await service.dce.connect()
 			if err is not None:
 				raise err
@@ -82,7 +86,9 @@ class LSADRPC:
 		This connection will use the given SMBConnection as transport layer.
 		"""
 		try:
-			rpctransport = SMBDCEFactory(connection, filename=LSADRPC().service_pipename)		
+			rpctransport = SMBDCEFactory(connection, filename=LSADRPC().service_pipename)
+			if auth_level is None:
+				auth_level = RPC_C_AUTHN_LEVEL_NONE
 			service, err = await LSADRPC.from_rpcconnection(rpctransport.get_dce_rpc(), auth_level=auth_level, open=open, perform_dummy = perform_dummy)	
 			if err is not None:
 				raise err
@@ -151,13 +157,92 @@ class LSADRPC:
 			resp, err = await lsad.hLsarRetrievePrivateData(self.dce, self.policy_handles[policy_handle], key_name)
 			if err is not None:
 				return None, err
-			return resp, None
+			secret = self.decrypt_secret(resp)
+			return secret, None
 		except Exception as e:
 			return None, e
+	
+	async def open_secret(self, policy_handle, secret_name):
+		resp, err = await lsad.hLsarOpenSecret(self.dce, self.policy_handles[policy_handle], secret_name)
+		if err is not None:
+			return None, err
+		return resp['SecretHandle'], err
+
+	async def query_secret(self, secret_handle):
+		resp, err = await lsad.hLsarQuerySecret(self.dce, secret_handle)
+		if err is not None:
+			return None, err
+		enc_secret = b''.join(resp['EncryptedCurrentValue']['Buffer'])
+		secret = self.decrypt_secret(enc_secret)
+		return secret, err
+
+	async def get_backupkeys(self):
+		try:
+			ph, err = await self.open_policy2(lsad.POLICY_GET_PRIVATE_INFORMATION)
+			if err is not None:
+				raise err
 			
+			results = {}
+			for keyname in ['G$BCKUPKEY_PREFERRED', 'G$BCKUPKEY_P']:
+				res = {}
+				guid_bytes, err = await self.retrieve_private_data(ph, keyname)
+				if err is not None:
+					raise err
+				
+				guid = 'G$BCKUPKEY_%s' % bin_to_string(guid_bytes)
+				keystruct, err = await self.retrieve_private_data(ph, guid)
+				if err is not None:
+					raise err
+
+				keyversion = int.from_bytes(keystruct[:4], byteorder='little', signed = False)
+				if keyversion == 1:
+					keydata = keystruct[4:]
+					res['legacykey'] = keydata
+				elif keyversion == 2:
+					pbk = PREFERRED_BACKUP_KEY.from_bytes(keystruct)
+					pvk = PVKFile.construct_unencrypted('RSA2', pbk.keydata)
+					certificate = pbk.certdata
+					res['pvk'] = pvk
+					res['certificate'] = certificate
+
+				results[guid] = res
+			
+			return results, None
+			
+		except Exception as e:
+			return None, e
+
+	def decrypt_secret(self, encdata):
+		# [MS-LSAD] Section 5.1.2
+		# taken from impacket
+		key = self.dce.get_session_key()
+		decdata = b''
+		key0 = key
+		for _ in range(0, len(encdata), 8):
+			chunk = encdata[:8]
+			tkey = expand_DES_key(key0[:7]) #transformkey
+			ctx = DES(tkey, cipherMODE.ECB)
+			decdata += ctx.decrypt(chunk)
+			key0 = key0[7:]
+			encdata = encdata[8:]
+			if len(key0) < 7:
+				key0 = key[len(key0):]
+		secret = lsad.LSA_SECRET_XP(decdata)
+		return secret['Secret']
 
 
 async def amain(url):
+	enc_des = """
+	e80089d6f0b1f19e
+	c669ca27496f2fc1
+	77304427d10d993c
+	"""
+	dec_des = """
+	1000000001000000 
+	0503fa2ece589243
+	a8117ee5881c8c25
+	"""
+
 	import traceback
 	import hashlib
 	from aiosmb.commons.connection.factory import SMBConnectionFactory
@@ -171,39 +256,32 @@ async def amain(url):
 		print(err)
 		raise err
 	
-	async with LSADRPC(connection) as b:
-		_, err = await b.connect()
+	print('SMB Connected!')
+	
+	b = None
+	try:
+		b, err = await LSADRPC.from_smbconnection(connection)
 		if err is not None:
 			print(err)
 			print(traceback.format_tb(err.__traceback__))
 			return
-		ph, err = await b.open_policy2()
+		
+		keys, err = await b.get_backupkeys()
 		if err is not None:
-			print(err)
-			print(traceback.format_tb(err.__traceback__))
-			return
-		print(ph)
+			raise err
+		
+		print(keys)
 
-		data, err = await b.retrieve_private_data(ph, 'G$BCKUPKEY_PREFERRED')
-		if err is not None:
-			print(err)
-			print(traceback.format_tb(err.__traceback__))
-			return
-		print(data)
+	except:
+		traceback.print_exc()
+		if b is not None:
+			await b.close()
 
-		guid = GUID.from_bytes(data)
-		g = 'G$BCKUPKEY_%s' % str(guid)
-		print(g)
-
-		data, err = await b.retrieve_private_data(ph, g)
-		if err is not None:
-			print(err)
-			print(traceback.format_tb(err.__traceback__))
-			return
-		print(data)
 
 
 if __name__ == '__main__':
 	import asyncio
-	url = 'smb2+ntlm-password://TEST\\Administrator:QLFbT8zkiFGlJuf0B3Qq@10.10.10.2'
+	#url = 'smb3+kerberos-password://TEST\\Administrator:Passw0rd!1@win2019ad.test.corp/?dc=10.10.10.2'
+	url = 'smb2+ntlm-password://TEST\\dadmin:Passw0rd!1alma@win2019ad.test.corp/?dc=10.10.10.2'
+	#url = 'smb2+ntlm-password://TEST\\victim:Passw0rd!1@10.10.10.2'
 	asyncio.run(amain(url))

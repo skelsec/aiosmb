@@ -661,9 +661,9 @@ class MSRPCRequestHeader(MSRPCHeader):
 	def __init__(self, data = None, alignment = 0):
 		MSRPCHeader.__init__(self, data, alignment)
 		if data is None:
-		   self['type'] = MSRPC_REQUEST
-		   self['ctx_id'] = 0
-		   self['uuid'] = b''
+			self['type'] = MSRPC_REQUEST
+			self['ctx_id'] = 0
+			self['uuid'] = b''
 
 class MSRPCRespHeader(MSRPCHeader):
 	_SIZE = 24

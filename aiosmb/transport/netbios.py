@@ -34,9 +34,17 @@ class NetBIOSPacketizer(Packetizer):
 
 	async def data_in(self, data):
 		if data is None:
-			yield data
-		self.in_buffer += data
-		for packet in self.process_buffer():
-			yield packet
+			for packet in self.process_buffer():
+				yield packet
+		else:
+			self.in_buffer += data
+			for packet in self.process_buffer():
+				yield packet
+
+		#if data is None:
+		#	yield data
+		#self.in_buffer += data
+		#for packet in self.process_buffer():
+		#	yield packet
 		
 		

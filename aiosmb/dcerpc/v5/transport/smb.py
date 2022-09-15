@@ -11,6 +11,9 @@ class DCERPCSMBTransport:
 		self.smbfile = None
 		
 		self._max_send_frag = None
+
+	def get_session_key(self):
+		return self.target.smb_connection.get_session_key()
 	
 	async def connect(self):
 		# TODO: if the smb connection is not set up, we need to set it up

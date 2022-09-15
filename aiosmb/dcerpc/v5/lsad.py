@@ -35,6 +35,7 @@ from aiosmb import logger as LOG
 from aiosmb.dcerpc.v5.ndr import NDRCALL, NDRSTRUCT, NDRPOINTER, NDRUniConformantVaryingArray, NDRUniConformantArray
 from aiosmb.dcerpc.v5.dtypes import DWORD, UUID, ULONG, LPULONG, BOOLEAN, SECURITY_INFORMATION, PFILETIME, \
     RPC_UNICODE_STRING, FILETIME, NULL, MAXIMUM_ALLOWED, OWNER_SECURITY_INFORMATION, PWCHAR, PRPC_UNICODE_STRING
+from aiosmb.dcerpc.v5.structure import Structure
 
 from aiosmb.commons.utils.decorators import red, rr
 from aiosmb.dcerpc.v5 import system_errors
@@ -131,6 +132,15 @@ LSA_FTRECORD_DISABLED_REASONS = 0x0000FFFF
 ################################################################################
 # STRUCTURES
 ################################################################################
+# [MS-LSAD] Section 5.1.2 / 5.1.3
+class LSA_SECRET_XP(Structure):
+    structure = (
+        ('Length','<L=0'),
+        ('Version','<L=0'),
+        ('_Secret','_-Secret', 'self["Length"]'),
+        ('Secret', ':'),
+    )
+
 # 2.2.2.1 LSAPR_HANDLE
 class LSAPR_HANDLE(NDRSTRUCT):
     align = 1

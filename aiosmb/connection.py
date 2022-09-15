@@ -250,6 +250,11 @@ class SMBConnection:
 	async def __aexit__(self, exc_type, exc, traceback):
 		await asyncio.wait_for(self.terminate(), timeout = 5)
 
+	def get_session_key(self):
+		if self.selected_dialect in [NegotiateDialects.SMB300 , NegotiateDialects.SMB302 , NegotiateDialects.SMB311]:
+			return self.ApplicationKey
+		return self.SessionKey
+
 	def get_extra_info(self):
 		try:
 			ntlm_data = self.gssapi.get_extra_info()
@@ -725,7 +730,7 @@ class SMBConnection:
 				
 				# TODO: key calc
 				if self.signing_required and self.selected_dialect in [NegotiateDialects.SMB300 , NegotiateDialects.SMB302 , NegotiateDialects.SMB311]:
-					if  self.selected_dialect == NegotiateDialects.SMB311:
+					if self.selected_dialect == NegotiateDialects.SMB311:
 						#SMB311 is a special snowflake
 						self.SigningKey      = KDF_CounterMode(self.SessionKey, b"SMBSigningKey\x00", self.PreauthIntegrityHashValue, 128)
 						self.ApplicationKey  = KDF_CounterMode(self.SessionKey, b"SMBAppKey\x00", self.PreauthIntegrityHashValue, 128)

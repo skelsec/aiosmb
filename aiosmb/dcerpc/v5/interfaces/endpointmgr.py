@@ -11,6 +11,11 @@ from aiosmb.dcerpc.v5.rpcrt import RPC_C_AUTHN_LEVEL_NONE,\
 	RPC_C_AUTHN_LEVEL_PKT_INTEGRITY,\
 	RPC_C_AUTHN_LEVEL_PKT_PRIVACY
 from asysocks.unicomm.common.proxy import UniProxyTarget
+from asysocks.unicomm.common.target import UniTarget
+
+from asyauth.common.credentials.spnego import SPNEGOCredential
+from asyauth.common.credentials.ntlm import NTLMCredential
+from asyauth.common.credentials.kerberos import KerberosCredential
 
 """
 EPM is a bit special interface, as it seems it doesn't require authentication?
@@ -48,6 +53,38 @@ class EPM:
 		connection = DCERPC5Connection(auth, target)
 		connection.set_auth_type(RPC_C_AUTHN_LEVEL_NONE)
 		return EPM(connection, data_representation)
+
+	@staticmethod
+	def from_unitarget(target:UniTarget, protocol:str = 'ncacn_ip_tcp', port:int = 135, data_representation = None):
+		dcerpc_target_str = r'%s:%s[%s]' % (protocol, target.get_hostname_or_ip(), port)
+		target = DCERPCTarget.from_connection_string(dcerpc_target_str, proxies = target.proxies)
+		auth = None
+		connection = DCERPC5Connection(auth, target)
+		connection.set_auth_type(RPC_C_AUTHN_LEVEL_NONE)
+		return EPM(connection, data_representation)
+
+	@staticmethod
+	async def create_connection(target:UniTarget, credential:SPNEGOCredential, remoteIf):
+		epm = None
+		try:
+			epm = EPM.from_unitarget(target)
+			_, err = await epm.connect()
+			if err is not None:
+				raise err
+
+			res, err = await epm.map(remoteIf)
+			if err is not None:
+				raise err
+			
+			dcetarget = DCERPCTarget.from_connection_string(res, proxies = target.proxies, dc_ip = target.dc_ip, domain = target.domain)
+			dcecred = DCERPCAuth.from_smb_gssapi(credential)
+			return DCERPC5Connection(dcecred, dcetarget), None
+
+		except Exception as e:
+			return False, e
+		finally:
+			if epm is not None:
+				await epm.disconnect()
 
 	@staticmethod
 	async def create_target(ip, remoteIf, proxies:List[UniProxyTarget] = None, dc_ip:str = None, domain:str = None):

@@ -80,12 +80,13 @@ class DCERPC5Connection:
 				_, err = await self.transport.connect()
 				if err is not None:
 					raise err
+				self.__sessionKey = self.transport.get_session_key()
 			else:
 				raise NotImplementedError()
 
 			return True, None
 		except Exception as e:
-			return None, e	
+			return None, e
 
 	async def bind(self, iface_uuid, alter = 0, bogus_binds = 0, transfer_syntax = ('8a885d04-1ceb-11c9-9fe8-08002b104860', '2.0')):
 		"""
@@ -333,7 +334,6 @@ class DCERPC5Connection:
 			answer, err = await self.recv()
 			if err is not None:
 				raise err
-			
 			
 			__import__(request.__module__)
 			module = sys.modules[request.__module__]

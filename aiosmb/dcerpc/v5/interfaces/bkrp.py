@@ -112,6 +112,6 @@ async def amain(url):
 		print(res)
 
 if __name__ == '__main__':
-	url = 'smb2+ntlm-password://TEST\\victim:Passw0rd!1@10.10.10.2'
+	url = 'smb2+ntlm-password://TEST\\Administrator:Passw0rd!1@10.10.10.2'
 	asyncio.run(amain(url))
 	

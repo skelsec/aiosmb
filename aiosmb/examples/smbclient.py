@@ -1175,7 +1175,56 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			traceback.print_exc()
 			return None, e
 
-			
+	async def do_backupkeys(self, outfile = None):
+		"""Obtains the DPAPI domain backup keys"""
+		try:
+			backupkeys, err = await self.machine.get_backupkeys()
+			if err is not None:
+				raise err
+			for guid in backupkeys:
+				if outfile is None or len(outfile) == 0:
+					print('GUID: %s' % guid)
+				if 'legacykey' in backupkeys[guid]:
+					if outfile is None or len(outfile) == 0:
+						print('Legacy key: 0x%s' % backupkeys[guid]['legacykey'].hex())
+					else:
+						with open('%s_%s_%s.key' % (outfile, guid, 'legacykey'), 'wb') as f:
+							f.write(backupkeys[guid]['legacykey'])
+				if 'pvk' in backupkeys[guid]:
+					if outfile is None or len(outfile) == 0:
+						print('PVK: %s' % backupkeys[guid]['pvk'].to_bytes().hex())
+					else:
+						with open('%s_%s.pvk' % (outfile, guid), 'wb') as f:
+							f.write(backupkeys[guid]['pvk'].to_bytes())
+				if 'certificate' in backupkeys[guid]:
+					if outfile is None or len(outfile) == 0:
+						print('Certificate: \r\n%s' % backupkeys[guid]['certificate'].hex())
+					else:
+						with open('%s_%s.der' % (outfile, guid), 'wb') as f:
+							f.write(backupkeys[guid]['certificate'])
+				if outfile is None or len(outfile) == 0:
+					print('')
+				else:
+					print('Backupkey saved to disk')
+			return True, None
+		except SMBException as e:
+			logger.debug(traceback.format_exc())
+			print(e.pprint())
+			return None, e
+		except SMBMachineException as e:
+			logger.debug(traceback.format_exc())
+			print(str(e))
+			return None, e
+		except DCERPCException as e:
+			logger.debug(traceback.format_exc())
+			print(str(e))
+			return None, e
+		except Exception as e:
+			traceback.print_exc()
+			return None, e
+
+
+	
 
 async def amain(args):
 	client = SMBClient(args.smb_url, silent = args.silent)
