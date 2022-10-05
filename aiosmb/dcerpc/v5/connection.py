@@ -7,9 +7,9 @@ from aiosmb.dcerpc.v5.transport.smb import DCERPCSMBTransport
 from aiosmb.dcerpc.v5.structure import unpack
 from aiosmb.dcerpc.v5.uuid import uuidtup_to_bin, generate, stringver_to_bin, bin_to_uuidtup
 from aiosmb.dcerpc.v5.rpcrt import *
-from minikerberos.gssapi.gssapi import GSSAPIFlags
 from aiosmb.dcerpc.v5 import hresult_errors
 from unicrypto.symmetric import RC4
+from asyauth.common.winapi.constants import ISC_REQ
 import sys
 
 
@@ -130,7 +130,16 @@ class DCERPC5Connection:
 					
 					#seal flag MUST be turned on in the handshake flags!!!!!!!
 					#it is "signaled via the is_rpc variable"0
-					auth, res, err = await self.gssapi.ntlm.authenticate(None, spn=self.target.to_target_string())
+					auth, res, err = await self.gssapi.ntlm.authenticate(
+						None, 
+						spn=self.target.to_target_string(),
+						flags =  ISC_REQ.REPLAY_DETECT |\
+									ISC_REQ.CONFIDENTIALITY|\
+									ISC_REQ.USE_SESSION_KEY|\
+									ISC_REQ.INTEGRITY|\
+									ISC_REQ.SEQUENCE_DETECT|\
+									ISC_REQ.CONNECTION
+					)
 					if err is not None:
 						return None, err
 
@@ -140,12 +149,12 @@ class DCERPC5Connection:
 				elif self.auth_type == RPC_C_AUTHN_GSS_NEGOTIATE:
 					auth, res, err  = await self.gssapi.gssapi.authenticate(
 						None, 
-						flags = GSSAPIFlags.GSS_C_CONF_FLAG |\
-								GSSAPIFlags.GSS_C_INTEG_FLAG | \
-								GSSAPIFlags.GSS_C_SEQUENCE_FLAG | \
-								GSSAPIFlags.GSS_C_REPLAY_FLAG | \
-								GSSAPIFlags.GSS_C_MUTUAL_FLAG | \
-								GSSAPIFlags.GSS_C_DCE_STYLE,
+						flags = ISC_REQ.CONFIDENTIALITY |\
+								ISC_REQ.INTEGRITY | \
+								ISC_REQ.SEQUENCE_DETECT | \
+								ISC_REQ.REPLAY_DETECT | \
+								ISC_REQ.MUTUAL_AUTH | \
+								ISC_REQ.USE_DCE_STYLE,
 						#seq_number = 0, 
 						spn=self.target.to_target_string()
 					)
@@ -216,7 +225,16 @@ class DCERPC5Connection:
 
 			if self.auth_level != RPC_C_AUTHN_LEVEL_NONE:
 				if self.auth_type == RPC_C_AUTHN_WINNT:
-					response, res, err = await self.gssapi.ntlm.authenticate(bindResp['auth_data'], spn=self.target.to_target_string())
+					response, res, err = await self.gssapi.ntlm.authenticate(
+						bindResp['auth_data'], 
+						spn=self.target.to_target_string(),
+						flags =  ISC_REQ.REPLAY_DETECT |\
+									ISC_REQ.CONFIDENTIALITY|\
+									ISC_REQ.USE_SESSION_KEY|\
+									ISC_REQ.INTEGRITY|\
+									ISC_REQ.SEQUENCE_DETECT|\
+									ISC_REQ.CONNECTION
+					)
 					if err is not None:
 						return None, err
 					
@@ -227,12 +245,13 @@ class DCERPC5Connection:
 				elif self.auth_type == RPC_C_AUTHN_GSS_NEGOTIATE:
 					response, res, err  = await self.gssapi.gssapi.authenticate(
 						bindResp['auth_data'],
-						flags = GSSAPIFlags.GSS_C_CONF_FLAG |\
-							GSSAPIFlags.GSS_C_INTEG_FLAG | \
-							GSSAPIFlags.GSS_C_SEQUENCE_FLAG | \
-							GSSAPIFlags.GSS_C_REPLAY_FLAG | \
-							GSSAPIFlags.GSS_C_MUTUAL_FLAG | \
-							GSSAPIFlags.GSS_C_DCE_STYLE,
+						flags = 
+							ISC_REQ.CONFIDENTIALITY |\
+							ISC_REQ.INTEGRITY | \
+							ISC_REQ.SEQUENCE_DETECT | \
+							ISC_REQ.REPLAY_DETECT | \
+							ISC_REQ.MUTUAL_AUTH | \
+							ISC_REQ.USE_DCE_STYLE,
 						spn=self.target.to_target_string()
 					)
 					if err is not None:
@@ -289,7 +308,7 @@ class DCERPC5Connection:
 						if err is not None:
 							raise err
 
-						self.__sequence = self.gssapi.gssapi.selected_authentication_context.seq_number
+						self.__sequence = self.gssapi.gssapi.get_seq_number()
 					else:
 						auth3 = MSRPCHeader()
 						auth3['type'] = MSRPC_AUTH3
@@ -463,7 +482,7 @@ class DCERPC5Connection:
 					else:
 						if status_code in hresult_errors.ERROR_MESSAGES:
 							error_msg_short = hresult_errors.ERROR_MESSAGES[status_code][0]
-							error_msg_verbose = hresult_errors.ERROR_MESSAGES[status_code][1] 
+							error_msg_verbose = hresult_errors.ERROR_MESSAGES[status_code][1]
 							raise DCERPCException('%s - %s' % (error_msg_short, error_msg_verbose))
 						else:
 							raise DCERPCException('Unknown DCE RPC fault status code: %.8x' % status_code)
