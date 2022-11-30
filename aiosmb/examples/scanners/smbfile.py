@@ -120,5 +120,4 @@ class SMBFileScanner:
 					await out_queue.put(ScannerData(target, SMBFileRes(obj, otype, err)))
 
 		except Exception as e:
-			traceback.print_exc()
 			await out_queue.put(ScannerError(target, e))
