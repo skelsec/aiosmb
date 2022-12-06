@@ -1,9 +1,9 @@
 import enum
 import asyncio
-import platform
 import copy
 import traceback
 import datetime
+from typing import Coroutine
 
 from aiosmb import logger
 from aiosmb.commons.exceptions import *
@@ -15,21 +15,23 @@ from aiosmb.protocol.smb.message import SMBMessage
 from aiosmb.protocol.smb.commons import SMBSecurityMode
 from aiosmb.protocol.smb.commands import SMB_COM_NEGOTIATE_REQ
 from aiosmb.protocol.smb2.message import SMB2Message, SMB2Transform, SMB2Compression
-from aiosmb.protocol.smb2.commands.negotiate import SMB2ContextType, SMB2PreauthIntegrityCapabilities, SMB2HashAlgorithm, SMB2Cipher, SMB2CompressionType, SMB2CompressionFlags, SMB2EncryptionCapabilities, SMB2CompressionCapabilities, SMB2SigningAlgorithm, SMB2SigningCapabilities
+from aiosmb.protocol.smb2.commands.negotiate import SMB2ContextType, \
+	SMB2PreauthIntegrityCapabilities, SMB2HashAlgorithm, SMB2Cipher, \
+	SMB2CompressionType, SMB2CompressionFlags,SMB2EncryptionCapabilities, \
+	SMB2CompressionCapabilities, SMB2SigningAlgorithm, SMB2SigningCapabilities
 from aiosmb.protocol.smb2.commands import *
 from aiosmb.protocol.smb2.headers import *
 from aiosmb.protocol.smb2.command_codes import *
 from aiosmb.protocol.common import *
 from aiosmb.wintypes.dtyp.constrcuted_security.guid import *
-from aiosmb.wintypes.access_mask import *
-from aiosmb.wintypes.fscc.structures.fileinfoclass import *
-from aiosmb.wintypes.fscc.structures.FileFullDirectoryInformation import *
+from aiosmb.wintypes.fscc.structures.fileinfoclass import FileInfoClass
+from aiosmb.wintypes.fscc.structures.FileFullDirectoryInformation import FileFullDirectoryInformationList
 from aiosmb.wintypes.fscc.FileAttributes import FileAttributes
 
 from winacl.dtyp.security_descriptor import SECURITY_DESCRIPTOR
 from winacl.functions.constants import SE_OBJECT_TYPE
 
-from aiosmb.commons.smbcontainer import *
+#from aiosmb.commons.smbcontainer import *
 from aiosmb.commons.connection.target import *
 
 from unicrypto import hmac
@@ -82,6 +84,7 @@ class FileHandle:
 		self.is_resilient = None
 		self.last_disconnect_time = None
 		self.file_name = None
+		self.oplock = asyncio.Semaphore(1)
 	
 	@staticmethod	
 	def from_create_reply(reply, tree_id, file_name, oplock_level):
@@ -96,7 +99,7 @@ class FileHandle:
 		return fh
 
 class SMBPendingMsg:
-	def __init__(self, message_id, OutstandingResponses, OutstandingResponsesEvent, timeout = 5, max_renewal = 100):
+	def __init__(self, message_id, OutstandingResponses, OutstandingResponsesEvent, timeout = 5000, max_renewal = 100):
 		self.message_id = message_id
 		self.max_renewal = max_renewal
 		self.timeout = timeout #different operations require different timeouts, even depending on dielacts!!!
@@ -105,7 +108,7 @@ class SMBPendingMsg:
 		self.pending_task = None
 
 	async def __pending_waiter(self):
-		await asyncio.sleep(self.timeout)
+		await asyncio.sleep(5000)
 		await self.__destroy_message(SMBPendingTimeout())
 
 	async def __destroy_message(self, problem):
@@ -177,6 +180,7 @@ class SMBConnection:
 		self.OutstandingResponses = {}
 
 		self.pending_table = {}
+		self.messageIdToOplock = {} #dunno?
 		
 		#two dicts for the same data, but with different lookup key
 		self.TreeConnectTable_id = {}
@@ -240,9 +244,6 @@ class SMBConnection:
 		#that invalidates the whole session (eg. STATUS_USER_SESSION_DELETED)
 		#if this happens then logoff will fail as well!
 		self.session_closed = False 
-
-		#### TEST TEST TEST
-		self.OutStandingQueues = {}
 		
 	async def __aenter__(self):
 		return self
@@ -284,6 +285,9 @@ class SMBConnection:
 		try:
 			async for msg_data in self.network_connection.read():
 				self.activity_at = datetime.datetime.utcnow()
+
+				if msg_data is None:
+					raise SMBConnectionTerminated()
 
 				if msg_data[0] < 252:
 					raise Exception('Unknown SMB packet type %s' % msg_data[0])
@@ -334,6 +338,8 @@ class SMBConnection:
 				#print(msg)
 				
 				if msg.header.Status == NTStatus.PENDING:
+					if msg.header.MessageId in self.messageIdToOplock:
+						self.messageIdToOplock[msg.header.MessageId].release()
 					self.pending_table[msg.header.MessageId] = SMBPendingMsg(msg.header.MessageId, self.OutstandingResponses, self.OutstandingResponsesEvent, timeout = self.target.PendingTimeout, max_renewal=self.target.PendingMaxRenewal)
 					await self.pending_table[msg.header.MessageId].run()
 					continue
@@ -342,19 +348,13 @@ class SMBConnection:
 					await self.pending_table[msg.header.MessageId].stop()
 					del self.pending_table[msg.header.MessageId]
 
-				#print(msg.header.MessageId)
-				if msg.header.MessageId in self.OutStandingQueues:
-					#print('Q')
-					self.OutStandingQueues[msg.header.MessageId].put_nowait((msg, msg_data))
-
+				self.OutstandingResponses[msg.header.MessageId] = (msg, msg_data)
+				if msg.header.MessageId in self.OutstandingResponsesEvent:
+					self.OutstandingResponsesEvent[msg.header.MessageId].set()
 				else:
-					self.OutstandingResponses[msg.header.MessageId] = (msg, msg_data)
-					if msg.header.MessageId in self.OutstandingResponsesEvent:
-						self.OutstandingResponsesEvent[msg.header.MessageId].set()
-					else:
+					#here we are loosing messages, the functionality for "SHARING_VIOLATION" should be implemented
+					continue
 
-						#here we are loosing messages, the functionality for "PENDING" and "SHARING_VIOLATION" should be implemented
-						continue
 		except asyncio.CancelledError:
 			#the SMB connection is terminating
 			return
@@ -502,10 +502,7 @@ class SMBConnection:
 			logger.debug('Keepalive failed! Server probably disconnected!')
 			await self.disconnect()
 
-	def update_integrity(self, msg_data):
-		#if is_neg is True:
-		#	self.PreauthIntegrityHashValue = b'\x00'*64
-		#print('update_integrity with data : %s' % msg_data)
+	def update_integrity(self, msg_data:bytes):
 		ctx = hashlib.sha512()
 		ctx.update(self.PreauthIntegrityHashValue + msg_data)
 		self.PreauthIntegrityHashValue = ctx.digest()
@@ -532,9 +529,15 @@ class SMBConnection:
 					command.Dialects = ['SMB 2.???','SMB 2.002']
 				
 				msg = SMBMessage(header, command)
-				message_id = await self.sendSMB(msg)
+				message_id, err = await self.sendSMB(msg)
+				if err is not None:
+					raise err
+				
 				#recieveing reply, should be version2, because currently we dont support v1 :(
-				rply, rply_data = await self.recvSMB(message_id, ret_data = True) #negotiate MessageId should be 1
+				rply, rply_data, err = await self.recvSMB(message_id) #negotiate MessageId should be 1
+				if err is not None:
+					raise err
+				
 				if isinstance(rply, SMBMessage):
 					if protocol_test is True:
 						if rply.command.DialectIndex == 65535:
@@ -600,8 +603,13 @@ class SMBConnection:
 			header.CreditReq = 0
 						
 			msg = SMB2Message(header, command)
-			message_id = await self.sendSMB(msg)
-			rply, rply_data = await self.recvSMB(message_id, ret_data=True) #negotiate MessageId should be 1
+			message_id, err = await self.sendSMB(msg)
+			if err is not None:
+				raise err
+
+			rply, rply_data, err = await self.recvSMB(message_id) #negotiate MessageId should be 1
+			if err is not None:
+				raise err
 			if isinstance(rply, SMBMessage):
 				raise Exception('Server replied with SMBv1 message, doesnt support SMBv2')
 			self.update_integrity(rply_data)
@@ -701,9 +709,13 @@ class SMBConnection:
 				header.CreditReq = 0
 				
 				msg = SMBMessage(header, command)
-				message_id = await self.sendSMB(msg)
+				message_id, err = await self.sendSMB(msg)
+				if err is not None:
+					raise err
 				#self.update_integrity(sent_msg.to_bytes())
-				rply, rply_data = await self.recvSMB(message_id, ret_data=True)
+				rply, rply_data, err = await self.recvSMB(message_id)
+				if err is not None:
+					raise err
 				
 				if self.SessionId == 0:
 					self.SessionId = rply.header.SessionId
@@ -755,34 +767,35 @@ class SMBConnection:
 			return False, e
 		
 		
-	async def recvSMB(self, message_id, ret_data = False):
+	async def recvSMB(self, message_id) -> Coroutine[SMB2Message, bytes, Exception]:
 		"""
 		Returns an SMB message from the outstandingresponse dict, OR waits until the expected message_id appears.
 		"""
-		if message_id not in self.OutstandingResponses:
-			#logger.log(1, 'Waiting on messageID : %s' % message_id)
-			await self.OutstandingResponsesEvent[message_id].wait() #TODO: add timeout here?
+		try:
+			if message_id not in self.OutstandingResponses:
+				#logger.log(1, 'Waiting on messageID : %s' % message_id)
+				await self.OutstandingResponsesEvent[message_id].wait() #TODO: add timeout here?
+				
+			msg, msg_data = self.OutstandingResponses.pop(message_id)
+			if msg is None:
+				# this indicates and exception, so the msg_data is the exception
+				raise msg_data
 			
-		msg, msg_data = self.OutstandingResponses.pop(message_id)
-		if msg is None:
-			# this indicates and exception, so the msg_data is the exception
-			raise msg_data
-		
-		if self.status != SMBConnectionStatus.NEGOTIATING:
-			if self.selected_dialect != NegotiateDialects.SMB202:
-				self.SequenceWindow += (msg.header.CreditCharge - 1)
+			if self.status != SMBConnectionStatus.NEGOTIATING:
+				if self.selected_dialect != NegotiateDialects.SMB202:
+					self.SequenceWindow += (msg.header.CreditCharge - 1)
 
-		if msg.header.Status != NTStatus.PENDING:
-			if message_id in self.OutstandingResponsesEvent:
-				del self.OutstandingResponsesEvent[message_id]
-		else:
-			self.OutstandingResponsesEvent[message_id].clear()
+			if msg.header.Status != NTStatus.PENDING:
+				if message_id in self.OutstandingResponsesEvent:
+					del self.OutstandingResponsesEvent[message_id]
+			else:
+				self.OutstandingResponsesEvent[message_id].clear()
+			
+			return msg, msg_data, None
+		except Exception as e:
+			return None, None, e
 		
-		if ret_data is False:
-			return msg
-		return msg, msg_data
-		
-	def sign_message(self, msg):
+	def sign_message(self, msg:SMB2Message):
 		if self.selected_dialect in [NegotiateDialects.SMB202, NegotiateDialects.SMB210]:
 			if self.SessionKey:
 				msg.header.Flags = msg.header.Flags ^ SMB2HeaderFlag.SMB2_FLAGS_SIGNED ##maybe move this flag settings to sendsmb since singing is determined there?
@@ -794,7 +807,7 @@ class SMBConnection:
 				signature = AES_CMAC(self.SigningKey, msg_data, len(msg_data))
 				msg.header.Signature = signature
 				
-				#for dfuture ref
+				#for future ref
 				#msg_data = msg.to_bytes()
 				#ctx = AES(self.SigningKey, MODE_GCM, b'\x00'*11, segment_size=16)
 				#_, signature = ctx.encrypt(b'', msg_data)
@@ -802,7 +815,7 @@ class SMBConnection:
 				#msg.header.Signature = signature
 
 	
-	def encrypt_message(self, msg_data):
+	def encrypt_message(self, msg_data:bytes) -> SMB2Transform:
 		if self.CipherId == SMB2Cipher.AES_128_CCM:
 			nonce = os.urandom(11)
 
@@ -844,7 +857,7 @@ class SMBConnection:
 		return SMB2Transform(hdr, enc_data)
 
 
-	def compress_message(self, msg):
+	def compress_message(self, msg) -> SMB2Compression:
 		msg_data = msg.to_bytes()
 		
 		if self.SupportsChainedCompression is False:
@@ -865,77 +878,67 @@ class SMBConnection:
 		else:
 			raise Exception('Chained compression not implemented!')
 		
-	async def sendSMB(self, msg, ret_message = False, compression_cb = None, test_queue = False):
+	async def sendSMB(self, msg:SMB2Message, fh = None):
 		"""
 		Sends an SMB message to teh remote endpoint.
 		msg: SMB2Message or SMBMessage
 		Returns: MessageId integer
 		"""
-		self.activity_at = datetime.datetime.utcnow()
-		if self.status == SMBConnectionStatus.NEGOTIATING:
-			if isinstance(msg, SMBMessage):
-				message_id = 0
-				self.SequenceWindow += 1
-			else:
-				msg.header.CreditCharge = 1
-				msg.header.CreditReq = 0
-				msg.header.MessageId = self.SequenceWindow
-				message_id = self.SequenceWindow
-				self.SequenceWindow += 1
-				self.update_integrity(msg.to_bytes())
+		try:
+			self.activity_at = datetime.datetime.utcnow()
+			if self.status == SMBConnectionStatus.NEGOTIATING:
+				if isinstance(msg, SMBMessage):
+					message_id = 0
+					self.SequenceWindow += 1
+				else:
+					msg.header.CreditCharge = 1
+					msg.header.CreditReq = 0
+					msg.header.MessageId = self.SequenceWindow
+					message_id = self.SequenceWindow
+					self.SequenceWindow += 1
+					self.update_integrity(msg.to_bytes())
 
+				self.OutstandingResponsesEvent[message_id] = asyncio.Event()
+				
+				await self.network_connection.write(msg.to_bytes())
+				return message_id, None
+					
+
+			if msg.header.Command is not SMB2Command.CANCEL:
+				msg.header.MessageId = self.SequenceWindow
+				self.SequenceWindow += 1
+			
+			msg.header.SessionId = self.SessionId
+			
+			if not msg.header.CreditCharge:
+				msg.header.CreditCharge = 1
+
+			
+			
+			if self.status != SMBConnectionStatus.SESSIONSETUP:
+				msg.header.CreditReq = 127
+			
+			message_id = msg.header.MessageId
+			if fh is not None:
+				self.messageIdToOplock[message_id] = fh.oplock
+
+			if self.CompressionId is not None and self.EncryptionKey is not None:
+				msg = self.compress_message(msg)
+			if self.signing_required is True:
+				self.sign_message(msg)
+			
+			if self.encryption_required is True and self.EncryptionKey is not None:
+				msg = self.encrypt_message(msg.to_bytes())
+
+			else:
+				self.update_integrity(msg.to_bytes())
+			
 			self.OutstandingResponsesEvent[message_id] = asyncio.Event()
 			
 			await self.network_connection.write(msg.to_bytes())
-			
-			if ret_message is True:
-				return message_id, msg
-			return message_id
-				
-
-		if msg.header.Command is not SMB2Command.CANCEL:
-			msg.header.MessageId = self.SequenceWindow
-			self.SequenceWindow += 1
-		
-		msg.header.SessionId = self.SessionId
-		
-		if not msg.header.CreditCharge:
-			msg.header.CreditCharge = 1
-
-		
-		
-		if self.status != SMBConnectionStatus.SESSIONSETUP:
-			msg.header.CreditReq = 127
-		
-		message_id = msg.header.MessageId
-		#print(msg)
-
-		if self.CompressionId is not None and self.EncryptionKey is not None:
-			if compression_cb is None:
-				msg = self.compress_message(msg)
-			else:
-				msg = compression_cb(msg)
-		if self.signing_required is True:
-			self.sign_message(msg)
-		
-		if self.encryption_required is True and self.EncryptionKey is not None:
-			msg = self.encrypt_message(msg.to_bytes())
-
-		else:
-			self.update_integrity(msg.to_bytes())
-		
-		if test_queue is False:
-			#creating an event for outstanding response
-			self.OutstandingResponsesEvent[message_id] = asyncio.Event()
-			
-		else:
-			self.OutStandingQueues[message_id] = asyncio.Queue()
-		
-		await self.network_connection.write(msg.to_bytes())
-
-		if ret_message is True:
-			return message_id, msg
-		return message_id
+			return message_id, None
+		except Exception as e:
+			return None, e
 
 		
 	async def tree_connect(self, share_name):
@@ -954,9 +957,13 @@ class SMBConnection:
 			header.Command  = SMB2Command.TREE_CONNECT
 			
 			msg = SMBMessage(header, command)
-			message_id = await self.sendSMB(msg)
+			message_id, err = await self.sendSMB(msg)
+			if err is not None:
+				raise err
 			
-			rply = await self.recvSMB(message_id)
+			rply, _, err = await self.recvSMB(message_id)
+			if err is not None:
+				raise err
 			
 			if rply.header.Status == NTStatus.SUCCESS:
 				te = TreeEntry.from_tree_reply(rply, share_name)
@@ -978,7 +985,7 @@ class SMBConnection:
 		except Exception as e:
 			return None, e
 		
-	async def create(self, tree_id, file_path, desired_access, share_mode, create_options, create_disposition, file_attrs, impresonation_level = ImpersonationLevel.Impersonation, oplock_level = OplockLevel.SMB2_OPLOCK_LEVEL_NONE, create_contexts = None, return_reply = False):
+	async def create(self, tree_id, file_path, desired_access, share_mode, create_options, create_disposition, file_attrs:FileAttributes, impresonation_level:ImpersonationLevel = ImpersonationLevel.Impersonation, oplock_level = OplockLevel.SMB2_OPLOCK_LEVEL_NONE, create_contexts = None, return_reply = False):
 		try:
 			if self.session_closed == True or self.status == SMBConnectionStatus.CLOSED:
 				raise SMBConnectionTerminated()
@@ -1002,9 +1009,13 @@ class SMBConnection:
 			header.TreeId = tree_id
 			
 			msg = SMBMessage(header, command)
-			message_id = await self.sendSMB(msg)
+			message_id, err = await self.sendSMB(msg)
+			if err is not None:
+				raise err
 			
-			rply = await self.recvSMB(message_id)
+			rply, _, err = await self.recvSMB(message_id)
+			if err is not None:
+				raise err
 			
 			if rply.header.Status == NTStatus.SUCCESS:
 				fh = FileHandle.from_create_reply(rply, tree_id, file_path, oplock_level)
@@ -1045,47 +1056,49 @@ class SMBConnection:
 			if file_id not in self.FileHandleTable:
 				raise Exception('Unknown File ID!')
 				
-			header = SMB2Header_SYNC()
-			header.Command  = SMB2Command.READ
-			header.TreeId = tree_id
-			
-			if length < self.MaxReadSize:
-				length = self.MaxReadSize
-			
-			if self.selected_dialect != NegotiateDialects.SMB202 and self.SupportsMultiCredit == True:
-				header.CreditCharge = ( 1 + (length - 1) // 65536)
-			else: 
-				length = min(65536,length)
+			async with self.FileHandleTable[file_id].oplock:
+				header = SMB2Header_SYNC()
+				header.Command  = SMB2Command.READ
+				header.TreeId = tree_id
 				
-			command = READ_REQ()
-			command.Length = length
-			command.Offset = offset
-			command.FileId = file_id
-			command.MinimumCount = 0
-			command.RemainingBytes = 0
-			
-			msg = SMBMessage(header, command)
-			message_id = await self.sendSMB(msg)
-			
-			##### TESTTESTTEST
-			#rply, _ = await self.OutStandingQueues[message_id].get()
-			#if self.status != SMBConnectionStatus.NEGOTIATING:
-			#	if self.selected_dialect != NegotiateDialects.SMB202:
-			#		self.SequenceWindow += (msg.header.CreditCharge - 1)
+				#if length < self.MaxReadSize:
+				#	length = self.MaxReadSize
+				
+				if self.selected_dialect != NegotiateDialects.SMB202 and self.SupportsMultiCredit == True:
+					header.CreditCharge = ( 1 + (length - 1) // 65536)
+				else: 
+					length = min(65536,length)
+					
+				command = READ_REQ()
+				command.Length = length
+				command.Offset = offset
+				command.FileId = file_id
+				command.MinimumCount = 0
+				command.RemainingBytes = 0
+				
+				msg = SMBMessage(header, command)
+				message_id, err = await self.sendSMB(msg, fh = self.FileHandleTable[file_id])
+				if err is not None:
+					raise err
 
-			rply = await self.recvSMB(message_id)
-			
-			if rply.header.Status == NTStatus.SUCCESS:
-				return rply.command.Buffer, rply.command.DataRemaining, None
-			
-			elif rply.header.Status == NTStatus.END_OF_FILE:
-				return b'', 0, None
+				rply, _, err = await self.recvSMB(message_id)
+				if err is not None:
+					raise err
 				
-			else:
-				raise SMBException('', rply.header.Status)
+				if rply.header.Status == NTStatus.SUCCESS:
+					return rply.command.Buffer, rply.command.DataRemaining, None
+				
+				elif rply.header.Status == NTStatus.END_OF_FILE:
+					return b'', 0, None
+				
+				elif rply.header.Status == NTStatus.BUFFER_OVERFLOW:
+					# data returned, but there is more data to be read
+					return rply.command.Buffer, 0, None
+					
+				else:
+					raise SMBException('SMB READ Error!', rply.header.Status)
 
 		except Exception as e:
-			print(e)
 			return None, None, e
 			
 			
@@ -1105,35 +1118,40 @@ class SMBConnection:
 				raise Exception('Unknown Tree ID! %s' % tree_id)
 			if file_id not in self.FileHandleTable:
 				raise Exception('Unknown File ID! %s' % file_id)
+			
+			async with self.FileHandleTable[file_id].oplock:
+				header = SMB2Header_SYNC()
+				header.Command  = SMB2Command.WRITE
+				header.TreeId = tree_id
+					
+				if len(data) > self.MaxWriteSize:
+					data = data[:self.MaxWriteSize]
+					
+				if self.selected_dialect != NegotiateDialects.SMB202 and self.SupportsMultiCredit == True:
+					header.CreditCharge = ( 1 + (len(data) - 1) // 65536)
+				else: 
+					data = data[:min(65536,len(data))]
 				
-			header = SMB2Header_SYNC()
-			header.Command  = SMB2Command.WRITE
-			header.TreeId = tree_id
+				command = WRITE_REQ()
+				command.Length = len(data)
+				command.Offset = offset
+				command.FileId = file_id
+				command.Data = data
 				
-			if len(data) > self.MaxWriteSize:
-				data = data[:self.MaxWriteSize]
+				msg = SMBMessage(header, command)
+				message_id, err = await self.sendSMB(msg, fh = self.FileHandleTable[file_id])
+				if err is not None:
+					raise err
 				
-			if self.selected_dialect != NegotiateDialects.SMB202 and self.SupportsMultiCredit == True:
-				header.CreditCharge = ( 1 + (len(data) - 1) // 65536)
-			else: 
-				data = data[:min(65536,len(data))]
-			
-			command = WRITE_REQ()
-			command.Length = len(data)
-			command.Offset = offset
-			command.FileId = file_id
-			command.Data = data
-			
-			msg = SMBMessage(header, command)
-			message_id = await self.sendSMB(msg)
-			
-			rply = await self.recvSMB(message_id)
-			
-			if rply.header.Status == NTStatus.SUCCESS:
-				return rply.command.Count, None
-			
-			else:
-				raise SMBException('', rply.header.Status)
+				rply, _, err = await self.recvSMB(message_id)
+				if err is not None:
+					raise err
+				
+				if rply.header.Status == NTStatus.SUCCESS:
+					return rply.command.Count, None
+				
+				else:
+					raise SMBException('', rply.header.Status)
 		except Exception as e:
 			return None, e
 		
@@ -1167,9 +1185,13 @@ class SMBConnection:
 			header.TreeId = tree_id
 			
 			msg = SMBMessage(header, command)
-			message_id = await self.sendSMB(msg)
+			message_id, err = await self.sendSMB(msg)
+			if err is not None:
+				raise err
 
-			rply = await self.recvSMB(message_id)
+			rply, _, err = await self.recvSMB(message_id)
+			if err is not None:
+				raise err
 			
 			if rply.header.Status == NTStatus.SUCCESS:
 				#https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-smb2/3b1b3598-a898-44ca-bfac-2dcae065247f
@@ -1230,9 +1252,13 @@ class SMBConnection:
 			header.TreeId = tree_id
 			
 			msg = SMB2Message(header, command)
-			message_id = await self.sendSMB(msg)
+			message_id, err = await self.sendSMB(msg)
+			if err is not None:
+				raise err
 
-			rply = await self.recvSMB(message_id)
+			rply, _, err = await self.recvSMB(message_id)
+			if err is not None:
+				raise err
 			
 			if rply.header.Status == NTStatus.SUCCESS:
 				if information_class == FileInfoClass.FileFullDirectoryInformation:
@@ -1265,9 +1291,13 @@ class SMBConnection:
 			header.TreeId = tree_id
 			
 			msg = SMB2Message(header, command)
-			message_id = await self.sendSMB(msg)
+			message_id, err = await self.sendSMB(msg)
+			if err is not None:
+				raise err
 
-			rply = await self.recvSMB(message_id)
+			rply, _, err = await self.recvSMB(message_id)
+			if err is not None:
+				raise err
 
 			return rply.command.Buffer, None
 
@@ -1278,25 +1308,33 @@ class SMBConnection:
 		"""
 		Closes the file/directory/pipe/whatever based on file_id. It will automatically remove all traces of the file handle.
 		"""
-		if self.session_closed == True or self.status == SMBConnectionStatus.CLOSED:
-			raise SMBConnectionTerminated()
-		
-		command = CLOSE_REQ()
-		command.Flags = flags
-		command.FileId = file_id
-		
-		header = SMB2Header_SYNC()
-		header.Command  = SMB2Command.CLOSE
-		header.TreeId = tree_id
-		msg = SMB2Message(header, command)
-		message_id = await self.sendSMB(msg)
-		
-
-		rply = await self.recvSMB(message_id)
-		if rply.header.Status == NTStatus.SUCCESS:
-			if file_id in self.FileHandleTable:
-				del self.FileHandleTable[file_id]
+		try:
+			if self.session_closed == True or self.status == SMBConnectionStatus.CLOSED:
+				raise SMBConnectionTerminated()
 			
+			command = CLOSE_REQ()
+			command.Flags = flags
+			command.FileId = file_id
+			
+			header = SMB2Header_SYNC()
+			header.Command  = SMB2Command.CLOSE
+			header.TreeId = tree_id
+			msg = SMB2Message(header, command)
+			message_id, err = await self.sendSMB(msg)
+			if err is not None:
+				raise err
+			
+
+			rply, _, err = await self.recvSMB(message_id)
+			if err is not None:
+				raise err
+			if rply.header.Status == NTStatus.SUCCESS:
+				if file_id in self.FileHandleTable:
+					del self.FileHandleTable[file_id]
+
+			return True, None
+		except Exception as e:
+			return None, e
 			
 	async def flush(self, tree_id, file_id):
 		"""
@@ -1313,9 +1351,13 @@ class SMBConnection:
 			header.Command  = SMB2Command.FLUSH
 			header.TreeId = tree_id
 			msg = SMB2Message(header, command)
-			message_id = await self.sendSMB(msg)
+			message_id, err = await self.sendSMB(msg)
+			if err is not None:
+				raise err
 
-			rply = await self.recvSMB(message_id)
+			rply, _, err = await self.recvSMB(message_id)
+			if err is not None:
+				raise err
 			return True, None
 		except Exception as e:
 			return None, e
@@ -1335,9 +1377,13 @@ class SMBConnection:
 			header = SMB2Header_SYNC()
 			header.Command  = SMB2Command.LOGOFF
 			msg = SMB2Message(header, command)
-			message_id = await self.sendSMB(msg)
+			message_id, err = await self.sendSMB(msg)
+			if err is not None:
+				raise err
 
-			rply = await self.recvSMB(message_id)
+			rply, _, err = await self.recvSMB(message_id)
+			if err is not None:
+				raise err
 			return True, None
 		except Exception as e:
 			return None, e
@@ -1354,8 +1400,13 @@ class SMBConnection:
 			header = SMB2Header_SYNC()
 			header.Command  = SMB2Command.ECHO
 			msg = SMB2Message(header, command)
-			message_id = await self.sendSMB(msg)
-			rply = await self.recvSMB(message_id)
+			message_id, err = await self.sendSMB(msg)
+			if err is not None:
+				raise err
+			
+			rply, _, err = await self.recvSMB(message_id)
+			if err is not None:
+				raise err
 
 			if rply.header.Status == NTStatus.SUCCESS:
 				return True, None
@@ -1368,47 +1419,66 @@ class SMBConnection:
 		"""
 		Disconnects from tree, removes all file entries associated to the tree
 		"""
-		if self.session_closed == True or self.status == SMBConnectionStatus.CLOSED:
-			raise SMBConnectionTerminated()
+		try:
+			if self.session_closed == True or self.status == SMBConnectionStatus.CLOSED:
+				raise SMBConnectionTerminated()
+				
+			command = TREE_DISCONNECT_REQ()
 			
-		command = TREE_DISCONNECT_REQ()
-		
-		header = SMB2Header_SYNC()
-		header.Command  = SMB2Command.TREE_DISCONNECT
-		header.TreeId = tree_id
-		msg = SMB2Message(header, command)
-		message_id = await self.sendSMB(msg)
+			header = SMB2Header_SYNC()
+			header.Command  = SMB2Command.TREE_DISCONNECT
+			header.TreeId = tree_id
+			msg = SMB2Message(header, command)
+			message_id, err = await self.sendSMB(msg)
+			if err is not None:
+				raise err
 
-		rply = await self.recvSMB(message_id)
-		
-		if rply.header.Status == NTStatus.SUCCESS:
-			del_file_ids = []
-			share_name = self.TreeConnectTable_id[tree_id].share_name
-			for fe in self.FileHandleTable:
-				if self.FileHandleTable[fe].tree_id == tree_id:
-					del_file_ids.append(self.FileHandleTable[fe].file_id)
+			rply, _, err = await self.recvSMB(message_id)
+			if err is not None:
+				raise err
 			
-			for file_id in del_file_ids:
-				del self.FileHandleTable[file_id]
-			
-			del self.TreeConnectTable_id[tree_id]
-			del self.TreeConnectTable_share[share_name]
+			if rply.header.Status == NTStatus.SUCCESS:
+				del_file_ids = []
+				share_name = self.TreeConnectTable_id[tree_id].share_name
+				for fe in self.FileHandleTable:
+					if self.FileHandleTable[fe].tree_id == tree_id:
+						del_file_ids.append(self.FileHandleTable[fe].file_id)
+				
+				for file_id in del_file_ids:
+					del self.FileHandleTable[file_id]
+				
+				del self.TreeConnectTable_id[tree_id]
+				del self.TreeConnectTable_share[share_name]
+
+			return True, None
+		except Exception as e:
+			return None, e
 
 		
 	async def cancel(self, message_id):
 		"""
 		Issues a CANCEL command for the given message_id
 		"""
-		if self.session_closed == True or self.status == SMBConnectionStatus.CLOSED:
-			raise SMBConnectionTerminated()
+		try:
+			if self.session_closed == True or self.status == SMBConnectionStatus.CLOSED:
+				raise SMBConnectionTerminated()
+				
+			command = CANCEL_REQ()
+			header = SMB2Header_SYNC()
+			header.Command  = SMB2Command.CANCEL
+			msg = SMB2Message(header, command)
+			msg.header.MessageId = message_id
+			message_id, err = await self.sendSMB(msg)
+			if err is not None:
+				raise err
 			
-		command = CANCEL_REQ()
-		header = SMB2Header_SYNC()
-		header.Command  = SMB2Command.CANCEL
-		msg = SMB2Message(header, command)
-		msg.header.MessageId = message_id
-		message_id = await self.sendSMB(msg)
-		rply = await self.recvSMB(message_id)
+			rply, _, err = await self.recvSMB(message_id)
+			if err is not None:
+				raise err
+
+			return True, None
+		except Exception as e:
+			return None, e
 		
 	async def terminate(self):
 		"""
@@ -1464,7 +1534,7 @@ class SMBConnection:
 		#header = SMB2Header_SYNC()
 		#header.Command  = SMB2Command.ECHO
 		#msg = SMB2Message(header, command)
-		#message_id = await self.sendSMB(msg)
+		#message_id, err = await self.sendSMB(msg)
 		#print('Waiting for reply')
 		#rply = await self.recvSMB(message_id)
 		#print(rply)
@@ -1475,7 +1545,7 @@ class SMBConnection:
 		header = SMB2Header_SYNC()
 		header.Command  = SMB2Command.ECHO
 		msg = SMB2Message(header, command)
-		message_id = await self.sendSMB(msg, compression_cb = compress_callback)
+		message_id, err = await self.sendSMB(msg, compression_cb = compress_callback)
 		try:
 			rply = await asyncio.wait_for(self.recvSMB(message_id), timeout = 0.5)
 			return True
@@ -1486,10 +1556,6 @@ class SMBConnection:
 async def ctest(cu):
 	conn = cu.get_connection()
 	await conn.login()
-
-			
-		
-
 
 if __name__ == '__main__':
 	from aiosmb.commons.connection.factory import SMBConnectionFactory

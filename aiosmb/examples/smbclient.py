@@ -13,10 +13,18 @@ from aiosmb._version import __banner__
 from aiosmb.commons.connection.factory import SMBConnectionFactory
 from aiosmb.commons.interfaces.machine import SMBMachine
 from aiosmb.commons.interfaces.share import SMBShare
+from aiosmb.commons.interfaces.file import SMBFile
 from aiosmb.commons.exceptions import SMBException, SMBMachineException
 from aiosmb.dcerpc.v5.rpcrt import DCERPCException
 
 from asysocks import logger as sockslogger
+
+
+
+from aiosmb.wintypes.access_mask import *
+from aiosmb.protocol.smb2.commands import *
+
+
 
 
 def req_traceback(funct):
@@ -1223,7 +1231,62 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			traceback.print_exc()
 			return None, e
 
+	async def do_pipetest(self, data = 'HELLO!'):
+		""" pipetest """
+		async def temp(pipe):
+			try:
+				await asyncio.sleep(5)
+				data = 'HELLO!!!\r\n'.encode('utf-8')
+				data = len(data).to_bytes(4, byteorder='little', signed=False) + data
+				while True:
+					_, err = await pipe.write(data)
+					if err is not None:
+						raise err
+					await asyncio.sleep(1)
 
+			except:
+				traceback.print_exc()
+		
+		pipe = None
+		try:
+			
+			pipe = SMBFile.from_uncpath('\\\\%s\\IPC$\\%s' % (self.connection.target.get_hostname_or_ip(), 'testpipe'))
+			
+			_, err = await pipe.open_pipe(self.connection, 'rw')
+			if err is not None:
+				raise err
+
+			data = bytes.fromhex('00000022000570b75f7cf1897fd2a679b70e9a46d5475443500004acd9a84e005001')
+			_, err = await pipe.write(data)
+			if err is not None:
+				raise err
+			
+			#asyncio.create_task(temp(pipe))
+			while True:
+				data, err = await pipe.read(4)
+				if err is not None:
+					raise err
+				print(data)
+				await asyncio.sleep(2)
+			return True, None
+		except SMBException as e:
+			logger.debug(traceback.format_exc())
+			print(e.pprint())
+			return None, e
+		except SMBMachineException as e:
+			logger.debug(traceback.format_exc())
+			print(str(e))
+			return None, e
+		except DCERPCException as e:
+			logger.debug(traceback.format_exc())
+			print(str(e))
+			return None, e
+		except Exception as e:
+			traceback.print_exc()
+			return None, e
+		finally:
+			if pipe is not None:
+				await pipe.close()
 	
 
 async def amain(args):

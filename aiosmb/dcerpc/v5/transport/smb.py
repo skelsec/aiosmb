@@ -1,9 +1,6 @@
 
 from aiosmb.commons.interfaces.file import SMBFile
-from aiosmb.commons.utils.decorators import red, rr
-
-#currently only capable of using an already established SMB connection!!!
-# 
+from aiosmb.dcerpc.v5.rpcrt import MSRPCRespHeader
 
 class DCERPCSMBTransport:
 	def __init__(self, target):
@@ -53,11 +50,27 @@ class DCERPCSMBTransport:
 		except Exception as e:
 			return None, e
 
-	async def recv(self, count): #async def recv(self, forceRecv = 0, count = 0):
+	# old
+	#async def recv(self, count): #async def recv(self, forceRecv = 0, count = 0):
+	#	try:
+	#		#print(count)
+	#		data, err = await self.smbfile.read(count)
+	#		#print('recv %s' % repr(data))
+	#		return data, err
+	#	except Exception as e:
+	#		return None, e
+
+	async def recv(self, count):
 		try:
-			#print(count)
-			data, err = await self.smbfile.read(count)
-			#print('recv %s' % repr(data))
-			return data, err
+			hdr_data, err = await self.smbfile.read(24)
+			if err is not None:
+				raise err
+			response_header = MSRPCRespHeader(hdr_data)
+
+			msg_data, err = await self.smbfile.read(response_header['frag_len'])
+			if err is not None:
+				raise err
+
+			return hdr_data+msg_data, None
 		except Exception as e:
 			return None, e

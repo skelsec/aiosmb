@@ -18,8 +18,6 @@ from aiosmb.dcerpc.v5.rpcrt import RPC_C_AUTHN_LEVEL_NONE,\
 	RPC_C_AUTHN_LEVEL_PKT_PRIVACY,\
 	DCERPCException, RPC_C_AUTHN_GSS_NEGOTIATE
 
-from aiosmb.commons.utils.decorators import red, red_gen
-
 class REMSVCRPC:
 	def __init__(self):
 		self.service_pipename = r'\svcctl'

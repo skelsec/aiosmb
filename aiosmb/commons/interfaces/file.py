@@ -1,5 +1,5 @@
 from pathlib import PureWindowsPath
-from aiosmb.wintypes.access_mask import *
+from aiosmb.wintypes.access_mask import FileAccessMask
 from aiosmb.protocol.smb2.commands import *
 from aiosmb.wintypes.fscc.structures.fileinfoclass import FileInfoClass
 from aiosmb.protocol.smb2.commands.query_info import SecurityInfo
@@ -30,6 +30,7 @@ class SMBFile:
 		self.__position = 0
 		self.is_pipe = False
 		self.maxreadsize = None
+		self.mode = ''
 
 	@staticmethod
 	def from_uncpath(unc_path):
@@ -69,6 +70,10 @@ class SMBFile:
 		temp = '\\\\%s%s'
 		unc = temp % (target.get_hostname_or_ip(), fpath)
 		return SMBFile.from_uncpath(unc)
+
+	@staticmethod
+	def from_pipename(connection, pipename):
+		return SMBFile.from_uncpath('\\\\%s\\IPC$\\%s' % (connection.target.get_hostname_or_ip(), pipename))
 
 	@staticmethod
 	async def delete_unc(connection, remotepath):
@@ -125,6 +130,7 @@ class SMBFile:
 			return False, e
 
 	async def delete(self):
+		"""Deletes the file. If the file is open, a flush will be performed followed by a close then a delete."""
 		try:
 			await self.close()
 			#remfile = SMBFile.from_remotepath(connection, remotepath)
@@ -162,6 +168,7 @@ class SMBFile:
 			return False, e
 
 	async def get_security_descriptor(self, connection):
+		"""Fetches the security descriptor of the file."""
 		if self.security_descriptor is None:
 			file_id = None
 			try:
@@ -212,7 +219,7 @@ class SMBFile:
 		if self.is_pipe == True:
 			data, remaining, err = await self.__connection.read(self.tree_id, self.file_id, offset = offset, length = size)
 			return data, err
-		
+			
 		buffer = b''
 		if size > self.__connection.MaxReadSize:
 			i = size // self.__connection.MaxReadSize
@@ -220,14 +227,14 @@ class SMBFile:
 				data, remaining, err = await self.__connection.read(self.tree_id, self.file_id, offset = offset, length = self.__connection.MaxReadSize)
 				offset += len(data)
 				buffer += data
-			
+				
 			return buffer[:size], err
 		else:
 			data, remaining, err = await self.__connection.read(self.tree_id, self.file_id, offset = offset, length = self.__connection.MaxReadSize)
 			if err is not None:
 				return None, err
 			buffer += data
-			
+				
 			return buffer[:size], err
 
 	async def __write(self, data, position_in_file = 0):
@@ -238,7 +245,7 @@ class SMBFile:
 			remaining = len(data)
 			total_bytes_written = 0
 			offset = 0
-			
+				
 			while remaining != 0:
 				bytes_written, err = await self.__connection.write(self.tree_id, self.file_id, data[offset:len(data)], offset = position_in_file + offset)
 				if err is not None:
@@ -246,7 +253,7 @@ class SMBFile:
 				total_bytes_written += bytes_written
 				remaining -= bytes_written
 				offset += bytes_written
-			
+				
 			return total_bytes_written, None
 		except Exception as e:
 			return None, e
@@ -301,8 +308,37 @@ class SMBFile:
 			return True, None
 		except Exception as e:
 			return False, e
+
+	async def open_pipe(self, connection, mode):
+		try:
+			self.__connection = connection
+			self.is_pipe = True
+			self.size = 0
+			share_mode = 0
+			file_attrs = 0x80
+			create_options = 0
+			create_disposition = CreateDisposition.FILE_OPEN
+			desired_access = 0
+			if 'r' in mode:
+				desired_access |= FileAccessMask.FILE_READ_DATA
+			if 'w' in mode:
+				desired_access |= FileAccessMask.FILE_WRITE_DATA
+
+			tree_entry, err = await self.__connection.tree_connect(self.share_path)
+			if err is not None:
+				raise err
+			self.tree_id = tree_entry.tree_id
+			self.file_id, smb_reply, err = await self.__connection.create(self.tree_id, self.fullpath, desired_access, share_mode, create_options, create_disposition, file_attrs, return_reply = True)
+			if err is not None:
+				raise err
+
+			return True, None
+		except Exception as e:
+			return False, e
+		
 		
 	async def seek(self, offset, whence = 0):
+		"""Sets the current position of the file buffer to the given offset."""
 		try:
 			if whence == 0:
 				if offset < 0:
@@ -363,7 +399,7 @@ class SMBFile:
 
 	async def read_chunked(self, size = -1, chunksize = -1):
 		"""
-		Much like read, but yields chauks of chunksize untill the full size is read
+		Much like read, but yields chuks of chunksize untill the full size is read
 		Use this when reading large files as a whole, as this method doesn't caches 
 		the whole data read in memory, only chunskize
 		chunksize -1 will use the maximum chunk allowed by the underlying connection layer, it is advised to not set manually!
@@ -411,7 +447,8 @@ class SMBFile:
 					self.__position += len(data)
 				yield data, err
 			
-	async def write(self, data):
+	async def write(self, data:bytes):
+		"""Writes the given bytes to the file from the current position."""
 		try:
 			if len(data) < self.__connection.MaxWriteSize:
 				count, err = await self.__write(data, self.__position)
@@ -436,10 +473,8 @@ class SMBFile:
 		except Exception as e:
 			return None, e
 
-	async def write_buffer(self, buffer):
-		"""
-		Doesnt work with pipes!
-		"""
+	async def write_buffer(self, buffer:io.BytesIO):
+		"""Writes the contents of the buffer(or file handle) to the file. Doesnt work with pipes!"""
 		try:
 			if self.is_pipe == True:
 				raise Exception('Doesnt work with pipes!')
@@ -461,16 +496,26 @@ class SMBFile:
 			return None, e
 		
 	async def flush(self):
-		if 'r' in self.mode:
+		"""Issues a flush command on the SMB protocol"""
+		if 'w' not in self.mode:
 			return
-		else:
-			await self.__connection.flush(self.tree_id, self.file_id)
+		await self.__connection.flush(self.tree_id, self.file_id)			
 		
 	async def close(self):
-		await self.flush()
+		"""Closes the file including the fileId"""
+		if self.file_id is None:
+			return
+		if self.tree_id is None:
+			return
+		
+		try:
+			await self.flush()
+		except:
+			pass
 		await self.__connection.close(self.tree_id, self.file_id)
 	
-	def tell(self):
+	def tell(self) -> int:
+		"""Returns current position in file"""
 		return self.__position
 		
 	def __str__(self):

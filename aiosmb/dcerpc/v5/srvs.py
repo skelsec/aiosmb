@@ -27,7 +27,6 @@ from aiosmb.dcerpc.v5.dtypes import NULL, DWORD, LPWSTR, LPBYTE, LMSTR, ULONG, G
     SECURITY_INFORMATION, WCHAR
 from aiosmb.dcerpc.v5 import system_errors
 from aiosmb.dcerpc.v5.uuid import uuidtup_to_bin
-from aiosmb.commons.utils.decorators import red, rr
 
 MSRPC_UUID_SRVS  = uuidtup_to_bin(('4B324FC8-1670-01D3-1278-5A47BF6EE188', '3.0'))
 

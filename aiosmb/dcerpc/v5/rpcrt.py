@@ -600,14 +600,14 @@ class SEC_TRAILER(Structure):
 class MSRPCHeader(Structure):
 	_SIZE = 16
 	commonHdr = ( 
-		('ver_major','B=5'),							  # 0
-		('ver_minor','B=0'),							  # 1
-		('type','B=0'),								   # 2
-		('flags','B=0'),								  # 3
-		('representation','<L=0x10'),					 # 4
+		('ver_major','B=5'),				# 0
+		('ver_minor','B=0'),				# 1
+		('type','B=0'),						# 2
+		('flags','B=0'),					# 3
+		('representation','<L=0x10'),		# 4
 		('frag_len','<H=self._SIZE+len(auth_data)+(16 if (self["flags"] & 0x80) > 0 else 0)+len(pduData)+len(pad)+len(sec_trailer)'),  # 8
-		('auth_len','<H=len(auth_data)'),				 # 10
-		('call_id','<L=1'),							   # 12	<-- Common up to here (including this)
+		('auth_len','<H=len(auth_data)'),	# 10
+		('call_id','<L=1'),					# 12	<-- Common up to here (including this)
 	)
 
 	structure = ( 

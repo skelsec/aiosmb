@@ -9,19 +9,19 @@ from aiosmb.protocol.smb2.headers.common import SMB2HeaderFlag
 # https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-smb2/fb188936-5050-48d3-b350-dc43059638a4
 class SMB2Header_SYNC():
 	def __init__(self):
-		self.ProtocolId    = b'\xFESMB'
-		self.StructureSize = 64
-		self.CreditCharge  = None
-		self.Status        = NTStatus.SUCCESS
-		self.Command       = None
-		self.CreditReq     = None
-		self.Flags         = 0
-		self.NextCommand   = 0
-		self.MessageId     = None
-		self.Reserved      = 0
-		self.TreeId        = 0
-		self.SessionId     = 0
-		self.Signature     = b'\x00'*16
+		self.ProtocolId:bytes     = b'\xFESMB'
+		self.StructureSize:int    = 64
+		self.CreditCharge:int     = None
+		self.Status: NTStatus     = NTStatus.SUCCESS
+		self.Command:SMB2Command  = None
+		self.CreditReq:int        = None
+		self.Flags:SMB2HeaderFlag = 0
+		self.NextCommand:int      = 0
+		self.MessageId:int        = None
+		self.Reserved:int         = 0
+		self.TreeId:int           = 0
+		self.SessionId:int        = 0
+		self.Signature:bytes      = b'\x00'*16
 
 	@staticmethod
 	def from_buffer(buff):

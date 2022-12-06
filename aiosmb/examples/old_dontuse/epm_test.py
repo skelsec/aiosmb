@@ -7,8 +7,6 @@ from aiosmb.commons.connection.authbuilder import AuthenticatorBuilder
 from aiosmb.dcerpc.v5.interfaces.endpointmgr import EPM
 from aiosmb.dcerpc.v5 import drsuapi
 
-from aiosmb.commons.utils.decorators import red, rr
-
 async def filereader_test(connection_string, filename, proxy = None):
 	cu = SMBConnectionFactory.from_url(connection_string)
 	smb_connection = cu.get_connection()

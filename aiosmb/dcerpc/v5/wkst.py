@@ -27,8 +27,6 @@ from aiosmb.dcerpc.v5.uuid import uuidtup_to_bin
 from aiosmb.dcerpc.v5.enum import Enum
 from aiosmb.dcerpc.v5.rpcrt import DCERPCException
 
-from aiosmb.commons.utils.decorators import red, rr
-
 MSRPC_UUID_WKST   = uuidtup_to_bin(('6BFFD098-A112-3610-9833-46C3F87E345A', '1.0'))
 
 class DCERPCSessionError(DCERPCException):

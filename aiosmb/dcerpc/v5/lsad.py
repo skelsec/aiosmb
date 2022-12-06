@@ -37,7 +37,6 @@ from aiosmb.dcerpc.v5.dtypes import DWORD, UUID, ULONG, LPULONG, BOOLEAN, SECURI
     RPC_UNICODE_STRING, FILETIME, NULL, MAXIMUM_ALLOWED, OWNER_SECURITY_INFORMATION, PWCHAR, PRPC_UNICODE_STRING
 from aiosmb.dcerpc.v5.structure import Structure
 
-from aiosmb.commons.utils.decorators import red, rr
 from aiosmb.dcerpc.v5 import system_errors
 
 MSRPC_UUID_LSAD  = uuidtup_to_bin(('12345778-1234-ABCD-EF00-0123456789AB','0.0'))

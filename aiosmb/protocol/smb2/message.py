@@ -63,7 +63,7 @@ class SMB2Transform:
 		return t
 
 class SMB2Message:
-	def __init__(self,header = None,command = None ):
+	def __init__(self,header:SMB2Header_SYNC = None,command = None ):
 		self.header    = header
 		self.command   = command
 

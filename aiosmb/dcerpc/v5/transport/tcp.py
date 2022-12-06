@@ -79,11 +79,6 @@ class DCERPCTCPTransport:
 			return data, None
 		except Exception as e:
 			return None, e
-		#try:
-		#	data = await self.connection.read_one()
-		#	return data, None
-		#except Exception as e:
-		#	return None, e
 
 	async def connect(self):
 		packetizer = DCERPCPacketizer()

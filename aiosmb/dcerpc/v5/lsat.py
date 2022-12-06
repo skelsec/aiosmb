@@ -28,7 +28,6 @@ from aiosmb.dcerpc.v5.rpcrt import DCERPCException
 
 from struct import unpack, pack
 from aiosmb import logger as LOG
-from aiosmb.commons.utils.decorators import red, rr
 
 
 MSRPC_UUID_LSAT  = uuidtup_to_bin(('12345778-1234-ABCD-EF00-0123456789AB','0.0'))

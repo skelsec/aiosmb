@@ -29,7 +29,6 @@ from aiosmb.dcerpc.v5.dtypes import DWORD, UUID, ULONG, LPULONG, BOOLEAN, SECURI
 from aiosmb.dcerpc.v5.rpcrt import DCERPCException
 from aiosmb.dcerpc.v5.uuid import uuidtup_to_bin
 from aiosmb.dcerpc.v5 import system_errors
-from aiosmb.commons.utils.decorators import red, rr
 
 MSRPC_UUID_RRP = uuidtup_to_bin(('338CD001-2244-31F1-AAAA-900038001003', '1.0'))
 

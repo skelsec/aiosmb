@@ -19,7 +19,6 @@ from aiosmb.dcerpc.v5.rpcrt import RPC_C_AUTHN_LEVEL_PKT_INTEGRITY,\
 	RPC_C_AUTHN_LEVEL_PKT_PRIVACY,\
 	RPC_C_AUTHN_LEVEL_CONNECT, DCERPCException, RPC_C_AUTHN_GSS_NEGOTIATE
 
-from aiosmb.commons.utils.decorators import red, rr
 
 class DRSUAPIRPC:
 	def __init__(self, domainname = None):

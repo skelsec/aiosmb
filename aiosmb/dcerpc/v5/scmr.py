@@ -1256,7 +1256,6 @@ async def hREnumDependentServicesW(dce, hService, dwServiceState, cbBufSize ):
 	enumDependentServices['cbBufSize'] = cbBufSize
 	return await dce.request(enumDependentServices)
 
-@red
 async def hREnumServicesStatusW(dce, hSCManager, dwServiceType=SERVICE_WIN32_OWN_PROCESS|SERVICE_KERNEL_DRIVER|SERVICE_FILE_SYSTEM_DRIVER|SERVICE_WIN32_SHARE_PROCESS|SERVICE_INTERACTIVE_PROCESS, dwServiceState=SERVICE_STATE_ALL):
 	class ENUM_SERVICE_STATUSW2(NDRSTRUCT):
 		# This is a little trick, since the original structure is slightly different
@@ -1276,48 +1275,51 @@ async def hREnumServicesStatusW(dce, hSCManager, dwServiceType=SERVICE_WIN32_OWN
 			('ServiceStatus',SERVICE_STATUS),
 		)
 
-	enumServicesStatus = REnumServicesStatusW()
-	enumServicesStatus['hSCManager'] = hSCManager
-	enumServicesStatus['dwServiceType'] = dwServiceType
-	enumServicesStatus['dwServiceState'] = dwServiceState
-	enumServicesStatus['cbBufSize'] = 0
-	enumServicesStatus['lpResumeIndex'] = NULL
+	try:
+		enumServicesStatus = REnumServicesStatusW()
+		enumServicesStatus['hSCManager'] = hSCManager
+		enumServicesStatus['dwServiceType'] = dwServiceType
+		enumServicesStatus['dwServiceState'] = dwServiceState
+		enumServicesStatus['cbBufSize'] = 0
+		enumServicesStatus['lpResumeIndex'] = NULL
 
-	
-	resp, e = await dce.request(enumServicesStatus)
-	if e is not None:
-		#print('e! %s' % e)
-		if isinstance(e, SMBException):
-			#this case the exception is coming from the SMB connection itself, it's is dead Jim
+		
+		resp, e = await dce.request(enumServicesStatus)
+		if e is not None:
+			#print('e! %s' % e)
+			if isinstance(e, SMBException):
+				#this case the exception is coming from the SMB connection itself, it's is dead Jim
+				return None, e
+			if e.get_error_code() == system_errors.ERROR_MORE_DATA:
+				resp = e.get_packet()
+				enumServicesStatus['cbBufSize'] = resp['pcbBytesNeeded']
+				resp, e = await dce.request(enumServicesStatus)
+		else:
 			return None, e
-		if e.get_error_code() == system_errors.ERROR_MORE_DATA:
-			resp = e.get_packet()
-			enumServicesStatus['cbBufSize'] = resp['pcbBytesNeeded']
-			resp, e = await dce.request(enumServicesStatus)
-	else:
+		
+		# Now we're supposed to have all services returned. Now we gotta parse them
+
+		enumArray = NDRUniConformantArray()
+		enumArray.item = ENUM_SERVICE_STATUSW2
+
+		enumArray.setArraySize(resp['lpServicesReturned'])
+
+		data = b''.join(resp['lpBuffer'])
+		enumArray.fromString(data)
+		data = data[4:]
+		# Since the pointers here are pointing to the actual data, we have to reparse
+		# the referents
+		for record in enumArray['Data']:
+			offset =  record.fields['lpDisplayName'].fields['ReferentID']-4
+			name = WIDESTR(data[offset:])
+			record['lpDisplayName'] = name['Data']
+			offset =  record.fields['lpServiceName'].fields['ReferentID']-4
+			name = WIDESTR(data[offset:])
+			record['lpServiceName'] = name['Data']
+
+		return enumArray['Data'], None
+	except Exception as e:
 		return None, e
-	
-	# Now we're supposed to have all services returned. Now we gotta parse them
-
-	enumArray = NDRUniConformantArray()
-	enumArray.item = ENUM_SERVICE_STATUSW2
-
-	enumArray.setArraySize(resp['lpServicesReturned'])
-
-	data = b''.join(resp['lpBuffer'])
-	enumArray.fromString(data)
-	data = data[4:]
-	# Since the pointers here are pointing to the actual data, we have to reparse
-	# the referents
-	for record in enumArray['Data']:
-		offset =  record.fields['lpDisplayName'].fields['ReferentID']-4
-		name = WIDESTR(data[offset:])
-		record['lpDisplayName'] = name['Data']
-		offset =  record.fields['lpServiceName'].fields['ReferentID']-4
-		name = WIDESTR(data[offset:])
-		record['lpServiceName'] = name['Data']
-
-	return enumArray['Data'], None
 
 async def hROpenSCManagerW(dce, lpMachineName='DUMMY\x00', lpDatabaseName='ServicesActive\x00', dwDesiredAccess=SERVICE_START | SERVICE_STOP | SERVICE_CHANGE_CONFIG | SERVICE_QUERY_CONFIG | SERVICE_QUERY_STATUS | SERVICE_ENUMERATE_DEPENDENTS | SC_MANAGER_ENUMERATE_SERVICE):
 	openSCManager = ROpenSCManagerW()
@@ -1333,24 +1335,26 @@ async def hROpenServiceW(dce, hSCManager, lpServiceName, dwDesiredAccess= SERVIC
 	openService['dwDesiredAccess'] = dwDesiredAccess
 	return await dce.request(openService)
 
-@red
 async def hRQueryServiceConfigW(dce, hService):
-	queryService = RQueryServiceConfigW()
-	queryService['hService'] = hService
-	queryService['cbBufSize'] = 0
-	
-	resp, e = await dce.request(queryService)
-	if e is not None:
-		if e.get_error_code() == system_errors.ERROR_INSUFFICIENT_BUFFER:
-			resp = e.get_packet()
-			queryService['cbBufSize'] = resp['pcbBytesNeeded']
-			resp, e = await dce.request(queryService)
-			if e is not None:
+	try:
+		queryService = RQueryServiceConfigW()
+		queryService['hService'] = hService
+		queryService['cbBufSize'] = 0
+		
+		resp, e = await dce.request(queryService)
+		if e is not None:
+			if e.get_error_code() == system_errors.ERROR_INSUFFICIENT_BUFFER:
+				resp = e.get_packet()
+				queryService['cbBufSize'] = resp['pcbBytesNeeded']
+				resp, e = await dce.request(queryService)
+				if e is not None:
+					return None, e
+			else:
 				return None, e
-		else:
-			return None, e
 
-	return resp, None
+		return resp, None
+	except Exception as e:
+		return None, e
 
 async def hRQueryServiceLockStatusW(dce, hSCManager, cbBufSize ):
 	queryServiceLock = RQueryServiceLockStatusW()

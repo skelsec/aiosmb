@@ -31,8 +31,6 @@ from aiosmb.dcerpc.v5.dtypes import NULL, RPC_UNICODE_STRING, ULONG, USHORT, UCH
 from aiosmb.dcerpc.v5.rpcrt import DCERPCException
 from aiosmb.wintypes.ntstatus import NTStatus
 
-from aiosmb.commons.utils.decorators import red, rr
-
 MSRPC_UUID_SAMR   = uuidtup_to_bin(('12345778-1234-ABCD-EF00-0123456789AC', '1.0'))
 
 class DCERPCSessionError(DCERPCException):

