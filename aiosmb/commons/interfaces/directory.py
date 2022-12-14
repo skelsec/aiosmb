@@ -95,7 +95,7 @@ class SMBDirectory:
 				raise err
 			tree_id = tree_entry.tree_id
 
-			desired_access = FileAccessMask.GENERIC_ALL
+			desired_access = FileAccessMask.FILE_READ_DATA | FileAccessMask.FILE_WRITE_DATA | FileAccessMask.FILE_READ_EA | FileAccessMask.FILE_WRITE_EA | FileAccessMask.FILE_READ_ATTRIBUTES | FileAccessMask.FILE_WRITE_ATTRIBUTES | FileAccessMask.READ_CONTROL | FileAccessMask.DELETE | FileAccessMask.SYNCHRONIZE
 			share_mode = ShareAccess.FILE_SHARE_READ | ShareAccess.FILE_SHARE_WRITE | ShareAccess.FILE_SHARE_DELETE
 			create_options = CreateOptions.FILE_DIRECTORY_FILE | CreateOptions.FILE_SYNCHRONOUS_IO_NONALERT
 			create_disposition = CreateDisposition.FILE_CREATE
@@ -199,7 +199,7 @@ class SMBDirectory:
 				file_id, err = await connection.create(
 					self.tree_id, 
 					newpath, 
-					FileAccessMask.GENERIC_ALL, 
+					FileAccessMask.FILE_READ_DATA | FileAccessMask.FILE_WRITE_DATA | FileAccessMask.FILE_READ_EA | FileAccessMask.FILE_WRITE_EA | FileAccessMask.FILE_READ_ATTRIBUTES | FileAccessMask.FILE_WRITE_ATTRIBUTES | FileAccessMask.READ_CONTROL | FileAccessMask.DELETE | FileAccessMask.SYNCHRONIZE, 
 					ShareAccess.FILE_SHARE_READ | ShareAccess.FILE_SHARE_WRITE | ShareAccess.FILE_SHARE_DELETE,
 					CreateOptions.FILE_DIRECTORY_FILE | CreateOptions.FILE_SYNCHRONOUS_IO_NONALERT, 
 					CreateDisposition.FILE_CREATE, 
