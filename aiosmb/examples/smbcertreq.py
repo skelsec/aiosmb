@@ -13,7 +13,6 @@ from aiosmb._version import __banner__
 from aiosmb.commons.connection.factory import SMBConnectionFactory
 from aiosmb.dcerpc.v5.interfaces.icprmgr import ICPRRPC
 from aiosmb.dcerpc.v5.connection import DCERPC5Connection
-from aiosmb.commons.connection.authbuilder import AuthenticatorBuilder
 from aiosmb.dcerpc.v5.common.connection.authentication import DCERPCAuth
 from aiosmb.dcerpc.v5.interfaces.endpointmgr import EPM
 
@@ -40,7 +39,7 @@ async def amain(url, service, template, altname, onbehalf, cn = None, pfx_file =
 		ip = su.get_target().get_hostname_or_ip()
 
 		if cn is None:
-			cn = '%s@%s' % (su.username, su.domain)
+			cn = '%s@%s' % (su.credential.username, su.credential.domain)
 		
 		print('[*] Using CN: %s' % cn)
 		
@@ -90,8 +89,7 @@ async def amain(url, service, template, altname, onbehalf, cn = None, pfx_file =
 			raise err
 		
 		print('[+] Connecting to ICRPR service...')
-		gssapi = AuthenticatorBuilder.to_spnego_cred(su.get_credential(), target)
-		auth = DCERPCAuth.from_smb_gssapi(gssapi)
+		auth = DCERPCAuth.from_smb_gssapi(su.get_credential())
 		connection = DCERPC5Connection(auth, target)
 		rpc, err = await ICPRRPC.from_rpcconnection(connection, perform_dummy=True)
 		if err is not None:

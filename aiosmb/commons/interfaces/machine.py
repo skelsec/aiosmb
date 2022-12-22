@@ -1,7 +1,9 @@
 
+import fnmatch
 import asyncio
 import ntpath
 import os
+
 
 from aiosmb import logger
 from aiosmb.commons.interfaces.share import SMBShare
@@ -1017,9 +1019,75 @@ class SMBMachine:
 		except Exception as e:
 			return None, e
 	
-
-	#### TODO SECTION
-
-	async def list_mountpoints(self):
-		pass
-	
+#	"""
+#	fpath
+#	fname
+#	ext
+#	size
+#	creationtime
+#	content
+#	"""
+#	
+#	async def search(self, depth = 3, maxentries = None, exclude_share=['print$', 'PRINT$'], exclude_dir=[]):
+#		try:
+#			async for obj, otype, err in self.enum_all_recursively(self,  fetch_share_sd = False, fetch_dir_sd = False, fetch_file_sd = False):
+#				if otype != 'file':
+#					continue
+#
+#				share, 'share', None
+#
+#		except Exception as e:
+#			return None, e
+#	
+#
+#	#### TODO SECTION
+#
+#	async def list_mountpoints(self):
+#		pass
+#	
+#class FileFilter:
+#	def __init__(self):
+#		self.fname = None
+#		self.size = None
+#		self.creationtime = None
+#		self.content = None
+#		self.matchcase = False
+#	
+#	async def filter(self, fileobj:SMBFile, fcontent = None):
+#		try:
+#			fname_matches = True
+#			size_matches = True
+#			if self.fname is not None:
+#				fname_matches = False
+#				fname_matches = fnmatch.fnmatch(fileobj.fullpath, self.fname)
+#				if self.matchcase is False:
+#					fname_matches = fnmatch.fnmatchcase(fileobj.fullpath, self.fname)				
+#				
+#			if self.size is not None:
+#				size_matches = False
+#				if self.size.startswith('<=') is True:
+#					size = int(self.size[2:])
+#					if fileobj.size <= size:
+#						size_matches = True
+#				elif self.size.startswith('>=') is True:
+#					size = int(self.size[2:])
+#					if fileobj.size >= size:
+#						size_matches = True
+#				elif self.size.startswith('==') is True:
+#					size = int(self.size[2:])
+#					if fileobj.size == size:
+#						size_matches = True
+#				elif self.size[0] == '=' is True:
+#					size = int(self.size[1:])
+#					if fileobj.size == size:
+#						size_matches = True
+#			
+#			
+#				
+#			
+#
+#
+#
+#
+#		except Exception as e:
+#			return None, None, None, e

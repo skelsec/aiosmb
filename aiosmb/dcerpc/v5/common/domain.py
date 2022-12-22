@@ -3,13 +3,9 @@ import logging
 import json
 
 import aiosmb
-from aiosmb.commons.connection.credential import SMBCredential
 from aiosmb.commons.connection.target import SMBTarget
-from aiosmb.commons.connection.authbuilder import AuthenticatorBuilder
 from aiosmb.connection import SMBConnection
-
-from aiosmb.dcerpc.v5.transport.smbtransport import SMBTransport
-from aiosmb.dcerpc.v5.interfaces.samrmgr import SMBSAMR
+from aiosmb.dcerpc.v5.interfaces.samrmgr import SAMRRPC
 from aiosmb.dcerpc.v5 import samr
 
 class SMBDomain:
@@ -33,7 +29,9 @@ class SMBDomain:
 	async def open(self, access_level = samr.MAXIMUM_ALLOWED):
 		self.domain_access_level = access_level
 		if self.samr is None:
-			self.samr = SMBSAMR(self.connection)
+			self.samr, err = await SAMRRPC.from_smbconnection(self.connection)
+			if err is not None:
+				raise err
 			logging.debug('Connecting to SAMR')
 			try:
 				await self.samr.connect()
@@ -88,6 +86,10 @@ class SMBDomain:
 	
 	
 async def domain_test(connection_string, domain_name, out_file = None, json_out = False):
+	from aiosmb.commons.connection.credential import SMBCredential
+	from aiosmb.commons.connection.authbuilder import AuthenticatorBuilder
+
+
 	target = SMBTarget.from_connection_string(connection_string)
 	credential = SMBCredential.from_connection_string(connection_string)
 	spneg = AuthenticatorBuilder.to_spnego_cred(credential, target)
