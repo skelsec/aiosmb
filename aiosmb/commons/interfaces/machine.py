@@ -29,7 +29,6 @@ from aiosmb.commons.exceptions import SMBMachineException
 
 from aiosmb.commons.interfaces.blocking.file.file import SMBBlockingFileMgr
 from aiosmb.commons.interfaces.blocking.file.blockingfile import SMBBlockingFile
-from aiosmb.commons.utils.apq import AsyncProcessQueue
 from aiosmb.protocol.smb2.commands.ioctl import CtlCode, IOCTLREQFlags
 
 from aiosmb.dcerpc.v5.rprn import PRINTER_CHANGE_ADD_JOB
@@ -84,14 +83,14 @@ class SMBMachine:
 		Please don't ever use this
 		Starts a file manager task and initializes the io queues
 		"""
-
-		in_q = AsyncProcessQueue()
-		out_q = AsyncProcessQueue()
-		fsm = SMBBlockingFileMgr(self.connection, in_q, out_q)
-		fsmt = asyncio.create_task(fsm.run())
-		self.blocking_mgr_tasks[fsmt] = 1
-		bfile = SMBBlockingFile(in_q, out_q)
-		return bfile
+		raise DeprecationWarning()
+		#in_q = AsyncProcessQueue()
+		#out_q = AsyncProcessQueue()
+		#fsm = SMBBlockingFileMgr(self.connection, in_q, out_q)
+		#fsmt = asyncio.create_task(fsm.run())
+		#self.blocking_mgr_tasks[fsmt] = 1
+		#bfile = SMBBlockingFile(in_q, out_q)
+		#return bfile
 
 	async def connect_rpc(self, service_name, reconnect = False):
 		try:
