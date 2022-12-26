@@ -127,7 +127,7 @@ Socks4 proxy port : `9050`
 # TODO
 - DCERPC: in progress, lot of features working already
 - VSS mountpoint operations
-- a lot of other things?
+- a lot of other things
 
 # Kudos
 This project is heavily based on the [Impacket](https://github.com/SecureAuthCorp/impacket) orignally by @agsolino.  
