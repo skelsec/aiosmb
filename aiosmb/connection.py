@@ -31,7 +31,6 @@ from aiosmb.wintypes.fscc.FileAttributes import FileAttributes
 from winacl.dtyp.security_descriptor import SECURITY_DESCRIPTOR
 from winacl.functions.constants import SE_OBJECT_TYPE
 
-#from aiosmb.commons.smbcontainer import *
 from aiosmb.commons.connection.target import *
 
 from unicrypto import hmac
@@ -941,13 +940,16 @@ class SMBConnection:
 			return None, e
 
 		
-	async def tree_connect(self, share_name):
+	async def tree_connect(self, share_name:str):
 		"""
 		share_name MUST be in "\\\\server\\share" format! Server can be NetBIOS name OR IP4 OR IP6 OR FQDN
 		"""
 		try:
 			if self.session_closed == True or self.status == SMBConnectionStatus.CLOSED:
 				raise SMBConnectionTerminated()
+			
+			if share_name is None:
+				raise Exception('Share name is None!')
 			
 			command = TREE_CONNECT_REQ()
 			command.Path = share_name

@@ -1,28 +1,32 @@
-from pathlib import PureWindowsPath
+from pathlib import PureWindowsPath, PurePath, Path
 from aiosmb.wintypes.access_mask import FileAccessMask
 from aiosmb.protocol.smb2.commands import *
 from aiosmb.wintypes.fscc.structures.fileinfoclass import FileInfoClass
 from aiosmb.protocol.smb2.commands.query_info import SecurityInfo
-import io
-import asyncio
+from aiosmb.wintypes.fscc.FileAttributes import FileAttributes
 
+import io
+import datetime
+import asyncio
+from contextlib import asynccontextmanager
+from aiosmb.connection import SMBConnection
 
 class SMBFile:
 	def __init__(self):
 		self.tree_id = None
 		self.parent_dir = None
-		self.fullpath = None
-		self.unc_path = None
-		self.share_path = None
-		self.name = None
-		self.size = None
-		self.creation_time = None
-		self.last_access_time = None
-		self.last_write_time = None
-		self.change_time = None
-		self.allocation_size = None
-		self.attributes = None
-		self.file_id = None
+		self.fullpath:str = None
+		self.unc_path:str = None
+		self.share_path:str = None
+		self.name:str = None
+		self.size:int = None
+		self.creation_time:datetime.datetime = None
+		self.last_access_time:datetime.datetime = None
+		self.last_write_time:datetime.datetime = None
+		self.change_time:datetime.datetime = None
+		self.allocation_size:datetime.datetime = None
+		self.attributes:FileAttributes = None
+		self.file_id:int = None
 		self.security_descriptor = None
 
 		#internal
@@ -31,9 +35,30 @@ class SMBFile:
 		self.is_pipe = False
 		self.maxreadsize = None
 		self.mode = ''
+	
+	async def __aenter__(self):
+		return self
+	
+	async def __aexit__(self, exc_type, exc_val, exc_tb):
+		await self.close()
 
 	@staticmethod
-	def from_uncpath(unc_path):
+	def prepare_mirror_path(basedir:str, unc_path:str, path_with_file = True):
+		unc_path = unc_path.lstrip('\\')
+		unc = PureWindowsPath('\\\\\\\\' + unc_path)
+		host = unc.parts[1].replace('.'	, '_')
+		share = unc.parts[2]
+		if share.find('$') != -1:
+			share = share[:-1] + '_'
+		if path_with_file is True:
+			dirs = [host, share] + list(unc.parts[3:-1])
+		else:
+			dirs = [host, share] + list(unc.parts[3:])
+		path_to_create = Path(basedir).joinpath(*dirs).resolve()
+		return path_to_create
+	
+	@staticmethod
+	def from_uncpath(unc_path:str):
 		"""
 		Creates SMBFile object from the UNC path supplied.
 		Example uncpath: \\\\127.0.0.1\\C$\\temp\\test.exe
@@ -47,7 +72,7 @@ class SMBFile:
 		return f
 
 	@staticmethod
-	def from_remotepath(connection, remotepath):
+	def from_remotepath(connection:SMBConnection, remotepath:str):
 		"""
 		Creates SMBFile object from the connection and the remote path supplied.
 		Example remotepath: \\C$\\temp\\test.exe
@@ -59,7 +84,7 @@ class SMBFile:
 		return SMBFile.from_uncpath(unc)
 	
 	@staticmethod
-	def from_smbtarget(target):
+	def from_smbtarget(target:str):
 		"""
 		Creates SMBFile object from the SMBUrl object
 		"""
@@ -72,11 +97,11 @@ class SMBFile:
 		return SMBFile.from_uncpath(unc)
 
 	@staticmethod
-	def from_pipename(connection, pipename):
+	def from_pipename(connection:SMBConnection, pipename:str):
 		return SMBFile.from_uncpath('\\\\%s\\IPC$\\%s' % (connection.target.get_hostname_or_ip(), pipename))
 
 	@staticmethod
-	async def delete_unc(connection, remotepath):
+	async def delete_unc(connection:SMBConnection, remotepath:str):
 		try:
 			remfile = SMBFile.from_uncpath(remotepath)
 			tree_entry, err = await connection.tree_connect(remfile.share_path)
@@ -103,7 +128,7 @@ class SMBFile:
 			return False, e
 
 	@staticmethod
-	async def delete_rempath(connection, remotepath):
+	async def delete_rempath(connection:SMBConnection, remotepath:str):
 		try:
 			remfile = SMBFile.from_remotepath(connection, remotepath)
 			tree_entry, err = await connection.tree_connect(remfile.share_path)
@@ -167,7 +192,7 @@ class SMBFile:
 		except Exception as e:
 			return False, e
 
-	async def get_security_descriptor(self, connection):
+	async def get_security_descriptor(self, connection:SMBConnection):
 		"""Fetches the security descriptor of the file."""
 		if self.security_descriptor is None:
 			file_id = None
@@ -209,7 +234,7 @@ class SMBFile:
 
 		return self.security_descriptor, None
 
-	async def __read(self, size, offset):
+	async def __read(self, size:int, offset:int):
 		"""
 		This is the main function for reading.
 		It does not do buffering, so if more data is returned it will just discard it
@@ -237,7 +262,7 @@ class SMBFile:
 				
 			return buffer[:size], err
 
-	async def __write(self, data, position_in_file = 0):
+	async def __write(self, data:bytes, position_in_file:int = 0):
 		"""
 		Data must be bytes
 		"""
@@ -258,7 +283,7 @@ class SMBFile:
 		except Exception as e:
 			return None, e
 
-	async def open(self, connection, mode = 'r'):
+	async def open(self, connection:SMBConnection, mode:str = 'r'):
 		try:
 			self.__connection = connection
 			self.maxreadsize = connection.MaxReadSize
@@ -309,7 +334,34 @@ class SMBFile:
 		except Exception as e:
 			return False, e
 
-	async def open_pipe(self, connection, mode):
+	async def download(self, connection:SMBConnection ,local_path:str):
+		"""Downloads the file to the local path. File must not be open."""
+		try:
+			if self.is_pipe:
+				raise Exception('Cannot download a pipe!')
+			if self.__connection is not None:
+				raise Exception('Cannot download a file that is already open!')
+			
+			_, err = await self.open(connection, 'r')
+			if err is not None:
+				raise err
+			
+			lfpath = Path(local_path).joinpath(self.name)
+			with open(lfpath, 'wb') as f:
+				async for data, err in self.read_chunked():
+					if err is not None:
+						raise err
+					if not data:
+						break
+					f.write(data)
+			
+			return lfpath, None
+		except Exception as e:
+			return False, e
+		finally:
+			await self.close()
+		
+	async def open_pipe(self, connection:SMBConnection, mode:str):
 		try:
 			self.__connection = connection
 			self.is_pipe = True
@@ -337,7 +389,7 @@ class SMBFile:
 			return False, e
 		
 		
-	async def seek(self, offset, whence = 0):
+	async def seek(self, offset:int, whence:int = 0):
 		"""Sets the current position of the file buffer to the given offset."""
 		try:
 			if whence == 0:
@@ -363,19 +415,23 @@ class SMBFile:
 		except Exception as e:
 			return None, e
 		
-	async def read(self, size = -1):
+	async def read(self, size:int = -1):
 		try:
 			if self.is_pipe is True:
 				data, err = await self.__read(size, 0)
 				return data, err
 			
 			if size > self.size:
-				raise Exception('Requested read size %s is larger than the file size %s' % (hex(size), hex(self.size)))
+				size = -1
+				#raise Exception('Requested read size %s is larger than the file size %s' % (hex(size), hex(self.size)))
 
 			if size == 0:
-				raise Exception('Cant read 0 bytes')
+				return b'', None
+				#raise Exception('Cant read 0 bytes')
 				
 			elif size == -1:
+				if self.__position == self.size:
+					return b'', None
 				data, err = await self.__read(self.size - self.__position, self.__position)
 				if err is not None:
 					raise err
@@ -385,7 +441,7 @@ class SMBFile:
 				
 			elif size > 0:
 				if self.__position == self.size:
-					return None
+					return b'', None
 				if size + self.__position > self.size:
 					size = self.size - self.__position
 				data, err = await self.__read(size, self.__position)
@@ -397,7 +453,7 @@ class SMBFile:
 		except Exception as e:
 			return None, e
 
-	async def read_chunked(self, size = -1, chunksize = -1):
+	async def read_chunked(self, size:int = -1, chunksize:int = -1):
 		"""
 		Much like read, but yields chuks of chunksize untill the full size is read
 		Use this when reading large files as a whole, as this method doesn't caches 
@@ -526,3 +582,85 @@ class SMBFile:
 			t += '%s : %s\r\n' % (k, self.__dict__[k])
 		
 		return t
+
+@asynccontextmanager
+async def smb_open(path:str, mode = 'r', connection = None) -> SMBFile:
+	"""
+	Opens a file on the remote server
+	path can be a smb:// url or a path like \\server\share\path\to\file
+	"""
+	try:
+		if path.lower().startswith('smb'):
+			from aiosmb.commons.connection.factory import SMBConnectionFactory
+			factory = SMBConnectionFactory.from_url(path)
+			if connection is None:
+				connection = factory.get_connection()
+				async with connection:
+					_, err = await connection.login()
+					if err is not None:
+						raise err
+					file = factory.get_file()
+					_, err = await file.open(connection, mode)
+					if err is not None:
+						raise err
+					yield file
+					return
+			else:
+				file = factory.get_file()
+				_, err = await file.open(connection, mode)
+				if err is not None:
+					raise err
+				yield file
+				return
+		else:
+			file = SMBFile.from_remotepath(connection, path)
+			_, err = await file.open(connection, mode)
+			if err is not None:
+				raise err
+			yield file
+			return
+	finally:
+		if file is not None:
+			await file.close()
+
+
+async def amain():
+	url = 'smb2+ntlm-password://TEST\\Administrator:Passw0rd!1@10.10.10.2/C$/temp/repodata.json'
+	async with smb_open(url, 'rb') as f:
+		data, err = await f.read(1024)
+		print(data)
+		print(len(data))
+	
+	from aiosmb.commons.connection.factory import SMBConnectionFactory
+	connection = SMBConnectionFactory.from_url(url).get_connection()
+	_, err = await connection.login()
+	if err is not None:
+		raise err
+		
+	async with smb_open('C$/temp/repodata.json', 'rb', connection=connection) as f:
+		while True:
+			data, err = await f.read(1024)
+			print(data)
+			print(len(data))
+			if data == b'':
+				break
+
+	async with smb_open('C$/temp/repodata1.json', 'wb', connection=connection) as f:
+		_, err = await f.write(b'HELLO')
+		if err is not None:
+			print(err)
+	
+	async with smb_open('C$/temp/repodata1.json', 'rb', connection=connection) as f:
+		data, err = await f.read(1024)
+		if err is not None:
+			print(err)
+			return
+		print(data)
+		print(len(data))
+	
+	print('DONE!')
+
+if __name__ == '__main__':
+	import asyncio
+	asyncio.run(amain())
+

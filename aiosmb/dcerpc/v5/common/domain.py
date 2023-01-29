@@ -3,8 +3,6 @@ import logging
 import json
 
 import aiosmb
-from aiosmb.commons.connection.target import SMBTarget
-from aiosmb.connection import SMBConnection
 from aiosmb.dcerpc.v5.interfaces.samrmgr import SAMRRPC
 from aiosmb.dcerpc.v5 import samr
 
@@ -86,15 +84,9 @@ class SMBDomain:
 	
 	
 async def domain_test(connection_string, domain_name, out_file = None, json_out = False):
-	from aiosmb.commons.connection.credential import SMBCredential
-	from aiosmb.commons.connection.authbuilder import AuthenticatorBuilder
-
-
-	target = SMBTarget.from_connection_string(connection_string)
-	credential = SMBCredential.from_connection_string(connection_string)
-	spneg = AuthenticatorBuilder.to_spnego_cred(credential, target)
+	from aiosmb.commons.connection.factory import SMBConnectionFactory
 	
-	async with SMBConnection(spneg, target) as connection: 
+	async with SMBConnectionFactory.from_url(connection_string).get_connection() as connection: 
 		await connection.login()
 		
 		async with SMBDomain(domain_name, connection=connection) as domain:
@@ -104,8 +96,11 @@ async def domain_test(connection_string, domain_name, out_file = None, json_out 
 			except Exception as e:
 				logging.exception('Failed to create domain object')
 				
-			info = await domain.get_info()
-			
+			info, err = await domain.get_info()
+			if err is not None:
+				raise err
+			print(info)
+
 			async for user_name, user_sid in domain.list_users():
 				print(user_name, user_sid)
 				try:

@@ -55,12 +55,15 @@ class EPM:
 		return EPM(connection, data_representation)
 
 	@staticmethod
-	def from_unitarget(target:UniTarget, protocol:str = 'ncacn_ip_tcp', port:int = 135, data_representation = None):
+	def from_unitarget(target:UniTarget, protocol:str = 'ncacn_ip_tcp', port:int = 135, data_representation = None, credentials = None):
 		dcerpc_target_str = r'%s:%s[%s]' % (protocol, target.get_hostname_or_ip(), port)
 		target = DCERPCTarget.from_connection_string(dcerpc_target_str, proxies = target.proxies)
 		auth = None
+		if credentials is not None:
+			auth = DCERPCAuth.from_smb_gssapi(credentials)
 		connection = DCERPC5Connection(auth, target)
-		connection.set_auth_type(RPC_C_AUTHN_LEVEL_NONE)
+		if auth is None:
+			connection.set_auth_type(RPC_C_AUTHN_LEVEL_NONE)
 		return EPM(connection, data_representation)
 
 	@staticmethod
@@ -109,20 +112,35 @@ class EPM:
 	async def disconnect(self):
 		await self.dce.disconnect()
 
-	async def connect(self):
+	async def connect(self, autobind = True):
 		try:
 			_, err = await self.dce.connect()
 			if err is not None:
 				raise err
-			#print('EPM bind')
-			_, err = await self.dce.bind(MSRPC_UUID_PORTMAP)
+			
+			if not autobind:
+				return True, None
+			return await self.bind()
+		except Exception as e:
+			return False, e
+	
+	async def bind(self, uuid = MSRPC_UUID_PORTMAP):
+		try:
+			_, err = await self.dce.bind(uuid)
 			if err is not None:
 				raise err
-			#print('EPM done')
 			return True,None
 		except Exception as e:
-			#print('EPM err %s' % e)
 			return False, e
+
+	async def disconnect(self):
+		await self.dce.disconnect()
+	
+	async def request(self, request):
+		try:
+			return await self.dce.request(request)
+		except Exception as e:
+			return None, e
 
 	async def map(self, remoteIf):
 		try:

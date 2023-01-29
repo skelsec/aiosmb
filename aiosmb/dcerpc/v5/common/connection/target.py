@@ -97,6 +97,15 @@ class DCERPCTarget(UniTarget):
 			
 		return t
 
+	def __hash__(self):
+		return hash(str(self.connection_string) + str(self.rpcprotocol) + str(self.pipe) +\
+			str(self.ip) + str(self.port) + str(self.protocol) + str(self.timeout) +\
+			str(self.hostname) + str(self.domain) + str(self.dc_ip))
+
+	def __eq__(self, other):
+		if not isinstance(other, DCERPCTarget):
+			return False
+		return self.__hash__() == other.__hash__()
 
 class DCERPCTCPTarget(DCERPCTarget):
 	def __init__(self, connection_string, ip, port, timeout = 1, proxies = None, dc_ip:str = None, domain:str = None):

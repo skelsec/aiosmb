@@ -332,6 +332,31 @@ class SMBMachine:
 			async for entry in shares[share_name].subdirs[''].list_r(self.connection, depth = depth, maxentries = maxentries, fetch_dir_sd = fetch_dir_sd, fetch_file_sd = fetch_file_sd, exclude_dir = exclude_dir):
 				yield entry
 				await asyncio.sleep(0)
+	
+	async def enum_files_with_filter(self, filter_cb):
+		shares = {}
+		async for share, err in self.list_shares():
+			if err is not None:
+				raise err
+			shares[share.name] = share
+			yield share, 'share', None
+
+		for share_name in shares:
+			res = await filter_cb('sharename', share_name)
+			if res is False:
+				continue
+
+			_, err = await shares[share_name].connect(self.connection)
+			if err is not None:
+				continue
+			
+			res = await filter_cb('share', shares[share_name])
+			if res is False:
+				continue
+
+			async for entry in shares[share_name].subdirs[''].list_r(self.connection, depth = 1000, maxentries = -1, filter_cb = filter_cb):
+				yield entry
+				await asyncio.sleep(0)
 
 	async def put_file(self, local_path, remote_path):
 		"""
