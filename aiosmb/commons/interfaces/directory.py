@@ -272,39 +272,42 @@ class SMBDirectory:
 		depth -= 1
 		ctr = 0
 
-		async for obj, otype, err in self.list_gen(connection):
-			await asyncio.sleep(0)
-			if otype == 'dir' and fetch_dir_sd is True and obj.name not in exclude_dir:
-				obj.tree_id = self.tree_id
-				_, err = await obj.get_security_descriptor(connection)
-				#if err is not None:
-				#	print(err)
-			
-			if otype == 'file' and fetch_file_sd is True:
-				obj.tree_id = self.tree_id
-				_, err = await obj.get_security_descriptor(connection)
-				#if err is not None:
-				#	print(err)
+		try:
+			async for obj, otype, err in self.list_gen(connection):
+				await asyncio.sleep(0)
+				if otype == 'dir' and fetch_dir_sd is True and obj.name not in exclude_dir:
+					obj.tree_id = self.tree_id
+					_, err = await obj.get_security_descriptor(connection)
+					#if err is not None:
+					#	print(err)
+				
+				if otype == 'file' and fetch_file_sd is True:
+					obj.tree_id = self.tree_id
+					_, err = await obj.get_security_descriptor(connection)
+					#if err is not None:
+					#	print(err)
 
-			yield obj, otype, err
-			
-			ctr += 1
-			if err is not None:
-				break
-			
-			if ctr == maxentries:
-				yield self, 'maxed', None
-				break
-			
-			if otype == 'dir' and obj.name not in exclude_dir:
-				if filter_cb is not None:
-					res = await filter_cb('dir', obj)
-					if res is False:
-						continue
-				obj.tree_id = self.tree_id
-				async for e,t,err in obj.list_r(connection, depth, maxentries = maxentries, exclude_dir = exclude_dir):
-					yield e,t,err
-					await asyncio.sleep(0)
+				yield obj, otype, err
+				
+				ctr += 1
+				if err is not None:
+					break
+				
+				if ctr == maxentries:
+					yield self, 'maxed', None
+					break
+				
+				if otype == 'dir' and obj.name not in exclude_dir:
+					if filter_cb is not None:
+						res = await filter_cb('dir', obj)
+						if res is False:
+							continue
+					obj.tree_id = self.tree_id
+					async for e,t,err in obj.list_r(connection, depth, maxentries = maxentries, exclude_dir = exclude_dir):
+						yield e,t,err
+						# await asyncio.sleep(0)
+		except Exception as e:
+			yield None, None, e
 
 
 	async def list_gen(self, connection:SMBConnection):

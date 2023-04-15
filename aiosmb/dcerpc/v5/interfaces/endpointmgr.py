@@ -47,7 +47,7 @@ class EPM:
 		"""
 		Sets up the EPM connection from an existing SMB connection
 		"""
-		dcerpc_target_str = r'%s:%s[%s]' % (protocol, smb_connection.target.get_hostname_or_ip(), port)
+		dcerpc_target_str = r'%s:%s[%s]' % (protocol, smb_connection.target.get_ip_or_hostname(), port)
 		target = DCERPCTarget.from_connection_string(dcerpc_target_str, proxies=smb_connection.target.proxies)
 		auth = DCERPCAuth.from_smb_gssapi(smb_connection.gssapi)
 		connection = DCERPC5Connection(auth, target)
@@ -56,7 +56,7 @@ class EPM:
 
 	@staticmethod
 	def from_unitarget(target:UniTarget, protocol:str = 'ncacn_ip_tcp', port:int = 135, data_representation = None, credentials = None):
-		dcerpc_target_str = r'%s:%s[%s]' % (protocol, target.get_hostname_or_ip(), port)
+		dcerpc_target_str = r'%s:%s[%s]' % (protocol, target.get_ip_or_hostname(), port)
 		target = DCERPCTarget.from_connection_string(dcerpc_target_str, proxies = target.proxies)
 		auth = None
 		if credentials is not None:
