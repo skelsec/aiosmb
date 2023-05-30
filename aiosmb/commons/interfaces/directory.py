@@ -1,6 +1,7 @@
-
-import copy
+from typing import Dict, List
 import asyncio
+import datetime
+from contextlib import asynccontextmanager
 from pathlib import PureWindowsPath
 
 from aiosmb.commons.interfaces.file import SMBFile
@@ -9,29 +10,33 @@ from aiosmb.wintypes.fscc.FileAttributes import FileAttributes
 from aiosmb.wintypes.fscc.structures.fileinfoclass import FileInfoClass
 from aiosmb.protocol.smb2.commands.query_info import SecurityInfo
 from aiosmb.protocol.smb2.commands import *
-		
+
+
+from aiosmb.connection import SMBConnection
+from aiosmb.commons.connection.target import SMBTarget
+
 class SMBDirectory:
 	def __init__(self):
 		#self.parent_share = None
-		self.tree_id = None #thisdescribes the share itself, not the directory!
-		self.fullpath = None
-		self.unc_path = None
+		self.tree_id:int = None #thisdescribes the share itself, not the directory!
+		self.fullpath:str = None
+		self.unc_path:str = None
 		self.parent_dir = None
-		self.name = None
-		self.creation_time = None
-		self.last_access_time = None
-		self.last_write_time = None
-		self.change_time = None
-		self.allocation_size = None
-		self.attributes = None
-		self.file_id = None
+		self.name:str = None
+		self.creation_time:datetime.datetime = None
+		self.last_access_time:datetime.datetime = None
+		self.last_write_time:datetime.datetime = None
+		self.change_time:datetime.datetime = None
+		self.allocation_size:datetime.datetime = None
+		self.attributes:FileAttributes = None
+		self.file_id:int = None
 		self.security_descriptor = None
 		
-		self.files = {}
-		self.subdirs = {}
+		self.files:Dict[str, SMBFile] = {}
+		self.subdirs:Dict[str, SMBDirectory] = {}
 
 	@staticmethod
-	def from_uncpath(unc_path):
+	def from_uncpath(unc_path:str):
 		"""
 		Creates SMBFile object from the UNC path supplied.
 		Example uncpath: \\\\127.0.0.1\\C$\\temp\\test.exe
@@ -43,9 +48,22 @@ class SMBDirectory:
 		f.unc_path = unc_path
 		
 		return f
+	
+	@staticmethod
+	def from_smbtarget(target:SMBTarget):
+		"""
+		Creates SMBDirectory object from the SMBUrl object
+		"""
+		if target.path is None:
+			return None
+		
+		fpath = target.path.replace('/','\\')
+		temp = '\\\\%s%s'
+		unc = temp % (target.get_hostname_or_ip(), fpath)
+		return SMBDirectory.from_uncpath(unc)
 
 	@staticmethod
-	def from_remotepath(connection, remotepath):
+	def from_remotepath(connection:SMBConnection, remotepath:str):
 		"""
 		Creates SMBFile object from the connection and the remote path supplied.
 		Example remotepath: \\C$\\temp\\test.exe
@@ -57,7 +75,7 @@ class SMBDirectory:
 		return SMBDirectory.from_uncpath(unc)
 
 	@staticmethod
-	async def delete_unc(connection, remotepath):
+	async def delete_unc(connection:SMBConnection, remotepath:str):
 		"""
 		Deletes a directory at a given path.
 		"""
@@ -87,7 +105,7 @@ class SMBDirectory:
 			return False, e
 
 	@staticmethod
-	async def create_remote(connection, remotepath):
+	async def create_remote(connection:SMBConnection, remotepath:str):
 		try:
 			remfile = SMBDirectory.from_remotepath(connection, remotepath)
 			tree_entry, err = await connection.tree_connect(remfile.share_path)
@@ -117,16 +135,40 @@ class SMBDirectory:
 		unc = PureWindowsPath(self.unc_path)
 		return unc.drive
 
-	async def delete(self, connection):
+	def get_subdir_paths(self, fullpath:bool = False):
+		"""
+		Returns a list of paths of all subdirectories in the directory
+		"""
+		paths = []
+		for f in self.subdirs.values():
+			if fullpath is True:
+				paths.append(f.unc_path)
+			else:
+				paths.append(f.fullpath)
+		return paths
+
+	def get_file_paths(self, fullpath:bool = False):
+		"""
+		Returns a list of paths of all files in the directory
+		"""
+		paths = []
+		for f in self.files.values():
+			if fullpath is True:
+				paths.append(f.unc_path)
+			else:
+				paths.append(f.fullpath)
+		return paths
+
+	async def delete(self, connection:SMBConnection):
 		try:
 			if self.file_id is not None:
 				# if the directory is open, first we need to close it
 				await connection.close(self.tree_id, self.file_id)
-			return SMBDirectory.delete_unc(connection, self.unc_path)
+			return await SMBDirectory.delete_unc(connection, self.unc_path)
 		except Exception as e:
 			return False, e
 
-	async def get_security_descriptor(self, connection):
+	async def get_security_descriptor(self, connection:SMBConnection):
 		if self.security_descriptor is None:
 			file_id = None
 			try:
@@ -181,7 +223,7 @@ class SMBDirectory:
 			lines.append(entry)
 		return lines
 		
-	async def create_subdir(self, dir_name, connection):
+	async def create_subdir(self, dir_name:str, connection:SMBConnection):
 		try:
 			should_close = False #dont close the tree_id only if the directory hasnt been connected to yet
 			if not self.tree_id:
@@ -217,10 +259,10 @@ class SMBDirectory:
 		except Exception as e:
 			return False, e
 	
-	async def delete_subdir(self, dir_name):
+	async def delete_subdir(self, dir_name:str):
 		raise Exception('delete subdir not implemented!')
 
-	async def list_r(self, connection, depth = 3, maxentries = None, fetch_dir_sd = False, fetch_file_sd = False, exclude_dir = []):
+	async def list_r(self, connection:SMBConnection, depth:int = 3, maxentries:int = None, fetch_dir_sd:bool = False, fetch_file_sd:bool = False, exclude_dir:List[str] = [], filter_cb=None):
 		"""
 		recursive list files and folders
 		Beware this will clear out the lists of files/folders to save memory!
@@ -230,38 +272,45 @@ class SMBDirectory:
 		depth -= 1
 		ctr = 0
 
-		async for obj, otype, err in self.list_gen(connection):
-			await asyncio.sleep(0)
-			if otype == 'dir' and fetch_dir_sd is True and obj.name not in exclude_dir:
-				obj.tree_id = self.tree_id
-				_, err = await obj.get_security_descriptor(connection)
-				#if err is not None:
-				#	print(err)
-			
-			if otype == 'file' and fetch_file_sd is True:
-				obj.tree_id = self.tree_id
-				_, err = await obj.get_security_descriptor(connection)
-				#if err is not None:
-				#	print(err)
+		try:
+			async for obj, otype, err in self.list_gen(connection):
+				await asyncio.sleep(0)
+				if otype == 'dir' and fetch_dir_sd is True and obj.name not in exclude_dir:
+					obj.tree_id = self.tree_id
+					_, err = await obj.get_security_descriptor(connection)
+					#if err is not None:
+					#	print(err)
+				
+				if otype == 'file' and fetch_file_sd is True:
+					obj.tree_id = self.tree_id
+					_, err = await obj.get_security_descriptor(connection)
+					#if err is not None:
+					#	print(err)
 
-			yield obj, otype, err
-			
-			ctr += 1
-			if err is not None:
-				break
-			
-			if ctr == maxentries:
-				yield self, 'maxed', None
-				break
-			
-			if otype == 'dir' and obj.name not in exclude_dir:
-				obj.tree_id = self.tree_id
-				async for e,t,err in obj.list_r(connection, depth, maxentries = maxentries, exclude_dir = exclude_dir):
-					yield e,t,err
-					await asyncio.sleep(0)
+				yield obj, otype, err
+				
+				ctr += 1
+				if err is not None:
+					break
+				
+				if ctr == maxentries:
+					yield self, 'maxed', None
+					break
+				
+				if otype == 'dir' and obj.name not in exclude_dir:
+					if filter_cb is not None:
+						res = await filter_cb('dir', obj)
+						if res is False:
+							continue
+					obj.tree_id = self.tree_id
+					async for e,t,err in obj.list_r(connection, depth, maxentries = maxentries, exclude_dir = exclude_dir):
+						yield e,t,err
+						# await asyncio.sleep(0)
+		except Exception as e:
+			yield None, None, e
 
 
-	async def list_gen(self, connection):
+	async def list_gen(self, connection:SMBConnection):
 		"""
 		Lists all files and folders in the directory, yields the results as they arrive
 		directory: SMBDirectory
@@ -346,7 +395,7 @@ class SMBDirectory:
 			if file_id is not None:
 				await connection.close(self.tree_id, file_id)
 
-	async def list(self, connection):
+	async def list(self, connection:SMBConnection):
 		"""
 		Lists all files and folders in the directory
 		directory: SMBDirectory
@@ -443,3 +492,128 @@ class SMBDirectory:
 				t += '%s : %s\r\n' % (k, self.__dict__[k])
 		
 		return t
+
+async def smb_mkdir(path:str, connection = None):
+	"""
+	Creates a new directory on the remote SMB server.
+	"""
+	if path.lower().startswith('smb'):
+			from aiosmb.commons.connection.factory import SMBConnectionFactory
+			factory = SMBConnectionFactory.from_url(path)
+			if connection is None:
+				connection = factory.get_connection()
+				async with connection:
+					_, err = await connection.login()
+					if err is not None:
+						raise err
+					smbdir = factory.get_directory()
+					_, err = await smbdir.create_remote(connection, smbdir.fullpath)
+					if err is not None:
+						raise err
+					return
+			else:
+				smbdir = factory.get_directory()
+				_, err = await smbdir.create_remote(connection, smbdir.fullpath)
+				if err is not None:
+					raise err
+				return
+	else:
+		smbdir = SMBDirectory.from_remotepath(connection, path)
+		_, err = await smbdir.create_remote(connection, smbdir.fullpath)
+		if err is not None:
+			raise err
+
+
+async def smb_rmdir(path:str, connection = None):
+	"""
+	Removes a directory from the SMB server
+	"""
+	if path.lower().startswith('smb'):
+			from aiosmb.commons.connection.factory import SMBConnectionFactory
+			factory = SMBConnectionFactory.from_url(path)
+			if connection is None:
+				connection = factory.get_connection()
+				async with connection:
+					_, err = await connection.login()
+					if err is not None:
+						raise err
+					smbdir = factory.get_directory()
+					_, err = await smbdir.delete(connection)
+					if err is not None:
+						raise err
+					return
+			else:
+				smbdir = factory.get_directory()
+				_, err = await smbdir.delete(connection)
+				if err is not None:
+					raise err
+				return
+	else:
+		smbdir = SMBDirectory.from_remotepath(connection, path)
+		_, err = await smbdir.delete(connection)
+		if err is not None:
+			raise err
+
+async def smb_walk(path:str, connection = None, fullpath = False):
+	"""
+	Enumerates files and subdirectories of a directory from the SMB server
+	"""
+	async def _walk(smbdir:SMBDirectory, connection, fullpath):
+		_, err = await smbdir.list(connection)
+		if err is None:
+			yield smbdir, smbdir.get_subdir_paths(fullpath), smbdir.get_file_paths(fullpath)
+			for subdir in smbdir.subdirs:
+				async for x in _walk(smbdir.subdirs[subdir], connection, fullpath):
+					yield x
+		
+		
+	if path.lower().startswith('smb'):
+			from aiosmb.commons.connection.factory import SMBConnectionFactory
+			factory = SMBConnectionFactory.from_url(path)
+			if connection is None:
+				connection = factory.get_connection()
+				async with connection:
+					_, err = await connection.login()
+					if err is not None:
+						raise err
+					smbdir = factory.get_directory()
+			else:
+				smbdir = factory.get_directory()
+	else:
+		smbdir = SMBDirectory.from_remotepath(connection, path)
+	
+	async for smbdir, subdirs, files in _walk(smbdir, connection, fullpath):
+		yield smbdir, subdirs, files
+		
+
+async def amain():
+	url = 'smb2+ntlm-password://TEST\\Administrator:Passw0rd!1@10.10.10.2/C$'
+	#await smb_mkdir(url)
+	
+	from aiosmb.commons.connection.factory import SMBConnectionFactory
+	connection = SMBConnectionFactory.from_url(url).get_connection()
+	_, err = await connection.login()
+	if err is not None:
+		raise err
+
+	async for smbdir, subdirs, files in smb_walk(url, connection, fullpath=True):
+		print(smbdir.fullpath)
+		print(subdirs)
+		print(files)
+		print('')
+	#await smb_mkdir('C$\\temp\\temp2', connection=connection)
+	#await smb_rmdir('C$\\temp\\temp2', connection=connection)
+	#async with smb_open('C$/temp/repodata.json', 'rb', connection=connection) as f:
+	#	while True:
+	#		data, err = await f.read(1024)
+	#		print(data)
+	#		print(len(data))
+	#		if data == b'':
+	#			break
+	
+
+
+if __name__ == '__main__':
+	import asyncio
+	asyncio.run(amain())
+

@@ -213,7 +213,6 @@ class DRSUAPIRPC:
 				'userAccountControl':'1.2.840.113556.1.4.8'
 			}
 			formatOffered = drsuapi.DS_NT4_ACCOUNT_NAME_SANS_DOMAIN
-			
 			crackedName, err = await self.DRSCrackNames(
 					formatOffered,
 					drsuapi.DS_NAME_FORMAT.DS_UNIQUE_ID_NAME,
@@ -226,7 +225,9 @@ class DRSUAPIRPC:
 			
 			#guid = GUID.from_string(crackedName['pmsgOut']['V1']['pResult']['rItems'][0]['pName'][:-1][1:-1])
 			guid = crackedName['pmsgOut']['V1']['pResult']['rItems'][0]['pName'][:-1][1:-1]
-			
+			if len(guid) == 0:
+				raise Exception('User "%s" cannot be found in the domain!' % username)
+
 			userRecord, err = await self.DRSGetNCChanges(guid, ra)
 			if err is not None:
 				return None, err

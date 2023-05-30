@@ -1,9 +1,10 @@
 import traceback
+from asyauth.common.constants import asyauthSecret
+from asyauth.common.credentials.spnego import SPNEGOCredential
+from asyauth.common.credentials.ntlm import NTLMCredential
 from aiosmb.dcerpc.v5.interfaces.endpointmgr import EPM
 from aiosmb.dcerpc.v5.epm import KNOWN_UUIDS, KNOWN_PROTOCOLS
 from aiosmb.dcerpc.v5.uuid import uuidtup_to_bin, generate, stringver_to_bin, bin_to_uuidtup, bin_to_string
-from aiosmb.commons.connection.credential import SMBCredential, SMBAuthProtocol, SMBCredentialsSecretType
-from aiosmb.commons.connection.authbuilder import AuthenticatorBuilder
 from aiosmb.dcerpc.v5.common.connection.authentication import DCERPCAuth
 from aiosmb.dcerpc.v5.connection import DCERPC5Connection
 from aiosmb.dcerpc.v5.dtypes import NULL
@@ -59,17 +60,14 @@ async def amain():
 		for uuidstr, service_uuid, target in targets:
 			#print('UUID: %s' % uuidstr)
 			#print('Target: %s' % target)
-			cred = SMBCredential(
+			cred = NTLMCredential(
 				username = 'Administrator', 
 				domain = 'TEST', 
 				secret = 'Passw0rd!1', 
-				secret_type = SMBCredentialsSecretType.PASSWORD, 
-				authentication_type = SMBAuthProtocol.NTLM, 
-				settings = None, 
-				target = None
+				stype = asyauthSecret.PASSWORD, 
 			)
 
-			gssapi = AuthenticatorBuilder.to_spnego_cred(cred)
+			gssapi = SPNEGOCredential([cred]).build_context()
 			auth = DCERPCAuth.from_smb_gssapi(gssapi)
 			connection = DCERPC5Connection(auth, target)
 			connection.set_auth_level(RPC_C_AUTHN_LEVEL_CONNECT)

@@ -1295,6 +1295,9 @@ async def amain(args):
 		if args.no_interactive is True:
 			print('Not starting interactive!')
 			return
+		res = await client._run_single_command('login', [])
+		if res is False:
+			return
 		await client.run()
 	else:
 		for command in args.commands:

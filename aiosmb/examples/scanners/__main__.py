@@ -41,6 +41,7 @@ Scanner types (-s param):
 	parser.add_argument('-o', '--out-file', help='Output file path.')
 	parser.add_argument('-s', '--scan', nargs='+', required=True, help='Scanner type')
 	parser.add_argument('-e', '--errors', action='store_true', help='Includes errors in output.')
+	parser.add_argument('-d', '--depth', type=int, default=6, help='Share enumeration depth.')
 	parser.add_argument('url', help = 'Connection string in URL format')
 	parser.add_argument('targets', nargs='*', help = 'Hostname or IP address or file with a list of targets')
 	args = parser.parse_args()
@@ -58,12 +59,18 @@ Scanner types (-s param):
 	executors = []
 	if 'all' in scantypes:
 		for k in smbscan_options:
+			if k == 'file':
+				executors.append(smbscan_options[k][0](connectionfactory, depth=args.depth))
+				continue
 			executors.append(smbscan_options[k][0](connectionfactory))
 	else:
 		for scantype in scantypes:
 			if scantype not in smbscan_options:
 				print('Unknown scan type: "%s"' % scantype)
 				return
+			if k == 'file':
+				executors.append(smbscan_options[k][0](connectionfactory, depth=args.depth))
+				continue
 			executors.append(smbscan_options[scantype][0](connectionfactory))
 			
 	timeout = args.timeout

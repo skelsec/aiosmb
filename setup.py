@@ -22,7 +22,7 @@ setup(
 	author_email="info@skelsecprojects.com",
 
 	# Packages
-	packages=find_packages(),
+	packages=find_packages(exclude=["tests*"]),
 
 	# Include additional files into the package
 	include_package_data=True,
@@ -39,12 +39,11 @@ setup(
 	# long_description=open("README.txt").read(),
 	python_requires='>=3.7',
 	install_requires=[
-		'unicrypto>=0.0.9',
-		'asyauth>=0.0.8',
-		'asysocks>=0.2.2',
-		'minikerberos>=0.3.5',
+		'unicrypto==0.0.10',
+		'asyauth==0.0.14',
+		'asysocks==0.2.7',
 		'prompt-toolkit>=3.0.2',
-		'winacl>=0.1.5',
+		'winacl==0.1.7',
 		'six',
 		'tqdm',
 		'colorama',
