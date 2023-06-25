@@ -10,6 +10,8 @@ from aiosmb.commons.interfaces.share import SMBShare
 from aiosmb.commons.interfaces.session import SMBUserSession
 from aiosmb.commons.interfaces.file import SMBFile
 from aiosmb.commons.interfaces.directory import SMBDirectory
+from aiosmb.commons.utils.cpasswd import find_cpasswd
+
 from aiosmb.dcerpc.v5.interfaces.srvsmgr import SRVSRPC
 from aiosmb.dcerpc.v5.interfaces.samrmgr import SAMRRPC
 from aiosmb.dcerpc.v5.interfaces.lsatmgr import LSADRPC
@@ -1042,6 +1044,11 @@ class SMBMachine:
 			return await self.named_rpcs['LSAD'].get_backupkeys()
 		except Exception as e:
 			return None, e
+	
+	async def get_cpasswd(self, depth = 5):
+		async for filename, username, cpassword, xmltype, err in find_cpasswd(self.connection, depth = 5):
+			yield filename, username, cpassword, xmltype, err
+		
 	
 #	"""
 #	fpath
