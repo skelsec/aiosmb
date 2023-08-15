@@ -68,9 +68,10 @@ class NEGOTIATE_REQ:
 			t += self.Reserved2.to_bytes(2, byteorder='little', signed = False)
 			t += dp
 
-			for ctx in self.NegotiateContextList:
+			for i, ctx in enumerate(self.NegotiateContextList):
 				t += ctx.to_bytes()
-				t += b'\x00' * ((8 - len(t)) % 8)
+				if i != self.NegotiateContextCount - 1:
+					t += b'\x00' * ((8 - len(t)) % 8)
 			
 		else:
 			t += self.ClientStartTime.to_bytes(8, byteorder='little', signed = False)
@@ -599,11 +600,12 @@ class NEGOTIATE_REPLY:
 		t += self.SecurityBuffer
 
 		if self.NegotiateContextCount > 0:
-			for ngctx in self.NegotiateContextList:
+			for i, ngctx in enumerate(self.NegotiateContextList):
 				t+= ngctx.to_bytes()
-				#PADDING!
-				q,m = divmod(len(t)+64,8)
-				t+= b'\x00'*( (q+1)*8 -  len(t)   )
+				if i != self.NegotiateContextCount - 1:
+					#PADDING!
+					q,m = divmod(len(t)+64,8)
+					t+= b'\x00'*( (q+1)*8 -  len(t)   )
 
 		return t
 
