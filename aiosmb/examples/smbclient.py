@@ -1230,6 +1230,35 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 		except Exception as e:
 			traceback.print_exc()
 			return None, e
+		
+	async def cpasswd(self):
+		"""Searches for cpassword in GPP files"""
+		try:
+			async for filename, username, cpassword, xmltype, err in self.machine.get_cpasswd(depth = 5):
+				if err is not None:
+					raise err
+				print('Filename: %s' % filename)
+				print('Username: %s' % username)
+				print('Cpassword: %s' % cpassword)
+				print('Type: %s' % xmltype)
+				print('')
+			print('Done!')
+			return True, None
+		except SMBException as e:
+			logger.debug(traceback.format_exc())
+			print(e.pprint())
+			return None, e
+		except SMBMachineException as e:
+			logger.debug(traceback.format_exc())
+			print(str(e))
+			return None, e
+		except DCERPCException as e:
+			logger.debug(traceback.format_exc())
+			print(str(e))
+			return None, e
+		except Exception as e:
+			traceback.print_exc()
+			return None, e
 
 	async def do_pipetest(self, data = 'HELLO!'):
 		""" pipetest """
@@ -1320,6 +1349,7 @@ def main():
 	import platform
 	import logging
 	from asysocks import logger as asylogger
+	from asyauth import logger as asyauthlogger
 	
 	parser = argparse.ArgumentParser(description='Interactive SMB client')
 	parser.add_argument('-v', '--verbose', action='count', default=0)
@@ -1334,12 +1364,14 @@ def main():
 
 	if args.verbose >=1:
 		logger.setLevel(logging.DEBUG)
+		asyauthlogger.setLevel(logging.DEBUG)
 
 	if args.verbose > 2:
 		print('setting deepdebug')
 		logger.setLevel(1) #enabling deep debug
 		sockslogger.setLevel(1)
 		asylogger.setLevel(1)
+		asyauthlogger.setLevel(1)
 		asyncio.get_event_loop().set_debug(True)
 		logging.basicConfig(level=logging.DEBUG)
 
