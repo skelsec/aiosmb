@@ -16,6 +16,7 @@ from aiosmb.dcerpc.v5.dtypes import NULL
 from aiosmb.dcerpc.v5.rpcrt import RPC_C_AUTHN_LEVEL_NONE, RPC_C_AUTHN_LEVEL_PKT_INTEGRITY, RPC_C_AUTHN_LEVEL_PKT_PRIVACY, DCERPCException, RPC_C_AUTHN_GSS_NEGOTIATE, RPC_C_AUTHN_LEVEL_CONNECT
 from aiosmb.dcerpc.v5.common.connection.authentication import DCERPCAuth
 from aiosmb.dcerpc.v5.common.connection.target import DCERPCTarget
+from aiosmb.dcerpc.v5.common.dpapi_ng._crypto import DPAPINGBlob, decrypt_blob, GroupKeyEnvelope
 
 class GKDIMgr:
 	def __init__(self):
@@ -84,18 +85,15 @@ class GKDIMgr:
 	async def GetKey(self, targetSD, rootKey, L0KeyID, L1KeyID, L2KeyID):
 		if isinstance(rootKey, uuid.UUID):
 			rootKey = rootKey.bytes_le
+		
 		resp, err = await gkdi.hGetKey(self.dce, targetSD, rootKey, L0KeyID, L1KeyID, L2KeyID)
 		if err is not None:
 			return None, err
 		gke_raw = b''.join(resp['ppbOut'])
-		print('RAW')
-		print(gke_raw.hex())
-		print('------')
-		return gkdi.GroupKeyEnvelope.unpack(gke_raw), None
+		return GroupKeyEnvelope.unpack(gke_raw), None
 
 	async def ncrypt_unprotect_secret(self, data):
-		blob = gkdi.DPAPINGBlob.unpack(data)
-		print(blob)
+		blob = DPAPINGBlob.unpack(data)
 		target_sd = blob.protection_descriptor.get_target_sd()
 		rk, err = await self.GetKey(
             target_sd,
@@ -106,9 +104,8 @@ class GKDIMgr:
         )
 		if err is not None:
 			return None, err
-
-		print(rk)
-		return gkdi.decrypt_blob(blob, rk), None
+		
+		return decrypt_blob(blob, rk), None
 
 
 
@@ -143,6 +140,7 @@ async def amain(url):
 		print('Failed to decrypt secret!')
 		raise err
 	print(secret)
+	print(secret.decode('utf-16-le'))
 
 if __name__ == '__main__':
 	url = 'smb2+ntlm-password://NEWLAPS\\Administrator:Passw0rd!1@10.10.12.2'

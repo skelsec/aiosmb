@@ -135,6 +135,15 @@ class SAMRRPC:
 			return None, err
 		return resp, None
 	
+	async def get_user_by_name(self, domain_handle, username):
+		resp, err = await samr.hSamrLookupNamesInDomain(self.dce, domain_handle, [username])
+		if err is not None:
+			print(err)
+			return None, err
+		
+		print(resp.dump())
+		return resp, err
+	
 	async def list_domains(self):
 		try:
 			status = NTStatus.MORE_ENTRIES
@@ -310,7 +319,7 @@ class SAMRRPC:
 			resp, err = await samr.hSamrGetMembersInAlias(self.dce, alias_handle)
 			if err is not None:
 				raise err
-
+			
 			for sidr in resp['Members']['Sids']:
 				yield sidr['SidPointer'].formatCanonical(), None
 		except Exception as e:
