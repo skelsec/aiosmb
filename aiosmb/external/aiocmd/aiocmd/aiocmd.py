@@ -91,20 +91,21 @@ class PromptToolkitCmd:
                                                               + len(command_real_kwargs)):
             print("Bad command args. Usage: %s" % self._get_command_usage(command, command_real_args,
                                                                           command_real_kwargs))
-            return
+            return None, Exception("Bad command args for '%s'" % command)
 
         try:
             com_func = self._get_command(command)
             if asyncio.iscoroutinefunction(com_func):
-                await com_func(*args)
+                return await com_func(*args)
             else:
-                com_func(*args)
-            return
-        except (ExitPromptException, asyncio.CancelledError):
+                return com_func(*args)
+        except (ExitPromptException, asyncio.CancelledError) as e:
             raise
         except Exception as ex:
             traceback.print_exc()
             print("Command failed: ", ex)
+            return None, ex
+
 
     def _interrupt_handler(self, event):
         event.cli.current_buffer.text = ""

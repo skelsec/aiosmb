@@ -19,6 +19,19 @@ from aiosmb.dcerpc.v5.rpcrt import RPC_C_AUTHN_LEVEL_PKT_INTEGRITY,\
 	RPC_C_AUTHN_LEVEL_PKT_PRIVACY,\
 	RPC_C_AUTHN_LEVEL_CONNECT, DCERPCException, RPC_C_AUTHN_GSS_NEGOTIATE
 
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def drsuapirpc_from_smb(connection, auth_level=None, open=True, perform_dummy=False):
+    instance, err = await DRSUAPIRPC.from_smbconnection(connection, auth_level=auth_level, open=open, perform_dummy=perform_dummy)
+    if err:
+        # Handle or raise the error as appropriate
+        raise err
+    try:
+        yield instance
+    finally:
+        await instance.close()
+
 
 class DRSUAPIRPC:
 	def __init__(self, domainname = None):

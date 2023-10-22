@@ -755,8 +755,8 @@ class SMBConnection:
 				
 				self.status = SMBConnectionStatus.RUNNING
 			
-			elif rply.header.Status == NTStatus.LOGON_FAILURE:
-				raise SMBAuthenticationFailed()
+			#elif rply.header.Status != NTStatus.MORE_PROCESSING_REQUIRED:
+			#	raise SMBAuthenticationFailed(NTStatus.MORE_PROCESSING_REQUIRED)
 			
 			else:
 				raise SMBException('session_setup (authentication probably failed)', rply.header.Status)

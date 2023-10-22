@@ -18,6 +18,19 @@ from aiosmb.dcerpc.v5.rpcrt import RPC_C_AUTHN_LEVEL_NONE,\
 	RPC_C_AUTHN_LEVEL_PKT_PRIVACY,\
 	DCERPCException, RPC_C_AUTHN_GSS_NEGOTIATE
 
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def rrprpc_from_smb(connection, auth_level=None, open=True, perform_dummy=False):
+    instance, err = await RRPRPC.from_smbconnection(connection, auth_level=auth_level, open=open, perform_dummy=perform_dummy)
+    if err:
+        # Handle or raise the error as appropriate
+        raise err
+    try:
+        yield instance
+    finally:
+        await instance.close()
+
 class HKEY(enum.Enum):
 	CLASSES_ROOT = 0 #Registry entries subordinate to this key define types (or classes) of documents and the properties associated with those types. Shell and COM applications use the information stored under this key.
 	CURRENT_USER = 1 #Registry entries subordinate to this key define the preferences of the current user. These preferences include the settings of environment variables, data about program groups, colors, printers, network connections, and application preferences.

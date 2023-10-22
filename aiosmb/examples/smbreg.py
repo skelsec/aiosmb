@@ -5,7 +5,7 @@ from aiosmb import logger
 from aiosmb.commons.connection.params import SMBConnectionParams
 from aiosmb.commons.connection.factory import SMBConnectionFactory
 from aiosmb.commons.interfaces.machine import SMBMachine
-from aiosmb.dcerpc.v5.common.service import SMBServiceStatus
+from aiosmb.dcerpc.v5.common.service import ServiceStatus
 from aiosmb.external.aiocmd.aiocmd import aiocmd
 import enum
 
@@ -71,7 +71,7 @@ async def amain():
 		print('Check service status error! %s' % err)
 		return
 
-	if registry_srv_status != SMBServiceStatus.RUNNING:
+	if registry_srv_status != ServiceStatus.RUNNING:
 		logger.info('RemoteRegistry is not running! Starting it now..')
 		res, err = await machine.enable_service("RemoteRegistry")
 		if err is not None:
