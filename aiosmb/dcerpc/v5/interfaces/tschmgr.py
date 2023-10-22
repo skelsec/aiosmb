@@ -175,6 +175,49 @@ class TSCHRPC:
 		except Exception as e:
 			yield None, e
 			return
+	
+	async def get_task(self, task_name):
+		"""
+		Returns the task XML
+		"""
+		if task_name[0] != '\\':
+			task_name = '\\' + task_name
+		
+		resp, err = await tsch.hSchRpcRetrieveTask(self.dce, task_name)
+		if err is not None:
+			return None, err
+		
+		return resp['pXml'], None
+
+	async def get_task_sd(self, task_name):
+		"""
+		Returns the selected task's security descriptor
+		"""
+		if task_name[0] != '\\':
+			task_name = '\\' + task_name
+		
+		resp, err = await tsch.hSchRpcGetSecurity(self.dce, task_name)
+		if err is not None:
+			return None, err
+		
+		return resp['sddl'], None
+	
+	async def list_folders(self, path = '\\'):
+		"""
+		Lists all available folders on the remote machine
+		"""
+		try:
+			resp, err = await tsch.hSchRpcEnumFolders(self.dce, path)
+			if err is not None:
+				yield None, err
+				return
+			
+			for name in resp['pNames']:
+				yield name['Data'].replace('\x00',''), None
+		
+		except Exception as e:
+			yield None, e
+			return
 
 	async def run_commands(self, commands, maxwait = 10):
 		"""

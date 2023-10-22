@@ -422,7 +422,19 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			return True, None
 			
 		except Exception as e:
-			return self.handle_exception(e)	
+			return self.handle_exception(e)
+	
+	async def do_servicesd(self, service_name):
+		"""Fetches service's security descriptor"""
+		try:
+			sd, err = await self.machine.get_service_sd(service_name)
+			if err is not None:
+				raise err
+			print(sd.to_sddl())
+			return True, None
+		
+		except Exception as e:
+			return self.handle_exception(e)
 
 	async def do_serviceen(self, service_name):
 		"""Enables a remote service"""
@@ -761,6 +773,32 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 		
 		except Exception as e:
 			return self.handle_exception(e)	
+	
+	async def do_taskxml(self, task_name):
+		"""Gets the XML of a scheduled task"""
+		try:
+			xml, err = await self.machine.get_task(task_name)
+			if err is not None:
+				raise err
+			print(xml)
+			
+			return True, None
+		
+		except Exception as e:
+			return self.handle_exception(e)
+	
+	async def do_tasklistfolders(self, path = '\\'):
+		"""Lists scheduled task folders"""
+		try:
+			async for folder, err in self.machine.list_task_folders(path):
+				if err is not None:
+					raise err
+				print(folder)
+			
+			return True, None
+		
+		except Exception as e:
+			return self.handle_exception(e)
 
 	async def do_taskregister(self, template_file, task_name = None):
 		"""Registers a new scheduled task"""
@@ -941,7 +979,51 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			print('Done!')
 			return True, None
 		except Exception as e:
-			return self.handle_exception(e)	
+			return self.handle_exception(e)
+	
+
+	async def do_ataddjob(self, atinfo, server_name:str = None):
+		try:
+			jobid, err = await self.machine.at_add_job(atinfo, server_name = server_name)
+			if err is not None:
+				raise err
+			print('Job added! Job ID: %s' % jobid)
+			return True, None
+		except Exception as e:
+			return self.handle_exception(e)
+	
+	async def do_atenum(self, server_name:str = None):
+		try:
+			x, err = await self.machine.at_enum(server_name = server_name)
+			if err is not None:
+				raise err
+			print(x)
+			return True, None
+		except Exception as e:
+			return self.handle_exception(e)
+	
+	async def do_atdeljob(self, jobid:int, server_name:str = None):
+		try:
+			jobid = int(jobid)
+			_, err = await self.machine.at_del_job(jobid, server_name = server_name)
+			if err is not None:
+				raise err
+			print('Job deleted!')
+			return True, None
+		
+		except Exception as e:
+			return self.handle_exception(e)
+	
+	async def do_atgetjob(self, jobid:int, server_name:str = None):
+		try:
+			jobid = int(jobid)
+			jobinfo, err = await self.machine.at_get_info(jobid, server_name = server_name)
+			if err is not None:
+				raise err
+			print(jobinfo)
+			return True, None
+		except Exception as e:
+			return self.handle_exception(e)
 
 	async def do_pipetest(self, data = 'HELLO!'):
 		""" pipetest """
@@ -1012,6 +1094,7 @@ async def amain(smb_url:str, commands:List[str] = [], silent:bool = False, conti
 						sys.exit(1)
 					continue
 				
+				print('>>> %s' % command)
 				_, err = await client._run_single_command(cmd[0], cmd[1:])
 				if err is not None and continue_on_error is False:
 					print('Batch execution stopped early, because a command failed!')

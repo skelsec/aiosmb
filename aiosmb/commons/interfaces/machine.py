@@ -21,6 +21,7 @@ from aiosmb.dcerpc.v5.interfaces.rprnmgr import RPRNRPC, rprnrpc_from_smb
 from aiosmb.dcerpc.v5.interfaces.tschmgr import TSCHRPC, tschrpc_from_smb
 from aiosmb.dcerpc.v5.interfaces.parmgr import PARRPC, parrpc_from_smb
 from aiosmb.dcerpc.v5.interfaces.wkstmgr import WKSTRPC, wkstrpc_from_smb
+from aiosmb.dcerpc.v5.interfaces.atsvcmgr import atsvcrpc_from_smb
 from aiosmb.dcerpc.v5.dtypes import RPC_SID
 from aiosmb.dcerpc.v5.common.secrets import SMBUserSecrets
 from aiosmb.dcerpc.v5.common.service import SMBService, ServiceStatus
@@ -703,7 +704,7 @@ class SMBMachine:
 			return None, e
 	
 
-	async def tasks_list(self) -> Awaitable[Tuple[bool, Union[Exception, None]]]:
+	async def tasks_list(self) -> AsyncGenerator[Tuple[str, Union[Exception, None]], None]:
 		"""
 		Lists scheduled tasks
 		"""
@@ -711,6 +712,27 @@ class SMBMachine:
 			async with tschrpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as rpc:
 				async for task, err in rpc.list_tasks():
 					yield task, err
+		except Exception as e:
+			yield None, e
+	
+	async def get_task(self, task_name:str) -> Awaitable[Tuple[str, Union[Exception, None]]]:
+		"""
+		Returns task XML
+		"""
+		try:
+			async with tschrpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as rpc:
+				return await rpc.get_task(task_name)
+		except Exception as e:
+			return None, e
+	
+	async def list_task_folders(self, path = '\\') -> AsyncGenerator[Tuple[str, Union[Exception, None]], None]:
+		"""
+		Lists task folders
+		"""
+		try:
+			async with tschrpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as rpc:
+				async for folder, err in rpc.list_folders(path):
+					yield folder, err
 		except Exception as e:
 			yield None, e
 
@@ -919,6 +941,13 @@ class SMBMachine:
 		except Exception as e:
 			return None, e
 	
+	async def get_service_sd(self, service_name:str) -> Awaitable[Tuple[str, Union[Exception, None]]]:
+		try:
+			async with remsvcrpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as rpc:
+				return await rpc.get_service_sd(service_name)
+		except Exception as e:
+			return None, e
+	
 	async def get_backupkeys(self) -> Awaitable[Tuple[Dict[str, bytes], Union[Exception, None]]]:
 		try:
 			async with lsadrpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as rpc:
@@ -930,3 +959,30 @@ class SMBMachine:
 		async for filename, username, cpassword, xmltype, err in find_cpasswd(self.connection, depth = depth):
 			yield filename, username, cpassword, xmltype, err
 		
+	async def at_add_job(self, atinfo, server_name:str = None):
+		try:
+			async with atsvcrpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as rpc:
+				return await rpc.add_job(atinfo, servername = server_name)
+		except Exception as e:
+			return None, e
+	
+	async def at_enum(self, server_name:str = None):
+		try:
+			async with atsvcrpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as rpc:
+				return await rpc.enum_jobs(servername = server_name)
+		except Exception as e:
+			return None, e
+	
+	async def at_del_job(self, job_id:int, server_name:str = None):
+		try:
+			async with atsvcrpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as rpc:
+				return await rpc.del_job(job_id, servername = server_name)
+		except Exception as e:
+			return None, e
+	
+	async def at_get_info(self, job_id:int, server_name:str = None):
+		try:
+			async with atsvcrpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as rpc:
+				return await rpc.get_job(job_id, servername = server_name)
+		except Exception as e:
+			return None, e

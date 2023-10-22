@@ -346,3 +346,24 @@ class REMSVCRPC:
 			return service, None
 		except Exception as e:
 			return None, e
+		
+	async def get_service_sd(self, service_name):
+		try:
+			if not self.handle:
+				_, err = await self.open()
+				if err is not None:
+					raise err
+
+			if service_name not in self.service_handles:
+				_, err = await self.open_service(service_name)
+				if err is not None:
+					raise err
+
+			ans, err = await scmr.hRQueryServiceObjectSecurity(self.dce, self.service_handles[service_name], scmr.DACL_SECURITY_INFORMATION, 1024*10)
+			if err is not None:
+				raise err
+			
+			ans.dump()
+			return ans, None
+		except Exception as e:
+			return None, e
