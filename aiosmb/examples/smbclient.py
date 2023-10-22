@@ -102,6 +102,7 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			from winacl._version import __version__ as winaclver
 
 			print(self.conn_url)
+			print(self.machine.connection.get_extra_info())
 			print('AIOSMB: %s' % smbver)
 			print('ASYSOCKS: %s' % socksver)
 			print('MINIKERBEROS: %s' % kerbver)

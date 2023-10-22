@@ -25,7 +25,7 @@ from aiosmb.dcerpc.v5.interfaces.atsvcmgr import atsvcrpc_from_smb
 from aiosmb.dcerpc.v5.dtypes import RPC_SID
 from aiosmb.dcerpc.v5.common.secrets import SMBUserSecrets
 from aiosmb.dcerpc.v5.common.service import SMBService, ServiceStatus
-
+from aiosmb.connection import SMBConnection
 
 
 from aiosmb.dcerpc.v5 import tsch, scmr
@@ -38,7 +38,7 @@ from contextlib import asynccontextmanager
 
 class SMBMachine:
 	def __init__(self, connection, print_cb = None, force_rpc_auth = None):
-		self.connection = connection
+		self.connection:SMBConnection = connection
 		self.print_cb = print_cb
 		self.force_rpc_auth = force_rpc_auth
 		self.sessions = []
