@@ -24,7 +24,7 @@ from aiosmb.commons.interfaces.file import SMBFile
 from aiosmb.commons.interfaces.directory import SMBDirectory
 from aiosmb.commons.exceptions import SMBException
 from aiosmb.dcerpc.v5.rpcrt import DCERPCException
-from aiosmb.commons.utils.fmtsize import sizeof_fmt
+from aiosmb.commons.utils.fmtsize import sizeof_fmt, size_to_bytes
 from asysocks import logger as sockslogger
 
 
@@ -613,8 +613,28 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 		except Exception as e:
 			return self.handle_exception(e)
 	
-	async def do_getdir(self, dir_name):
-		"""Download a directory recirsively from the current location on the remote machine to the current local folder"""
+	async def do_getdir(self, dir_name, minfsize = None, maxfsize = None, filenamefilter = None):
+		"""Download a directory recirsively from the current location on the remote machine to the current local folder.
+		Minfsize and maxfsize are in bytes or in 1G 1M 1k notation. Filenamefilter is a comma separated list of fnmatch patterns (eg. *.exe,*.dll)
+		In case you want to specify the parameters partially, you can use the following notation:
+		getdir <dir_name> '' '1M' '*.exe,*.dll' -> only maxfsize and filenamefilter will be used
+		getdir <dir_name> -> all files will be downloaded
+		getdir <dir_name> '1M' -> all files bigger than 1M will be downloaded
+		"""
+		def matches_any_pattern(filename, patterns):
+			"""
+			Check if the filename matches any of the provided patterns.
+			
+			:param filename: The name of the file.
+			:param patterns: A list of patterns to match against.
+			:return: True if the filename matches any pattern, otherwise False.
+			"""
+			for pattern in patterns:
+				if fnmatch.fnmatch(filename, pattern):
+					return True
+			return False
+		
+		
 		async def get_directory(out_path:str, dir_obj:SMBDirectory):
 			async for obj, otype, err in dir_obj.list_r(self.connection, depth = 1, maxentries = -1):
 				if err is not None:
@@ -630,6 +650,14 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 				else:
 					continue
 		try:
+			maxfsize = size_to_bytes(maxfsize)
+			minfsize = size_to_bytes(minfsize)
+			
+			if filenamefilter == '':
+				filenamefilter = None
+			if filenamefilter is not None:
+				filenamefilter = [x.strip() for x in filenamefilter.split(',')]
+			
 			matched = []
 			if dir_name not in self.__current_directory.subdirs:
 				
@@ -648,6 +676,12 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 				basedirname = os.path.basename(dir_obj.name) + time.strftime("%Y%m%d_%H%M%S")
 				with tqdm.tqdm(desc = 'Downloading files...', total=0, unit='B', unit_scale=True, unit_divisor=1024) as pbar:
 					async for lfile, entry in get_directory(basedirname, dir_obj):
+						if maxfsize is not None and entry.size > maxfsize:
+							continue
+						if minfsize is not None and entry.size < minfsize:
+							continue
+						if filenamefilter is not None and matches_any_pattern(entry.name, filenamefilter) is False:
+							continue
 						pbar.total = entry.size
 						pbar.n = 0
 						pbar.last_print_n = 0
