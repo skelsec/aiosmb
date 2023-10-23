@@ -18,6 +18,18 @@ from aiosmb.dcerpc.v5.rpcrt import RPC_C_AUTHN_LEVEL_NONE,\
 	RPC_C_AUTHN_LEVEL_PKT_PRIVACY,\
 	DCERPCException, RPC_C_AUTHN_GSS_NEGOTIATE
 
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def tschrpc_from_smb(connection, auth_level=None, open=True, perform_dummy=False):
+    instance, err = await TSCHRPC.from_smbconnection(connection, auth_level=auth_level, open=open, perform_dummy=perform_dummy)
+    if err:
+        # Handle or raise the error as appropriate
+        raise err
+    try:
+        yield instance
+    finally:
+        await instance.close()
 
 class TSCHRPC:
 	def __init__(self):
@@ -153,6 +165,49 @@ class TSCHRPC:
 		"""
 		try:
 			resp, err = await tsch.hSchRpcEnumTasks(self.dce, path)
+			if err is not None:
+				yield None, err
+				return
+			
+			for name in resp['pNames']:
+				yield name['Data'].replace('\x00',''), None
+		
+		except Exception as e:
+			yield None, e
+			return
+	
+	async def get_task(self, task_name):
+		"""
+		Returns the task XML
+		"""
+		if task_name[0] != '\\':
+			task_name = '\\' + task_name
+		
+		resp, err = await tsch.hSchRpcRetrieveTask(self.dce, task_name)
+		if err is not None:
+			return None, err
+		
+		return resp['pXml'], None
+
+	async def get_task_sd(self, task_name):
+		"""
+		Returns the selected task's security descriptor
+		"""
+		if task_name[0] != '\\':
+			task_name = '\\' + task_name
+		
+		resp, err = await tsch.hSchRpcGetSecurity(self.dce, task_name)
+		if err is not None:
+			return None, err
+		
+		return resp['sddl'], None
+	
+	async def list_folders(self, path = '\\'):
+		"""
+		Lists all available folders on the remote machine
+		"""
+		try:
+			resp, err = await tsch.hSchRpcEnumFolders(self.dce, path)
 			if err is not None:
 				yield None, err
 				return

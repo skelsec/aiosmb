@@ -1,5 +1,5 @@
 from aiosmb.dcerpc.v5.common.connection.smbdcefactory import SMBDCEFactory
-from aiosmb.dcerpc.v5 import wkst
+from aiosmb.dcerpc.v5 import atsvc
 from aiosmb.dcerpc.v5.interfaces.endpointmgr import EPM
 from aiosmb.dcerpc.v5.dtypes import MAXIMUM_ALLOWED
 from aiosmb.wintypes.ntstatus import NTStatus
@@ -19,20 +19,20 @@ from aiosmb.dcerpc.v5.rpcrt import RPC_C_AUTHN_LEVEL_NONE,\
 from contextlib import asynccontextmanager
 
 @asynccontextmanager
-async def wkstrpc_from_smb(connection, auth_level=None, open=True, perform_dummy=False):
-    instance, err = await WKSTRPC.from_smbconnection(connection, auth_level=auth_level, open=open, perform_dummy=perform_dummy)
-    if err:
-        # Handle or raise the error as appropriate
-        raise err
-    try:
-        yield instance
-    finally:
-        await instance.close()
+async def atsvcrpc_from_smb(connection, auth_level=None, open=True, perform_dummy=False):
+	instance, err = await ATSVCRPC.from_smbconnection(connection, auth_level=auth_level, open=open, perform_dummy=perform_dummy)
+	if err:
+		# Handle or raise the error as appropriate
+		raise err
+	try:
+		yield instance
+	finally:
+		await instance.close()
 		
-class WKSTRPC:
+class ATSVCRPC:
 	def __init__(self):
-		self.service_pipename = r'\wkssvc'
-		self.service_uuid = wkst.MSRPC_UUID_WKST
+		self.service_pipename = r'\atsvc'
+		self.service_uuid = atsvc.MSRPC_UUID_ATSVC
 		self.dce = None
 		self.handle = None
 		
@@ -60,7 +60,7 @@ class WKSTRPC:
 	@staticmethod
 	async def from_rpcconnection(connection:DCERPC5Connection, auth_level = None, open:bool = True, perform_dummy:bool = False):
 		try:
-			service = WKSTRPC()
+			service = ATSVCRPC()
 			service.dce = connection
 			
 			#service.dce.set_auth_level(auth_level)
@@ -71,7 +71,7 @@ class WKSTRPC:
 			if err is not None:
 				raise err
 			
-			_, err = await service.dce.bind(WKSTRPC().service_uuid)
+			_, err = await service.dce.bind(ATSVCRPC().service_uuid)
 			if err is not None:
 				raise err
 				
@@ -86,8 +86,8 @@ class WKSTRPC:
 		This connection will use the given SMBConnection as transport layer.
 		"""
 		try:
-			rpctransport = SMBDCEFactory(connection, filename=WKSTRPC().service_pipename)		
-			service, err = await WKSTRPC.from_rpcconnection(rpctransport.get_dce_rpc(), auth_level=auth_level, open=open, perform_dummy = perform_dummy)	
+			rpctransport = SMBDCEFactory(connection, filename=ATSVCRPC().service_pipename)		
+			service, err = await ATSVCRPC.from_rpcconnection(rpctransport.get_dce_rpc(), auth_level=auth_level, open=open, perform_dummy = perform_dummy)	
 			if err is not None:
 				raise err
 
@@ -95,26 +95,51 @@ class WKSTRPC:
 		except Exception as e:
 			return None, e
 	
-	async def list_sessions(self, level=0):
+	async def add_job(self, atinfo, servername = None):
 		try:
-			if level not in [0,1]:
-				raise Exception('Level must be 0 or 1!')
-			resp, err = await wkst.hNetrWkstaUserEnum(self.dce, level, preferredMaximumLength=0xffffffff)
+			if servername is None:
+				servername = NULL
+			ans, err = await atsvc.hNetrJobAdd(self.dce, servername, atinfo)
 			if err is not None:
 				raise err
-			
-			if level == 0:
-				for session in resp['UserInfo']['WkstaUserInfo']['Level0']['Buffer']:
-					username = session['wkui0_username'][:-1]
-					yield username, '', None
-
-			elif level == 1:
-				for session in resp['UserInfo']['WkstaUserInfo']['Level1']['Buffer']:
-					username = session['wkui1_username'][:-1]
-					domain = session['wkui1_logon_domain'][:-1]
-					#session['wkui1_logon_server'][:-1]
-					#session['wkui1_oth_domains'][:-1]
-					yield '%s\\%s' % (domain, username), '', None
+			return ans['JobId'], None
 
 		except Exception as e:
-			yield None, None, e
+			return None, e
+	
+	async def del_job(self, jobid, servername = None):
+		try:
+			if servername is None:
+				servername = NULL
+			_, err = await atsvc.hNetrJobDel(self.dce, servername, jobid)
+			if err is not None:
+				raise err
+			return True, None
+
+		except Exception as e:
+			return None, e
+	
+	async def enum_jobs(self, servername = None):
+		try:
+			if servername is None:
+				servername = NULL
+			ans, err = await atsvc.hNetrJobEnum(self.dce, servername)
+			if err is not None:
+				raise err
+			ans.dump()
+			return ans['JobEntries'], None
+
+		except Exception as e:
+			return None, e
+	
+	async def get_job(self, jobid, servername = None):
+		try:
+			if servername is None:
+				servername = NULL
+			ans, err = await atsvc.hNetrJobGetInfo(self.dce, servername, jobid)
+			if err is not None:
+				raise err
+			return ans['ppAtInfo'], None
+
+		except Exception as e:
+			return None, e

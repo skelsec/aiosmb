@@ -10,6 +10,7 @@ import datetime
 import asyncio
 from contextlib import asynccontextmanager
 from aiosmb.connection import SMBConnection
+from winacl.dtyp.security_descriptor import SECURITY_DESCRIPTOR
 
 class SMBFile:
 	def __init__(self):
@@ -27,7 +28,7 @@ class SMBFile:
 		self.allocation_size:datetime.datetime = None
 		self.attributes:FileAttributes = None
 		self.file_id:int = None
-		self.security_descriptor = None
+		self.security_descriptor:SECURITY_DESCRIPTOR = None
 
 		#internal
 		self.__connection = None

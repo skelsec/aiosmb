@@ -9,7 +9,7 @@ from aiosmb.commons.connection.factory import SMBConnectionFactory
 from aiosmb.dcerpc.v5.connection import DCERPC5Connection
 from aiosmb.dcerpc.v5.common.connection.authentication import DCERPCAuth
 from aiosmb.dcerpc.v5.interfaces.endpointmgr import EPM
-from aiosmb.dcerpc.v5.interfaces.servicemanager import REMSVCRPC, SMBServiceStatus
+from aiosmb.dcerpc.v5.interfaces.servicemanager import REMSVCRPC, ServiceStatus
 
 async def amain(url):
 	try:

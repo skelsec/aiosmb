@@ -1,22 +1,30 @@
+import sys
+import os
 import asyncio
 import traceback
 import ntpath
 import fnmatch
-
+import datetime
+import time
 import shlex
 import tqdm
+import inspect
+import typing
+from typing import List, Dict
 from aiosmb.external.aiocmd.aiocmd import aiocmd
 from aiosmb.examples.smbpathcompleter import SMBPathCompleter
 
 from aiosmb import logger
 from aiosmb._version import __banner__
 from aiosmb.commons.connection.factory import SMBConnectionFactory
+from aiosmb.connection import SMBConnection
 from aiosmb.commons.interfaces.machine import SMBMachine
 from aiosmb.commons.interfaces.share import SMBShare
 from aiosmb.commons.interfaces.file import SMBFile
-from aiosmb.commons.exceptions import SMBException, SMBMachineException
+from aiosmb.commons.interfaces.directory import SMBDirectory
+from aiosmb.commons.exceptions import SMBException
 from aiosmb.dcerpc.v5.rpcrt import DCERPCException
-
+from aiosmb.commons.utils.fmtsize import sizeof_fmt, size_to_bytes
 from asysocks import logger as sockslogger
 
 
@@ -25,35 +33,67 @@ from aiosmb.wintypes.access_mask import *
 from aiosmb.protocol.smb2.commands import *
 
 
-
-
-def req_traceback(funct):
-	async def wrapper(*args, **kwargs):
-		this = args[0]
-		try:
-			x = await funct(*args, **kwargs)
-			return x
-		except Exception as e:
-			traceback.print_exc()
-			raise e
-	return wrapper
-
 class SMBClient(aiocmd.PromptToolkitCmd):
 	def __init__(self, url = None, silent = False, no_dce = False):
 		aiocmd.PromptToolkitCmd.__init__(self, ignore_sigint=False) #Setting this to false, since True doesnt work on windows...
-		self.conn_url = None
+		self.conn_url:str = None
 		if url is not None:
 			self.conn_url = SMBConnectionFactory.from_url(url)
-		self.connection = None
-		self.machine = None
-		self.is_anon = False
-		self.silent = silent
-		self.no_dce = no_dce # diables ANY use of the DCE protocol (eg. share listing) This is useful for new(er) windows servers where they forbid the users to use any form of DCE
+		self.connection:SMBConnection = None
+		self.machine:SMBMachine = None
+		self.is_anon:bool = False
+		self.silent:bool = silent
+		self.no_dce:bool = no_dce # diables ANY use of the DCE protocol (eg. share listing) This is useful for new(er) windows servers where they forbid the users to use any form of DCE
 
-		self.shares = {} #name -> share
-		self.__current_share = None
-		self.__current_directory = None
+		self.shares:Dict[str, SMBShare] = {} #name -> share
+		self.__current_share:SMBShare = None
+		self.__current_directory:SMBDirectory = None
 	
+	def handle_exception(self, e, msg = None):
+		#providing a more consistent exception handling
+		frame = inspect.stack()[1]
+		caller = frame.function
+		args, _, _, values = inspect.getargvalues(frame[0])
+		caller_args = {arg: values[arg] for arg in args}
+		if 'self' in caller_args:
+			del caller_args['self']
+		if len(caller_args) > 0:
+			caller += ' '
+			for k,v in caller_args.items():
+				caller += '%s=%s ' % (k,v)
+			caller = caller[:-1]
+		if caller.startswith('do_'):
+			caller = caller[3:]
+		to_print = 'CMD: "%s" ERR: ' % caller
+		if isinstance(e, SMBException):
+			to_print += e.pprint()
+		else:
+			to_print += 'Error: %s' % e
+		if msg is not None:
+			to_print = msg+' '+to_print
+		print(to_print)
+		
+		formatted_exception = "".join(traceback.format_exception(type(e), e, e.__traceback__))
+		logger.debug("Traceback:\n%s", formatted_exception)
+		return False, e
+		
+		#except SMBException as e:
+		#	logger.debug(traceback.format_exc())
+		#	print(e.pprint())
+		#	return None, e
+		#except SMBMachineException as e:
+		#	logger.debug(traceback.format_exc())
+		#	print(str(e))
+		#	return None, e
+		#except DCERPCException as e:
+		#	logger.debug(traceback.format_exc())
+		#	print(str(e))
+		#	return None, e
+		#except Exception as e:
+		#	traceback.print_exc()
+		#	return None, e
+	
+
 	async def do_coninfo(self):
 		try:
 			from aiosmb._version import __version__ as smbver
@@ -62,6 +102,7 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			from winacl._version import __version__ as winaclver
 
 			print(self.conn_url)
+			print(self.machine.connection.get_extra_info())
 			print('AIOSMB: %s' % smbver)
 			print('ASYSOCKS: %s' % socksver)
 			print('MINIKERBEROS: %s' % kerbver)
@@ -92,13 +133,14 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 				raise err
 			self.is_anon = self.connection.gssapi.is_guest()
 			self.machine = SMBMachine(self.connection)
+			if self.no_dce is False:
+				# listing shares for better user experience
+				await self.do_shares(False)
 			if self.silent is False:
 				print('Login success')
 			return True, None
 		except Exception as e:
-			traceback.print_exc()
-			print('Login failed! Reason: %s' % str(e))
-			return False, e
+			return self.handle_exception(e, 'Login failed!')
 
 	async def do_logout(self):
 		if self.machine is not None:
@@ -132,23 +174,9 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 				if show is True:
 					print(share.name)
 			return True, None
-				
-		except SMBException as e:
-			logger.debug(traceback.format_exc())
-			print(e.pprint())
-			return None, e
-		except SMBMachineException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
-			return None, e
-		except DCERPCException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
-			return None, e
-		except Exception as e:
-			traceback.print_exc()
-			return None, e
 		
+		except Exception as e:
+			return self.handle_exception(e)		
 
 	async def do_sessions(self):
 		"""Lists sessions of connected users"""
@@ -157,17 +185,8 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 				if err is not None:
 					raise err
 				print("%s : %s" % (sess.username, sess.ip_addr))
-		except SMBException as e:
-			logger.debug(traceback.format_exc())
-			print(e.pprint())
-		except SMBMachineException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
-		except DCERPCException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
 		except Exception as e:
-			traceback.print_exc()
+			return self.handle_exception(e)	
 
 
 	async def do_wsessions(self):
@@ -177,17 +196,8 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 				if err is not None:
 					raise err
 				print("%s" % sess.username)
-		except SMBException as e:
-			logger.debug(traceback.format_exc())
-			print(e.pprint())
-		except SMBMachineException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
-		except DCERPCException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
 		except Exception as e:
-			traceback.print_exc()
+			return self.handle_exception(e)	
 
 	async def do_domains(self):
 		"""Lists domain"""
@@ -196,17 +206,8 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 				if err is not None:
 					raise err
 				print(domain)
-		except SMBException as e:
-			logger.debug(traceback.format_exc())
-			print(e.pprint())
-		except SMBMachineException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
-		except DCERPCException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
 		except Exception as e:
-			traceback.print_exc()
+			return self.handle_exception(e)	
 
 	async def do_localgroups(self):
 		"""Lists local groups"""
@@ -215,17 +216,8 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 				if err is not None:
 					raise err
 				print("%s : %s" % (name, sid))
-		except SMBException as e:
-			logger.debug(traceback.format_exc())
-			print(e.pprint())
-		except SMBMachineException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
-		except DCERPCException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
 		except Exception as e:
-			traceback.print_exc()
+			return self.handle_exception(e)	
 	
 	async def do_domaingroups(self, domain_name):
 		"""Lists groups in a domain"""
@@ -234,17 +226,8 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 				if err is not None:
 					raise err
 				print("%s : %s" % (name, sid))
-		except SMBException as e:
-			logger.debug(traceback.format_exc())
-			print(e.pprint())
-		except SMBMachineException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
-		except DCERPCException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
 		except Exception as e:
-			traceback.print_exc()
+			return self.handle_exception(e)	
 	
 	async def do_groupmembers(self, domain_name, group_name):
 		"""Lists members of an arbitrary group"""
@@ -253,17 +236,8 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 				if err is not None:
 					raise err
 				print("%s\\%s : %s" % (domain, username, sid))
-		except SMBException as e:
-			logger.debug(traceback.format_exc())
-			print(e.pprint())
-		except SMBMachineException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
-		except DCERPCException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
 		except Exception as e:
-			traceback.print_exc()
+			return self.handle_exception(e)	
 
 	async def do_localgroupmembers(self, group_name):
 		"""Lists members of a local group"""
@@ -273,17 +247,8 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 					raise err
 				print("%s\\%s : %s" % (domain, username, sid))
 			
-		except SMBException as e:
-			logger.debug(traceback.format_exc())
-			print(e.pprint())
-		except SMBMachineException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
-		except DCERPCException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
 		except Exception as e:
-			traceback.print_exc()
+			return self.handle_exception(e)	
 
 	async def do_addsidtolocalgroup(self, group_name, sid):
 		"""Add member (by SID) to a local group"""
@@ -296,17 +261,8 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			else:
 				print('Something went wrong, status != ok')
 			
-		except SMBException as e:
-			logger.debug(traceback.format_exc())
-			print(e.pprint())
-		except SMBMachineException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
-		except DCERPCException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
 		except Exception as e:
-			traceback.print_exc()
+			return self.handle_exception(e)	
 
 	async def do_use(self, share_name):
 		"""selects share to be used"""
@@ -337,21 +293,8 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 				raise err
 			return True, None
 
-		except SMBException as e:
-			logger.debug(traceback.format_exc())
-			print(e.pprint())
-			return None, e
-		except SMBMachineException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
-			return None, e
-		except DCERPCException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
-			return None, e
 		except Exception as e:
-			traceback.print_exc()
-			return None, e
+			return self.handle_exception(e)	
 			
 	async def do_dir(self):
 		return await self.do_ls()
@@ -360,41 +303,27 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 		try:
 			if self.__current_share is None:
 				print('No share selected!')
-				return
+				return None, Exception('No share selected!')
 			if self.__current_directory is None:
 				print('No directory selected!')
-				return
+				return None, Exception('No directory selected!')
 			
 			for entry in self.__current_directory.get_console_output():
 				print(entry)
 			
 			return True, None
-		except SMBException as e:
-			logger.debug(traceback.format_exc())
-			print(e.pprint())
-			return None, e
-		except SMBMachineException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
-			return None, e
-		except DCERPCException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
-			return None, e
 		except Exception as e:
-			traceback.print_exc()
-			return None, e
+			return self.handle_exception(e)	
 
 	async def do_refreshcurdir(self):
 		try:
-			async for entry in self.machine.list_directory(self.__current_directory):
+			async for entry, err in self.machine.list_directory(self.__current_directory):
 				#no need to put here anything, the dir bject will store the refreshed data
 				a = 1
 			
 			return True, None
 		except Exception as e:
-			traceback.print_exc()
-			return None, e
+			return self.handle_exception(e)	
 
 	async def do_cd(self, directory_name):
 		try:
@@ -423,22 +352,9 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 
 				return True, None
 			
-		except SMBException as e:
-			logger.debug(traceback.format_exc())
-			print(e.pprint())
-			return None, e
-		except SMBMachineException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
-			return None, e
-		except DCERPCException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
-			return None, e
 		except Exception as e:
-			traceback.print_exc()
-			return None, e
-
+			return self.handle_exception(e)	
+	
 	def get_current_dirs(self):
 		if self.__current_directory is None:
 			return []
@@ -461,21 +377,8 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			print(sd.to_sddl())
 			return True, None
 
-		except SMBException as e:
-			logger.debug(traceback.format_exc())
-			print(e.pprint())
-			return None, e
-		except SMBMachineException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
-			return None, e
-		except DCERPCException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
-			return None, e
 		except Exception as e:
-			traceback.print_exc()
-			return None, e
+			return self.handle_exception(e)	
 
 	async def do_getdirsd(self):
 		try:
@@ -484,27 +387,17 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 				raise err
 			print(str(sd.to_sddl()))
 			return True, None
-		except SMBException as e:
-			logger.debug(traceback.format_exc())
-			print(e.pprint())
-			return None, e
-		except SMBMachineException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
-			return None, e
-		except DCERPCException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
-			return None, e
 		except Exception as e:
-			traceback.print_exc()
-			return None, e
+			return self.handle_exception(e)	
 
 	def _cd_completions(self):
 		return SMBPathCompleter(get_current_dirs = self.get_current_dirs)
 
 	def _get_completions(self):
 		return SMBPathCompleter(get_current_dirs = self.get_current_files)
+	
+	def _getdir_completions(self):
+		return SMBPathCompleter(get_current_dirs = self.get_current_dirs)
 	
 	def _del_completions(self):
 		return SMBPathCompleter(get_current_dirs = self.get_current_files)
@@ -514,6 +407,9 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 	
 	def _dirsid_completions(self):
 		return SMBPathCompleter(get_current_dirs = self.get_current_dirs)
+	
+	def _use_completions(self):
+		return SMBPathCompleter(get_current_dirs = lambda: list(self.shares.keys()))
 
 
 	async def do_services(self):
@@ -522,26 +418,24 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			async for service, err in self.machine.list_services():
 				if err is not None:
 					raise err
-				print(service)
+				print(service.get_stauts_line())
 			
 			return True, None
 			
-			
-		except SMBException as e:
-			logger.debug(traceback.format_exc())
-			print(e.pprint())
-			return None, e
-		except SMBMachineException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
-			return None, e
-		except DCERPCException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
-			return None, e
 		except Exception as e:
-			traceback.print_exc()
-			return None, e
+			return self.handle_exception(e)
+	
+	async def do_servicesd(self, service_name):
+		"""Fetches service's security descriptor"""
+		try:
+			sd, err = await self.machine.get_service_sd(service_name)
+			if err is not None:
+				raise err
+			print(sd.to_sddl())
+			return True, None
+		
+		except Exception as e:
+			return self.handle_exception(e)
 
 	async def do_serviceen(self, service_name):
 		"""Enables a remote service"""
@@ -552,21 +446,8 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			print(res)
 			return True, None
 		
-		except SMBException as e:
-			logger.debug(traceback.format_exc())
-			print(e.pprint())
-			return None, e
-		except SMBMachineException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
-			return None, e
-		except DCERPCException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
-			return None, e
 		except Exception as e:
-			traceback.print_exc()
-			return None, e
+			return self.handle_exception(e)	
 
 	async def do_servicecreate(self, service_name, command, display_name = None):
 		"""Creates a remote service"""
@@ -577,21 +458,32 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			print('Service created!')
 			return True, None
 
-		except SMBException as e:
-			logger.debug(traceback.format_exc())
-			print(e.pprint())
-			return None, e
-		except SMBMachineException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
-			return None, e
-		except DCERPCException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
-			return None, e
 		except Exception as e:
-			traceback.print_exc()
-			return None, e
+			return self.handle_exception(e)
+	
+	async def do_servicedel(self, service_name):
+		"""Deletes a remote service"""
+		try:
+			_, err = await self.machine.delete_service(service_name)
+			if err is not None:
+				raise err
+			print('Service deleted!')
+			return True, None
+
+		except Exception as e:
+			return self.handle_exception(e)
+	
+	async def do_servicegetconfig(self, service_name):
+		"""Gets info of a remote service"""
+		try:
+			service, err = await self.machine.get_service_config(service_name)
+			if err is not None:
+				raise err
+			print(str(service))
+			return True, None
+
+		except Exception as e:
+			return self.handle_exception(e)
 	
 	async def do_servicecmdexec(self, command, timeout = 1):
 		"""Executes a shell command as a service and returns the result"""
@@ -612,21 +504,8 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 					print(data)
 			return True, None
 
-		except SMBException as e:
-			logger.debug(traceback.format_exc())
-			print(e.pprint())
-			return None, e
-		except SMBMachineException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
-			return None, e
-		except DCERPCException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
-			return None, e
 		except Exception as e:
-			traceback.print_exc()
-			return None, e
+			return self.handle_exception(e)	
 
 	async def do_servicedeploy(self, path_to_exec, remote_path):
 		"""Deploys a binary file from the local system as a service on the remote system"""
@@ -640,21 +519,8 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			print('Service deployed!')
 			return True, None
 
-		except SMBException as e:
-			logger.debug(traceback.format_exc())
-			print(e.pprint())
-			return None, e
-		except SMBMachineException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
-			return None, e
-		except DCERPCException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
-			return None, e
 		except Exception as e:
-			traceback.print_exc()
-			return None, e
+			return self.handle_exception(e)	
 
 	async def do_put(self, file_name):
 		"""Uploads a file to the remote share"""
@@ -672,21 +538,8 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			
 			return True, None
 
-		except SMBException as e:
-			logger.debug(traceback.format_exc())
-			print(e.pprint())
-			return None, e
-		except SMBMachineException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
-			return None, e
-		except DCERPCException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
-			return None, e
 		except Exception as e:
-			traceback.print_exc()
-			return None, e
+			return self.handle_exception(e)	
 
 	async def do_del(self, file_name):
 		"""Removes a file from the remote share"""
@@ -702,21 +555,8 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 				raise err
 			return True, None
 
-		except SMBException as e:
-			logger.debug(traceback.format_exc())
-			print(e.pprint())
-			return None, e
-		except SMBMachineException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
-			return None, e
-		except DCERPCException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
-			return None, e
 		except Exception as e:
-			traceback.print_exc()
-			return None, e
+			return self.handle_exception(e)	
 
 	async def do_regsave(self, hive_name, file_path):
 		"""Saves a registry hive to a file on remote share"""
@@ -727,21 +567,8 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			print('Hive saved!')
 			return True, None
 		
-		except SMBException as e:
-			logger.debug(traceback.format_exc())
-			print(e.pprint())
-			return None, e
-		except SMBMachineException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
-			return None, e
-		except DCERPCException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
-			return None, e
 		except Exception as e:
-			traceback.print_exc()
-			return None, e
+			return self.handle_exception(e)	
 
 	async def do_reglistusers(self):
 		"""Saves a registry hive to a file on remote share"""
@@ -753,21 +580,8 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 				print(user)
 			return True, None
 		
-		except SMBException as e:
-			logger.debug(traceback.format_exc())
-			print(e.pprint())
-			return None, e
-		except SMBMachineException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
-			return None, e
-		except DCERPCException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
-			return None, e
 		except Exception as e:
-			traceback.print_exc()
-			return None, e
+			return self.handle_exception(e)	
 
 	async def do_get(self, file_name):
 		"""Download a file from the remote share to the current folder"""
@@ -796,23 +610,104 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 							pbar.update(len(data))
 			
 			return True, None
-		except SMBException as e:
-			logger.debug(traceback.format_exc())
-			print(e.pprint())
-			return None, e
-		except SMBMachineException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
-			return None, e
-		except DCERPCException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
-			return None, e
 		except Exception as e:
-			traceback.print_exc()
-			return None, e
+			return self.handle_exception(e)
+	
+	async def do_getdir(self, dir_name, minfsize = None, maxfsize = None, filenamefilter = None):
+		"""Download a directory recirsively from the current location on the remote machine to the current local folder.
+		Minfsize and maxfsize are in bytes or in 1G 1M 1k notation. Filenamefilter is a comma separated list of fnmatch patterns (eg. *.exe,*.dll)
+		In case you want to specify the parameters partially, you can use the following notation:
+		getdir <dir_name> '' '1M' '*.exe,*.dll' -> only maxfsize and filenamefilter will be used
+		getdir <dir_name> -> all files will be downloaded
+		getdir <dir_name> '1M' -> all files bigger than 1M will be downloaded
+		"""
+		def matches_any_pattern(filename, patterns):
+			"""
+			Check if the filename matches any of the provided patterns.
+			
+			:param filename: The name of the file.
+			:param patterns: A list of patterns to match against.
+			:return: True if the filename matches any pattern, otherwise False.
+			"""
+			for pattern in patterns:
+				if fnmatch.fnmatch(filename, pattern):
+					return True
+			return False
+		
+		
+		async def get_directory(out_path:str, dir_obj:SMBDirectory):
+			async for obj, otype, err in dir_obj.list_r(self.connection, depth = 1, maxentries = -1):
+				if err is not None:
+					continue
+				if otype == 'dir':
+					# normalize entry.name os independent way
+					dirpath = os.path.join(out_path, ntpath.normpath(obj.name))
+					os.makedirs(dirpath, exist_ok=True)
+					async for lfile, entry in get_directory(dirpath, obj):
+						yield lfile, entry
+				elif otype == 'file':
+					yield os.path.join(out_path, os.path.basename(obj.name)), obj
+				else:
+					continue
+		try:
+			maxfsize = size_to_bytes(maxfsize)
+			minfsize = size_to_bytes(minfsize)
+			
+			if filenamefilter == '':
+				filenamefilter = None
+			if filenamefilter is not None:
+				filenamefilter = [x.strip() for x in filenamefilter.split(',')]
+			
+			matched = []
+			if dir_name not in self.__current_directory.subdirs:
+				
+				for fn in fnmatch.filter(list(self.__current_directory.subdirs.keys()), dir_name):
+					matched.append(fn)
+				if len(matched) == 0:
+					print('Directory with name %s is not present in the directory %s' % (dir_name, self.__current_directory.name))
+					return False, None
+			else:
+				matched.append(dir_name)
+			
+			for dir_name in matched:
+				total_files = 0
+				total_size = 0
+				dir_obj = self.__current_directory.subdirs[dir_name]
+				basedirname = os.path.basename(dir_obj.name) + time.strftime("%Y%m%d_%H%M%S")
+				with tqdm.tqdm(desc = 'Downloading files...', total=0, unit='B', unit_scale=True, unit_divisor=1024) as pbar:
+					async for lfile, entry in get_directory(basedirname, dir_obj):
+						if maxfsize is not None and entry.size > maxfsize:
+							continue
+						if minfsize is not None and entry.size < minfsize:
+							continue
+						if filenamefilter is not None and matches_any_pattern(entry.name, filenamefilter) is False:
+							continue
+						pbar.total = entry.size
+						pbar.n = 0
+						pbar.last_print_n = 0
+						pbar.start_t = time.time()
+						pbar.refresh()
+						desc = entry.unc_path
+						if len(entry.unc_path) > 30:
+							desc = '...' + entry.unc_path[-30:]
+						pbar.set_description('Downloading %s' % desc)
 
-
+						with open(lfile, 'wb') as outfile:
+							async for data, err in self.machine.get_file_data(entry):
+								if err is not None:
+									break
+								if data is None:
+									total_files += 1
+									break
+								outfile.write(data)
+								pbar.update(len(data))
+								total_size += len(data)
+					pbar.refresh()
+				
+				print('Donwloaded %s files, total size %s' % (total_files, sizeof_fmt(total_size)))
+			return True, None
+		except Exception as e:
+			return self.handle_exception(e)
 	
 	async def do_mkdir(self, directory_name):
 		"""Creates a directory on the remote share"""
@@ -826,22 +721,9 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 				raise err
 			return True, None
 
-		except SMBException as e:
-			logger.debug(traceback.format_exc())
-			print(e.pprint())
-			return None, e
-		except SMBMachineException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
-			return None, e
-		except DCERPCException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
-			return None, e
 		except Exception as e:
-			traceback.print_exc()
-			return None, e
-
+			return self.handle_exception(e)	
+		
 	async def do_dcsync(self, username = None):
 		"""It's a suprse tool that will help us later"""
 		try:
@@ -857,21 +739,8 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			
 			return True, None
 		
-		except SMBException as e:
-			logger.debug(traceback.format_exc())
-			print(e.pprint())
-			return None, e
-		except SMBMachineException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
-			return None, e
-		except DCERPCException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
-			return None, e
 		except Exception as e:
-			traceback.print_exc()
-			return None, e
+			return self.handle_exception(e)	
 
 	async def do_users(self, domain = None):
 		"""List users in domain"""
@@ -883,37 +752,36 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			
 			return True, None
 		
-		except SMBException as e:
-			logger.debug(traceback.format_exc())
-			print(e.pprint())
-			return None, e
-		except SMBMachineException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
-			return None, e
-		except DCERPCException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
-			return None, e
 		except Exception as e:
-			traceback.print_exc()
-			return None, e
+			return self.handle_exception(e)	
 
-	async def do_lsass(self):
+	async def do_lsass(self, lfilepath = None):
+		lsassfile = None
 		try:
-			res, err = await self.machine.task_dump_lsass()
+			if lfilepath is None:
+				lfilepath = 'lsass_%s.dmp' % datetime.datetime.now().strftime('%Y_%m_%d_%H%M%S')
+			lsassfile, err = await self.machine.task_dump_lsass()
 			if err is not None:
-				print(str(err))
-			print(res)
-
-			await res.close()
-		
+				raise err
+			pbar = tqdm.tqdm(desc = 'Downloading lsass dump', total=lsassfile.size, unit='B', unit_scale=True, unit_divisor=1024)
+			with open(lfilepath, 'wb') as f:
+				while True:
+					data, err = await lsassfile.read(65535)
+					if err is not None:
+						raise err
+					if data == b'':
+						break
+					f.write(data)
+					pbar.update(len(data))
+			
 			return True, None
 		
-		except SMBException as e:
-			logger.debug(traceback.format_exc())
-			print(e.pprint())
-			return None, e
+		except Exception as e:
+			return self.handle_exception(e)
+		finally:
+			if lsassfile is not None:
+				await lsassfile.close()
+				_, err = await self.machine.del_file(lsassfile.fullpath)
 
 	async def do_printerbug(self, attacker_ip):
 		"""Printerbug"""
@@ -925,21 +793,8 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 		
 			return True, None
 		
-		except SMBException as e:
-			logger.debug(traceback.format_exc())
-			print(e.pprint())
-			return None, e
-		except SMBMachineException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
-			return None, e
-		except DCERPCException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
-			return None, e
 		except Exception as e:
-			traceback.print_exc()
-			return None, e
+			return self.handle_exception(e)	
 
 	async def do_tasks(self):
 		"""List scheduled tasks """
@@ -951,21 +806,34 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			
 			return True, None
 		
-		except SMBException as e:
-			logger.debug(traceback.format_exc())
-			print(e.pprint())
-			return None, e
-		except SMBMachineException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
-			return None, e
-		except DCERPCException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
-			return None, e
 		except Exception as e:
-			traceback.print_exc()
-			return None, e
+			return self.handle_exception(e)	
+	
+	async def do_taskxml(self, task_name):
+		"""Gets the XML of a scheduled task"""
+		try:
+			xml, err = await self.machine.get_task(task_name)
+			if err is not None:
+				raise err
+			print(xml)
+			
+			return True, None
+		
+		except Exception as e:
+			return self.handle_exception(e)
+	
+	async def do_tasklistfolders(self, path = '\\'):
+		"""Lists scheduled task folders"""
+		try:
+			async for folder, err in self.machine.list_task_folders(path):
+				if err is not None:
+					raise err
+				print(folder)
+			
+			return True, None
+		
+		except Exception as e:
+			return self.handle_exception(e)
 
 	async def do_taskregister(self, template_file, task_name = None):
 		"""Registers a new scheduled task"""
@@ -980,21 +848,8 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 		
 			return True, None
 		
-		except SMBException as e:
-			logger.debug(traceback.format_exc())
-			print(e.pprint())
-			return None, e
-		except SMBMachineException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
-			return None, e
-		except DCERPCException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
-			return None, e
 		except Exception as e:
-			traceback.print_exc()
-			return None, e
+			return self.handle_exception(e)	
 
 	async def do_taskdel(self, task_name):
 		"""Deletes a scheduled task	"""
@@ -1005,21 +860,8 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 
 			return True, None
 		
-		except SMBException as e:
-			logger.debug(traceback.format_exc())
-			print(e.pprint())
-			return None, e
-		except SMBMachineException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
-			return None, e
-		except DCERPCException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
-			return None, e
 		except Exception as e:
-			traceback.print_exc()
-			return None, e
+			return self.handle_exception(e)	
 
 
 	async def do_taskcmdexec(self, command, timeout = 1):
@@ -1042,17 +884,8 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			return True, None
 			
 			#await self.machine.tasks_execute_commands([command])
-		except SMBException as e:
-			logger.debug(traceback.format_exc())
-			print(e.pprint())
-		except SMBMachineException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
-		except DCERPCException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
 		except Exception as e:
-			traceback.print_exc()
+			return self.handle_exception(e)	
 
 	async def do_interfaces(self):
 		""" Lists all network interfaces of the remote machine """
@@ -1065,48 +898,36 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			
 			return True, None
 		
-		except SMBException as e:
-			logger.debug(traceback.format_exc())
-			print(e.pprint())
-			return None, e
-		except SMBMachineException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
-			return None, e
-		except DCERPCException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
-			return None, e
 		except Exception as e:
-			traceback.print_exc()
-			return None, e
+			return self.handle_exception(e)	
 
 	async def do_enumall(self, depth = 3):
 		""" Enumerates all shares for all files and folders recursively """
 		try:
 			depth = int(depth)
-			async for path, otype, err in self.machine.enum_all_recursively(depth = depth):
-				if otype is not None:
-					print('[%s] %s' % (otype[0].upper(), path))
+			async for obj, otype, err in self.machine.enum_all_recursively(depth = depth):
 				if err is not None:
-					print('[E] %s %s' % (err, path))
+					if otype in ['dir', 'file']:
+						print('[E] %s %s' % (err, obj.unc_path))
+					else:
+						print('[E] %s %s' % (err, obj))
+
+				if otype == 'file':
+					obj = typing.cast(SMBFile, obj)
+					print('[F] %s %s %s %s' % (obj.unc_path, obj.size, obj.last_access_time, obj.last_write_time))
+				elif otype == 'dir':
+					obj = typing.cast(SMBDirectory, obj)
+					print('[D] %s %s %s %s' % (obj.unc_path, '0', obj.last_access_time, obj.last_write_time))
+				elif otype == 'share':
+					obj = typing.cast(SMBShare, obj)
+					print('[S] %s' % obj.name)
+				else:
+					print('[?] %s' % obj)
+				
 
 			return True, None
-		except SMBException as e:
-			logger.debug(traceback.format_exc())
-			print(e.pprint())
-			return None, e
-		except SMBMachineException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
-			return None, e
-		except DCERPCException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
-			return None, e
 		except Exception as e:
-			traceback.print_exc()
-			return None, e
+			return self.handle_exception(e)	
 
 	async def do_printerenumdrivers(self):
 		""" Enumerates all shares for all files and folders recursively """
@@ -1117,21 +938,8 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			for driver in drivers:
 				print(driver)
 			return True, None
-		except SMBException as e:
-			logger.debug(traceback.format_exc())
-			print(e.pprint())
-			return None, e
-		except SMBMachineException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
-			return None, e
-		except DCERPCException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
-			return None, e
 		except Exception as e:
-			traceback.print_exc()
-			return None, e
+			return self.handle_exception(e)	
 
 	async def do_printnightmare(self, share, driverpath = ''):
 		""" printnightmare bug using the RPRN protocol """
@@ -1142,21 +950,8 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			if err is not None:
 				raise err
 			return True, None
-		except SMBException as e:
-			logger.debug(traceback.format_exc())
-			print(e.pprint())
-			return None, e
-		except SMBMachineException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
-			return None, e
-		except DCERPCException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
-			return None, e
 		except Exception as e:
-			traceback.print_exc()
-			return None, e
+			return self.handle_exception(e)	
 	
 	async def do_parprintnightmare(self, share, driverpath = ''):
 		""" printnightmare bug using the PAR protocol """
@@ -1167,21 +962,8 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			if err is not None:
 				raise err
 			return True, None
-		except SMBException as e:
-			logger.debug(traceback.format_exc())
-			print(e.pprint())
-			return None, e
-		except SMBMachineException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
-			return None, e
-		except DCERPCException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
-			return None, e
 		except Exception as e:
-			traceback.print_exc()
-			return None, e
+			return self.handle_exception(e)	
 
 	async def do_backupkeys(self, outfile = None):
 		"""Obtains the DPAPI domain backup keys"""
@@ -1215,23 +997,10 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 				else:
 					print('Backupkey saved to disk')
 			return True, None
-		except SMBException as e:
-			logger.debug(traceback.format_exc())
-			print(e.pprint())
-			return None, e
-		except SMBMachineException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
-			return None, e
-		except DCERPCException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
-			return None, e
 		except Exception as e:
-			traceback.print_exc()
-			return None, e
+			return self.handle_exception(e)	
 		
-	async def cpasswd(self):
+	async def do_cpasswd(self):
 		"""Searches for cpassword in GPP files"""
 		try:
 			async for filename, username, cpassword, xmltype, err in self.machine.get_cpasswd(depth = 5):
@@ -1244,21 +1013,52 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 				print('')
 			print('Done!')
 			return True, None
-		except SMBException as e:
-			logger.debug(traceback.format_exc())
-			print(e.pprint())
-			return None, e
-		except SMBMachineException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
-			return None, e
-		except DCERPCException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
-			return None, e
 		except Exception as e:
-			traceback.print_exc()
-			return None, e
+			return self.handle_exception(e)
+	
+
+	async def do_ataddjob(self, atinfo, server_name:str = None):
+		try:
+			jobid, err = await self.machine.at_add_job(atinfo, server_name = server_name)
+			if err is not None:
+				raise err
+			print('Job added! Job ID: %s' % jobid)
+			return True, None
+		except Exception as e:
+			return self.handle_exception(e)
+	
+	async def do_atenum(self, server_name:str = None):
+		try:
+			x, err = await self.machine.at_enum(server_name = server_name)
+			if err is not None:
+				raise err
+			print(x)
+			return True, None
+		except Exception as e:
+			return self.handle_exception(e)
+	
+	async def do_atdeljob(self, jobid:int, server_name:str = None):
+		try:
+			jobid = int(jobid)
+			_, err = await self.machine.at_del_job(jobid, server_name = server_name)
+			if err is not None:
+				raise err
+			print('Job deleted!')
+			return True, None
+		
+		except Exception as e:
+			return self.handle_exception(e)
+	
+	async def do_atgetjob(self, jobid:int, server_name:str = None):
+		try:
+			jobid = int(jobid)
+			jobinfo, err = await self.machine.at_get_info(jobid, server_name = server_name)
+			if err is not None:
+				raise err
+			print(jobinfo)
+			return True, None
+		except Exception as e:
+			return self.handle_exception(e)
 
 	async def do_pipetest(self, data = 'HELLO!'):
 		""" pipetest """
@@ -1298,51 +1098,45 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 				print(data)
 				await asyncio.sleep(2)
 			return True, None
-		except SMBException as e:
-			logger.debug(traceback.format_exc())
-			print(e.pprint())
-			return None, e
-		except SMBMachineException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
-			return None, e
-		except DCERPCException as e:
-			logger.debug(traceback.format_exc())
-			print(str(e))
-			return None, e
 		except Exception as e:
-			traceback.print_exc()
-			return None, e
+			return self.handle_exception(e)	
 		finally:
 			if pipe is not None:
 				await pipe.close()
 	
 
-async def amain(args):
-	client = SMBClient(args.smb_url, silent = args.silent)
-	if len(args.commands) == 0:
-		if args.no_interactive is True:
+async def amain(smb_url:str, commands:List[str] = [], silent:bool = False, continue_on_error:bool = False, no_interactive:bool=False):
+	client = SMBClient(smb_url, silent = silent)
+	if len(commands) == 0:
+		if no_interactive is True:
 			print('Not starting interactive!')
-			return
+			sys.exit(1)
 		res = await client._run_single_command('login', [])
 		if res is False:
-			return
+			sys.exit(1)
 		await client.run()
 	else:
-		for command in args.commands:
-			if command == 'i':
-				await client.run()
-				return
-			
-			cmd = shlex.split(command)
-			if cmd[0] == 'login':
-				_, err = await client.do_login()
-				if err is not None:
-					return
-				continue
-			
-			await client._run_single_command(cmd[0], cmd[1:])
-		await client.do_logout()
+		try:
+			for command in commands:
+				if command == 'i':
+					await client.run()
+					sys.exit(0)
+				
+				cmd = shlex.split(command)
+				if cmd[0] == 'login':
+					_, err = await client.do_login()
+					if err is not None:
+						sys.exit(1)
+					continue
+				
+				print('>>> %s' % command)
+				_, err = await client._run_single_command(cmd[0], cmd[1:])
+				if err is not None and continue_on_error is False:
+					print('Batch execution stopped early, because a command failed!')
+					sys.exit(1)
+			sys.exit(0)
+		finally:
+			await client.do_logout()
 
 def main():
 	import argparse
@@ -1355,6 +1149,7 @@ def main():
 	parser.add_argument('-v', '--verbose', action='count', default=0)
 	parser.add_argument('-s', '--silent', action='store_true', help='do not print banner')
 	parser.add_argument('-n', '--no-interactive', action='store_true')
+	parser.add_argument('-c', '--continue-on-error', action='store_true', help='When in batch execution mode, execute all commands even if one fails')
 	parser.add_argument('smb_url', help = 'Connection string that describes the authentication and target. Example: smb+ntlm-password://TEST\\Administrator:password@10.10.10.2')
 	parser.add_argument('commands', nargs='*')
 	
@@ -1375,7 +1170,15 @@ def main():
 		asyncio.get_event_loop().set_debug(True)
 		logging.basicConfig(level=logging.DEBUG)
 
-	asyncio.run(amain(args))
+	asyncio.run(
+		amain(
+			args.smb_url,
+			args.commands, 
+			args.silent, 
+			args.continue_on_error, 
+			args.no_interactive
+		)
+	)
 
 if __name__ == '__main__':
 	main()

@@ -7,7 +7,7 @@ class SMBException(Exception):
 
 	def pprint(self):
 		if self.ntstatus is not None:
-			return 'Error! Server responded with: %s' % self.ntstatus.name
+			return '%s [%s]' % (self.ntstatus.name, hex(self.ntstatus.value))
 		return 'Generic SMBException, missing NTSTATUS code.'
 
 class SMBConnectionNetworkTerminated(SMBException):

@@ -20,6 +20,18 @@ from aiosmb.dcerpc.v5.rpcrt import RPC_C_AUTHN_LEVEL_NONE,\
 from unicrypto.symmetric import cipherMODE, DES, expand_DES_key
 from winacl.dtyp.wcee.backupkey import PREFERRED_BACKUP_KEY
 from winacl.dtyp.wcee.pvkfile import PVKFile
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def lsadrpc_from_smb(connection, auth_level=None, open=True, perform_dummy=False):
+    instance, err = await LSADRPC.from_smbconnection(connection, auth_level=auth_level, open=open, perform_dummy=perform_dummy)
+    if err:
+        # Handle or raise the error as appropriate
+        raise err
+    try:
+        yield instance
+    finally:
+        await instance.close()
 
 class LSADRPC:
 	def __init__(self):

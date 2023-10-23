@@ -1,10 +1,7 @@
-import enum
 import asyncio
-from inspect import trace
-import traceback
 
 from aiosmb import logger
-from aiosmb.dcerpc.v5.common.service import SMBServiceStatus, SMBService
+from aiosmb.dcerpc.v5.common.service import ServiceStatus, SMBService
 from aiosmb.dcerpc.v5.common.connection.smbdcefactory import SMBDCEFactory
 from aiosmb.connection import SMBConnection
 from aiosmb.dcerpc.v5.connection import DCERPC5Connection
@@ -17,6 +14,19 @@ from aiosmb.dcerpc.v5.rpcrt import RPC_C_AUTHN_LEVEL_NONE,\
 	RPC_C_AUTHN_LEVEL_PKT_INTEGRITY,\
 	RPC_C_AUTHN_LEVEL_PKT_PRIVACY,\
 	DCERPCException, RPC_C_AUTHN_GSS_NEGOTIATE
+
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def remsvcrpc_from_smb(connection, auth_level=None, open=True, perform_dummy=False):
+    instance, err = await REMSVCRPC.from_smbconnection(connection, auth_level=auth_level, open=open, perform_dummy=perform_dummy)
+    if err:
+        # Handle or raise the error as appropriate
+        raise err
+    try:
+        yield instance
+    finally:
+        await instance.close()
 
 class REMSVCRPC:
 	def __init__(self):
@@ -124,22 +134,10 @@ class REMSVCRPC:
 			for i in range(len(resp)):
 				service_status = None
 				state = resp[i]['ServiceStatus']['dwCurrentState']
-				if state == scmr.SERVICE_CONTINUE_PENDING:
-					service_status = SMBServiceStatus.CONTINUE_PENDING
-				elif state == scmr.SERVICE_PAUSE_PENDING:
-					service_status = SMBServiceStatus.PAUSE_PENDING
-				elif state == scmr.SERVICE_PAUSED:
-					service_status = SMBServiceStatus.PAUSED
-				elif state == scmr.SERVICE_RUNNING:
-					service_status = SMBServiceStatus.RUNNING
-				elif state == scmr.SERVICE_START_PENDING:
-					service_status = SMBServiceStatus.START_PENDING
-				elif state == scmr.SERVICE_STOP_PENDING:
-					service_status = SMBServiceStatus.STOP_PENDING
-				elif state == scmr.SERVICE_STOPPED:
-					service_status = SMBServiceStatus.STOPPED
-				else:
-					service_status = SMBServiceStatus.UNKNOWN
+				try:
+					service_status = ServiceStatus(resp[i]['ServiceStatus']['dwCurrentState'])
+				except:
+					service_status = ServiceStatus.UNKNOWN
 
 				service = SMBService(resp[i]['lpServiceName'][:-1], resp[i]['lpDisplayName'][:-1], service_status)
 				yield service, None
@@ -206,13 +204,13 @@ class REMSVCRPC:
 				if err is not None:
 					raise err
 				if ans['lpServiceConfig']['dwStartType'] == 0x4:
-					return SMBServiceStatus.DISABLED, None
+					return ServiceStatus.DISABLED, None
 				else:
-					return SMBServiceStatus.STOPPED, None
+					return ServiceStatus.STOPPED, None
 
 			elif ans['lpServiceStatus']['dwCurrentState'] == scmr.SERVICE_RUNNING:
 				logger.debug('Service %s is already running'% service_name)
-				return SMBServiceStatus.RUNNING, None
+				return ServiceStatus.RUNNING, None
 			else:
 				raise Exception('Unknown service state 0x%x - Aborting' % ans['CurrentState'])
 		except Exception as e:
@@ -229,6 +227,7 @@ class REMSVCRPC:
 
 	async def change_service_status(self, service_name, service_status):
 		try:
+			
 			if not self.handle:
 				_, err = await self.open()
 				if err is not None:
@@ -242,7 +241,8 @@ class REMSVCRPC:
 				if err is not None:
 					raise err
 			
-			_, err = await scmr.hRControlService(self.dce, self.handle, service_status)
+			
+			_, err = await scmr.hRControlService(self.dce, self.service_handles[service_name], service_status)
 			if err is not None:
 				raise err
 			
@@ -323,5 +323,47 @@ class REMSVCRPC:
 				raise err
 
 			return True,None
+		except Exception as e:
+			return None, e
+
+	async def get_config(self, service_name):
+		try:
+			if not self.handle:
+				_, err = await self.open()
+				if err is not None:
+					raise err
+
+			if service_name not in self.service_handles:
+				_, err = await self.open_service(service_name)
+				if err is not None:
+					raise err
+
+			ans, err = await scmr.hRQueryServiceConfigW(self.dce, self.service_handles[service_name])
+			if err is not None:
+				raise err
+			
+			service = SMBService.from_query_result(ans, name=service_name)
+			return service, None
+		except Exception as e:
+			return None, e
+		
+	async def get_service_sd(self, service_name):
+		try:
+			if not self.handle:
+				_, err = await self.open()
+				if err is not None:
+					raise err
+
+			if service_name not in self.service_handles:
+				_, err = await self.open_service(service_name)
+				if err is not None:
+					raise err
+
+			ans, err = await scmr.hRQueryServiceObjectSecurity(self.dce, self.service_handles[service_name], scmr.DACL_SECURITY_INFORMATION, 1024*10)
+			if err is not None:
+				raise err
+			
+			ans.dump()
+			return ans, None
 		except Exception as e:
 			return None, e

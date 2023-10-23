@@ -1,7 +1,4 @@
 
-import asyncio
-import os
-import io
 import traceback
 
 from aiosmb.dcerpc.v5.common.connection.authentication import DCERPCAuth
