@@ -26,7 +26,7 @@ from aiosmb.commons.exceptions import SMBException
 from aiosmb.dcerpc.v5.rpcrt import DCERPCException
 from aiosmb.commons.utils.fmtsize import sizeof_fmt, size_to_bytes
 from asysocks import logger as sockslogger
-
+from aiosmb.commons.utils.faccess import faccess_basic_check, faccess_mask_to_unix, faccess_mask_to_tsv, faccess_match
 
 
 from aiosmb.wintypes.access_mask import *
@@ -262,7 +262,24 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 				print('Something went wrong, status != ok')
 			
 		except Exception as e:
-			return self.handle_exception(e)	
+			return self.handle_exception(e)
+	
+	async def do_whoami(self, to_print = True):
+		"""Prints current user"""
+		try:
+			self.__current_username, domainname, self.__current_usersid, self.__current_user_groups, err = await self.machine.whoami()
+			if err is not None:
+				raise err
+			if to_print is True:
+				print('Username: %s' % self.__current_username)
+				print('Domain: %s' % domainname)
+				print('SID: %s' % self.__current_usersid)
+				print('Groups:')
+				for group in self.__current_user_groups:
+					print(' %s' % group)
+			return True, None
+		except Exception as e:
+			return self.handle_exception(e)
 
 	async def do_use(self, share_name):
 		"""selects share to be used"""
@@ -353,7 +370,7 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 				return True, None
 			
 		except Exception as e:
-			return self.handle_exception(e)	
+			return self.handle_exception(e)
 	
 	def get_current_dirs(self):
 		if self.__current_directory is None:
@@ -364,6 +381,60 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 		if self.__current_directory is None:
 			return []
 		return list(self.__current_directory.files.keys())
+	
+	async def do_enumperms(self, accessfilter:str, depth:int = 1, outfilename:str = None):
+		"""Recursively enumerates all contents of a directory and checks for specific access rights
+		accessfilter: can be 'r' 'w' 'x' 'a' or a combination of those. 'a' stands for all access rights
+		Example: enumperms w 10 -> lists all contents the current user has write access to, up to 10 levels deep
+		"""
+		try:
+			if self.__current_share is None:
+				print('No share selected!')
+				return False, None
+			if self.__current_directory is None:
+				print('No directory selected!')
+				return False, None
+			
+			await self.do_whoami(False)
+			
+			accessfilter = accessfilter.lower()
+			depth = int(depth)
+			outfile = None
+			if outfilename is not None and outfilename != '':
+				outfile = open(outfilename, 'w', newline = '')
+			async for entry, entrytype, err in self.__current_directory.list_r(self.machine.connection, depth=depth, fetch_dir_sd=True, fetch_file_sd=True):
+				sd = None
+				if err is not None:
+					continue
+				if entrytype == 'file':
+					entry = typing.cast(SMBFile, entry)
+					if entry.security_descriptor is None:
+						continue
+					sd = entry.security_descriptor
+				elif entrytype == 'dir':
+					entry = typing.cast(SMBDirectory, entry)
+					if entry.security_descriptor is None:
+						continue
+					sd = entry.security_descriptor
+				else:
+					continue
+
+				if sd is not None:
+					access = faccess_basic_check(entry.security_descriptor, self.__current_usersid, self.__current_user_groups)
+					matches = access
+					if 'a' not in accessfilter:
+						matches = faccess_match(access, accessfilter)
+					if matches != 0:
+						res = '%s\t%s' % (entry.unc_path, faccess_mask_to_tsv(matches))
+						if outfile is None:
+							print(res)
+						else:
+							outfile.write(res+'\r\n')
+			return True, None
+
+
+		except Exception as e:
+			return self.handle_exception(e)	
 
 	async def do_getfilesd(self, file_name):
 		try:
@@ -375,6 +446,8 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			if err is not None:
 				raise err
 			print(sd.to_sddl())
+			access = faccess_basic_check(sd, self.__current_usersid, self.__current_user_groups)
+			print('Access: %s' % access)
 			return True, None
 
 		except Exception as e:
@@ -382,13 +455,33 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 
 	async def do_getdirsd(self):
 		try:
+			if self.__current_directory is None:
+				print('No directory selected!')
+				return False, None
 			sd, err = await self.__current_directory.get_security_descriptor(self.connection)
 			if err is not None:
 				raise err
 			print(str(sd.to_sddl()))
+			access = faccess_basic_check(sd, self.__current_usersid, self.__current_user_groups)
+			print('Access: %s' % access)
 			return True, None
 		except Exception as e:
-			return self.handle_exception(e)	
+			return self.handle_exception(e)
+	
+	async def do_getsharesd(self):
+		try:
+			if self.__current_share is None:
+				print('No share selected!')
+				return False, None
+			sd, err = await self.__current_share.get_security_descriptor(self.connection)
+			if err is not None:
+				raise err
+			print(str(sd.to_sddl()))
+			access = faccess_basic_check(sd, self.__current_usersid, self.__current_user_groups)
+			print('Access: %s' % access)
+			return True, None
+		except Exception as e:
+			return self.handle_exception(e)
 
 	def _cd_completions(self):
 		return SMBPathCompleter(get_current_dirs = self.get_current_dirs)

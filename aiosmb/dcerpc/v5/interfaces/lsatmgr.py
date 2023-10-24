@@ -242,6 +242,31 @@ class LSADRPC:
 		secret = lsad.LSA_SECRET_XP(decdata)
 		return secret['Secret']
 
+	async def get_username(self):
+		"""Returns the username of the current user"""
+		try:
+			ans, err = await lsat.hLsarGetUserName(self.dce)
+			if err is not None:
+				raise err
+			return ans['UserName'], None
+		except Exception as e:
+			return None, e
+		
+	async def get_sid_for_user(self, policy_handle, username:str):
+		"""Returns the SID of the user specified by username"""
+		try:
+			ans, err = await lsat.hLsarLookupNames(self.dce, self.policy_handles[policy_handle], [username])
+			if err is not None:
+				raise err
+			domain_name = ans['ReferencedDomains']['Domains'][0]['Name']
+			domain_sid = ans['ReferencedDomains']['Domains'][0]['Sid'].formatCanonical()
+			user_rid = ans['TranslatedSids']['Sids'][0]['RelativeId']
+			usersid = '%s-%s' % (domain_sid, user_rid)
+			return usersid, domain_name, user_rid, None
+		except Exception as e:
+			print(err)
+			return None, e
+
 
 async def amain(url):
 	enc_des = """
