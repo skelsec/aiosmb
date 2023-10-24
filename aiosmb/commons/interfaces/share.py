@@ -3,6 +3,9 @@ from aiosmb.wintypes.access_mask import *
 from aiosmb.protocol.smb2.commands import *
 from aiosmb.wintypes.fscc.structures.fileinfoclass import FileInfoClass
 
+from winacl.dtyp.security_descriptor import SECURITY_DESCRIPTOR
+from typing import Callable, Awaitable, List, Dict, AsyncGenerator, Tuple, Union
+
 
 class SMBShare:
 	def __init__(self, name = None, stype = None, remark = None, fullpath = None):
@@ -46,7 +49,7 @@ class SMBShare:
 		except Exception as e:
 			return None, e
 
-	async def get_security_descriptor(self, connection):
+	async def get_security_descriptor(self, connection) -> Awaitable[Tuple[SECURITY_DESCRIPTOR, Union[Exception, None]]]:
 		if self.security_descriptor is None:
 			file_id = None
 			try:

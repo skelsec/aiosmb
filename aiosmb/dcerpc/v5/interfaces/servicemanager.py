@@ -14,6 +14,7 @@ from aiosmb.dcerpc.v5.rpcrt import RPC_C_AUTHN_LEVEL_NONE,\
 	RPC_C_AUTHN_LEVEL_PKT_INTEGRITY,\
 	RPC_C_AUTHN_LEVEL_PKT_PRIVACY,\
 	DCERPCException, RPC_C_AUTHN_GSS_NEGOTIATE
+from winacl.dtyp.security_descriptor import SECURITY_DESCRIPTOR
 
 from contextlib import asynccontextmanager
 
@@ -363,7 +364,7 @@ class REMSVCRPC:
 			if err is not None:
 				raise err
 			
-			ans.dump()
-			return ans, None
+			res = SECURITY_DESCRIPTOR.from_bytes(b''.join(ans['lpSecurityDescriptor']))
+			return res, None
 		except Exception as e:
 			return None, e

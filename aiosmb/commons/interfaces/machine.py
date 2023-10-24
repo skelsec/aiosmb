@@ -986,3 +986,44 @@ class SMBMachine:
 				return await rpc.get_job(job_id, servername = server_name)
 		except Exception as e:
 			return None, e
+	
+	async def whoami(self) -> Awaitable[Tuple[str, Union[Exception, None]]]:
+		try:
+			groups = []
+			async with samrrpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as samrpc:
+				async with lsadrpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as lsadrpc:
+					policy_handle, err = await lsadrpc.open_policy2()
+					if err is not None:
+						raise err
+					domain_sid, err = await lsadrpc.get_domain_sid(policy_handle)
+					if err is not None:
+						raise err
+					
+					username, err = await lsadrpc.get_username()
+					if err is not None:
+						raise err
+					
+					usersid, domainname, userrid, err = await lsadrpc.get_sid_for_user(policy_handle, username)
+					if err is not None:
+						raise err
+				
+					sdsid, err = await samrpc.get_domain_sid(domainname)
+					if err is not None:
+						raise err
+					
+					dhandle, err = await samrpc.open_domain(sdsid)
+					if err is not None:
+						raise err
+					
+					uhandle, err = await samrpc.open_user(dhandle, userrid)
+					if err is not None:
+						raise err
+					
+					async for x, err in samrpc.get_user_group_memberships(uhandle):
+						if err is not None:
+							raise err
+						groups.append(x)
+
+				return username, domainname, usersid, groups, None
+		except Exception as e:
+			return None, None, None, None, e

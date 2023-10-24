@@ -43,7 +43,7 @@ setup(
 		'asyauth>=0.0.16',
 		'asysocks>=0.2.9',
 		'prompt-toolkit>=3.0.2',
-		'winacl>=0.1.7',
+		'winacl>=0.1.8',
 		'six',
 		'tqdm',
 		'colorama',

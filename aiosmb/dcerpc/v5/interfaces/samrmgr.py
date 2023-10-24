@@ -190,6 +190,8 @@ class SAMRRPC:
 	async def open_domain(self, domain_sid, access_level = samr.MAXIMUM_ALLOWED):
 		try:
 			resp, err = await samr.hSamrOpenDomain(self.dce, self.handle, domainId = self.domain_ids[domain_sid], desiredAccess = access_level)
+			if err is not None:
+				raise err
 			self.domain_handles[resp['DomainHandle']] = domain_sid
 			return resp['DomainHandle'], None
 		except Exception as e:
