@@ -48,6 +48,8 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 		self.shares:Dict[str, SMBShare] = {} #name -> share
 		self.__current_share:SMBShare = None
 		self.__current_directory:SMBDirectory = None
+		self.__current_usersid = None
+		self.__current_user_groups = None
 	
 	def handle_exception(self, e, msg = None):
 		#providing a more consistent exception handling
@@ -482,6 +484,33 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			return True, None
 		except Exception as e:
 			return self.handle_exception(e)
+	
+	#async def do_enumsharesd(self, accessfilter:str = 'w'):
+	#	"""Checks the access permissions of the current user on all shares"""
+	#	try:
+	#		accessfilter = accessfilter.lower()
+	#		if self.__current_usersid is None:
+	#			await self.do_whoami(False)
+	#		
+	#		for share in self.shares:
+	#			sd, err = await self.shares[share].get_security_descriptor(self.connection)
+	#			if err is not None:
+	#				continue
+	#			
+	#			if sd is None:
+	#				continue
+	#
+	#			access = faccess_basic_check(sd, self.__current_usersid, self.__current_user_groups)
+	#			print(share, access)
+	#			if 'a' not in accessfilter:
+	#				matches = faccess_match(access, accessfilter)
+	#			if matches != 0:
+	#				print('%s\t Access: %s Formatted: %s' % (share, hex(access), faccess_mask_to_unix(access)))
+	#
+	#			
+	#		return True, None
+	#	except Exception as e:
+	#		return self.handle_exception(e)
 
 	def _cd_completions(self):
 		return SMBPathCompleter(get_current_dirs = self.get_current_dirs)

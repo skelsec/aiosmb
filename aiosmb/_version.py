@@ -1,5 +1,5 @@
 
-__version__ = "0.4.9"
+__version__ = "0.4.10"
 __banner__ = \
 """
 # aiosmb %s 
