@@ -17,11 +17,11 @@ cd %repo%\..\
 pip install .
 pip install msldap
 cd %repo%\examples\
-pyinstaller -F smbclient.py %hiddenimports%
-pyinstaller -F smbcertreq.py %hiddenimports%
+pyinstaller -F smbclient.py -n smbclient %hiddenimports%
+pyinstaller -F smbcertreq.py -n smbcertreq %hiddenimports%
 cd %repo%\examples\dist & copy *.exe %root%
 cd %repo%\examples\scanners
-pyinstaller -F __main__.py %hiddenimports%
+pyinstaller -F __main__.py -n smbscanner %hiddenimports%
 cd %repo%\examples\scanners\dist & copy __main__.exe %root%\smbscanner.exe
 GOTO :CLEANUP
 
