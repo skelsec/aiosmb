@@ -1233,8 +1233,8 @@ async def amain(smb_url:str, commands:List[str] = [], silent:bool = False, conti
 		if no_interactive is True:
 			print('Not starting interactive!')
 			sys.exit(1)
-		res = await client._run_single_command('login', [])
-		if res is False:
+		_, err = await client._run_single_command('login', [])
+		if err is not None:
 			sys.exit(1)
 		await client.run()
 	else:

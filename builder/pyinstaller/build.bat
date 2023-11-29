@@ -19,6 +19,8 @@ pip install msldap
 cd %repo%\examples\
 pyinstaller -F smbclient.py -n smbclient %hiddenimports%
 pyinstaller -F smbcertreq.py -n smbcertreq %hiddenimports%
+pyinstaller -F smbgetfile.py -n smbgetfile %hiddenimports%
+pyinstaller -F smbshareenum.py -n smbshareenum %hiddenimports%
 cd %repo%\examples\dist & copy *.exe %root%
 cd %repo%\examples\scanners
 pyinstaller -F __main__.py -n smbscanner %hiddenimports%

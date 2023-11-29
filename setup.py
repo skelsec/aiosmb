@@ -26,7 +26,7 @@ setup(
 
 	# Include additional files into the package
 	include_package_data=True,
-	license="Modified Apache Software License 1.1"
+	license="Modified Apache Software License 1.1",
 
 	# Details
 	url="https://github.com/skelsec/aiosmb",
