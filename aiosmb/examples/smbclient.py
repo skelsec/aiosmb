@@ -569,7 +569,19 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			return True, None
 		
 		except Exception as e:
-			return self.handle_exception(e)	
+			return self.handle_exception(e)
+	
+	async def do_servicestart(self, service_name):
+		"""Enables a remote service"""
+		try:
+			res, err = await self.machine.start_service(service_name)
+			if err is not None:
+				raise err
+			print('Start command sent!')
+			return True, None
+		
+		except Exception as e:
+			return self.handle_exception(e)
 
 	async def do_servicecreate(self, service_name, command, display_name = None):
 		"""Creates a remote service"""
