@@ -4,6 +4,7 @@ from aiosmb.commons.connection.factory import SMBConnectionFactory
 from aiosmb.commons.interfaces.share import SMBShare
 from aiosmb.dcerpc.v5.interfaces.remoteregistry import RRPRPC
 from aiosmb.dcerpc.v5.interfaces.servicemanager import REMSVCRPC
+import traceback
 
 class SMBAdminRes:
 	def __init__(self, share, servicemgr, registry):
@@ -62,4 +63,5 @@ class SMBAdminScanner:
 				await out_queue.put(ScannerData(target, SMBAdminRes(share_access, service_access, registry_access)))
 				
 		except Exception as e:
-			await out_queue.put(ScannerError(target, e))
+			tb = traceback.format_exc().replace('\n', ' ').replace('\r', '')
+			await out_queue.put(ScannerError(target, f"{e} | Traceback: {tb}"))

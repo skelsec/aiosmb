@@ -1,4 +1,5 @@
 
+import traceback
 from asysocks.unicomm.common.scanner.common import *
 from aiosmb.commons.connection.factory import SMBConnectionFactory
 from asyauth.protocols.ntlm.structures.serverinfo import NTLMSERVERINFO_TSV_HDR, NTLMServerInfo
@@ -29,4 +30,5 @@ class SMBFingerScanner:
 			
 			await out_queue.put(ScannerData(target, SMBFingerRes(res)))
 		except Exception as e:
-			await out_queue.put(ScannerError(target, e))
+			tb = traceback.format_exc().replace('\n', ' ').replace('\r', '')
+			await out_queue.put(ScannerError(target, f"{e} | Traceback: {tb}"))

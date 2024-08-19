@@ -1,4 +1,5 @@
 
+import traceback
 from asysocks.unicomm.common.scanner.common import *
 from aiosmb.commons.connection.factory import SMBConnectionFactory
 from aiosmb.commons.interfaces.machine import SMBMachine
@@ -46,4 +47,5 @@ class SMBPrintnightmareScanner:
 						await out_queue.put(ScannerData(target, res))
 
 		except Exception as e:
-			await out_queue.put(ScannerError(target, e))
+			tb = traceback.format_exc().replace('\n', ' ').replace('\r', '')
+			await out_queue.put(ScannerError(target, f"{e} | Traceback: {tb}"))

@@ -146,6 +146,16 @@ class SMBTarget(UniTarget):
 		return t
 	
 	@staticmethod
+	def create_dummy(proxies = None):
+		return SMBTarget(
+			ip = '999.999.999.999',
+			port = 445,
+			hostname = 'dummy',
+			timeout = 5,
+			proxies = proxies
+		)
+	
+	@staticmethod
 	def from_url(connection_url):
 		url_e = urlparse(connection_url)
 		schemes = url_e.scheme.upper().split('+')

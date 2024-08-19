@@ -18,6 +18,18 @@ class SMBConnectionFactory:
 		self.proxies= None
 	
 	@staticmethod
+	def create_dummy(authtype='NTLM', proxies = None):
+		"""Creates a new SMBConnectionFactory object with a dummy target and credential"""
+		"""User for scanners that don't need to authenticate to the target, and when the target will be set later."""
+		target = SMBTarget.create_dummy(proxies)
+		if authtype == 'NTLM':
+			from asyauth.common.credentials.ntlm import NTLMCredential
+			credential = NTLMCredential.create_guest()
+		else:
+			raise Exception('Unknown authtype: %s' % authtype)
+		return SMBConnectionFactory(credential, target)
+	
+	@staticmethod
 	def from_url(connection_url):
 		"""Creates SMBConnectionFactory from url string"""
 		target = SMBTarget.from_url(connection_url)
