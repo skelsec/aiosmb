@@ -51,7 +51,7 @@ jobs:
     - name: Upload Artifacts for Download
       uses: actions/upload-artifact@v2
       with:
-        name: executables
+        name: executables.zip
         path: builder\pyinstaller\*.exe
         retention-days: 10
 
