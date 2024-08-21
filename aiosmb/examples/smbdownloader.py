@@ -104,7 +104,7 @@ class ListTargetGen:
 
 
 class SMBDownloader:
-	def __init__(self, smb_url, show_progress = False, flat_names = True, max_fsize = 1024*1024, store_errors = False):
+	def __init__(self, smb_url, show_progress = False, flat_names = True, max_fsize = 1024*1024, store_errors = False, silent = False):
 		self.smb_mgr = SMBConnectionFactory.from_url(smb_url)
 		self.target_gens = []
 		self.__skip_targets = {}
@@ -116,16 +116,20 @@ class SMBDownloader:
 		self.flat_names = flat_names
 		self.max_fsize = max_fsize
 		self.store_errors = store_errors
+		self.silent = silent
 	
-	def __write_error(self, exc:Exception):
+	def __write_error(self, target_address, target, exc:Exception):
+		errorstr = 'Target: %s\r\nError: %s\r\n' % (target, str(exc))
+		errorstr += ''.join(traceback.format_tb(exc.__traceback__))
+
 		if self.store_errors is False:
+			if self.silent is False:
+				print(errorstr)
 			return
 		
 		with open(self.__error_filename, 'a') as f:
-			tb = traceback.format_tb(exc.__traceback__)
-			f.write('Error: %s\n' % str(exc))
-			f.write(''.join(tb))
-			f.write('\n')
+			f.write(errorstr + '\r\n')
+
 
 	async def __target_gen(self):
 		for target_gen in self.target_gens:
@@ -168,11 +172,15 @@ class SMBDownloader:
 						continue
 
 					if smbfile.size > self.max_fsize:
-						logger.info('File %s is too large, skipping!' % target)
+						if self.silent is False:
+							print('File %s is too large, skipping!' % target)
 						continue
 					
 					if self.show_progress is True:
 						pbar = tqdm.tqdm(desc = 'Downloading %s' % target, total=smbfile.size, unit='B', unit_scale=True, unit_divisor=1024)
+					else:
+						if self.silent is False:
+							print('Downloading %s' % target)
 					
 					with open(file_name, 'wb') as f:
 						async for data, err in smbfile.read_chunked():
@@ -191,7 +199,7 @@ class SMBDownloader:
 		except Exception as e:
 			return False, e
 
-async def smbdownloader(smb_url, targets:List[str], from_stdin:bool, verbose:int = 0, show_progress:bool = False, flat_names:bool = True, max_fsize:int or str = 1024*1024, store_errors:bool = False):
+async def smbdownloader(smb_url, targets:List[str], from_stdin:bool, verbose:int = 0, show_progress:bool = False, flat_names:bool = True, max_fsize:int or str = 1024*1024, store_errors:bool = False, silent:bool=False):
 	if verbose >=1:
 		logger.setLevel(logging.DEBUG)
 
@@ -202,7 +210,7 @@ async def smbdownloader(smb_url, targets:List[str], from_stdin:bool, verbose:int
 	
 	max_fsize = convert_size(max_fsize)
 	
-	smbget = SMBDownloader(smb_url, show_progress=show_progress, flat_names = flat_names, max_fsize = max_fsize, store_errors = store_errors)
+	smbget = SMBDownloader(smb_url, show_progress=show_progress, flat_names = flat_names, max_fsize = max_fsize, store_errors = store_errors, silent=silent)
 	
 	notfile = []
 	if len(targets) == 0 and from_stdin is True:
@@ -232,6 +240,7 @@ async def amain():
 	parser.add_argument('-v', '--verbose', action='count', default=0)
 	parser.add_argument('-s', '--stdin', action='store_true', help='Read targets from stdin')
 	parser.add_argument('-e', '--store-errors', action='store_true', help='Store errors in a file')
+	parser.add_argument('--silent', action='store_true', help='Do not show any output')
 	parser.add_argument('--no-flat-names', action='store_true', help='Do not flatten file names. This will keep the original file name, but will overwrite files with the same name.')
 	parser.add_argument('--progress', action='store_true', help='Show progress')
 	parser.add_argument('--max-size', type=str, default='1M', help='Maximum length of the flattened file name. Default is 1 MB.')
@@ -239,7 +248,7 @@ async def amain():
 	parser.add_argument('targets', nargs='*', help = 'UNC paths of file eg. \\\\HOST\\SHARE\\file_or_folder')
 	args = parser.parse_args()
 
-	_, err = await smbdownloader(args.url, args.targets, args.stdin, args.verbose, args.progress, not args.no_flat_names, args.max_size, args.store_errors)
+	_, err = await smbdownloader(args.url, args.targets, args.stdin, args.verbose, args.progress, not args.no_flat_names, args.max_size, args.store_errors, args.silent)
 	if err is not None:
 		print('[-] Error! %s' % err)
 		sys.exit(1)
