@@ -25,7 +25,8 @@ from aiosmb import logger as LOG
 
 from aiosmb.dcerpc.v5.ndr import NDRCALL, NDRSTRUCT, NDRPOINTER, NDRUniConformantVaryingArray, NDRUniConformantArray
 from aiosmb.dcerpc.v5.dtypes import DWORD, UUID, ULONG, LPULONG, BOOLEAN, SECURITY_INFORMATION, PFILETIME, \
-	RPC_UNICODE_STRING, FILETIME, NULL, MAXIMUM_ALLOWED, OWNER_SECURITY_INFORMATION, PWCHAR, PRPC_UNICODE_STRING
+	RPC_UNICODE_STRING, FILETIME, NULL, MAXIMUM_ALLOWED, OWNER_SECURITY_INFORMATION, PWCHAR, PRPC_UNICODE_STRING, \
+	DACL_SECURITY_INFORMATION
 from aiosmb.dcerpc.v5.rpcrt import DCERPCException
 from aiosmb.dcerpc.v5.uuid import uuidtup_to_bin
 from aiosmb.dcerpc.v5 import system_errors
@@ -858,6 +859,37 @@ async def hBaseRegGetKeySecurity(dce, hKey, securityInformation = OWNER_SECURITY
 				return None, e
 			return None, e
 		return b''.join(resp['pRpcSecurityDescriptorOut']['lpSecurityDescriptor']), None
+
+async def hBaseRegSetKeySecurity(dce, hKey, pRpcSecurityDescriptor, securityInformation = DACL_SECURITY_INFORMATION):
+	#@skelsec was here :)
+
+	#class BYTE_ARRAY(NDRUniConformantVaryingArray):
+	#	pass
+	#
+	#class PBYTE_ARRAY(NDRPOINTER):
+	#	referent = (
+	#		('Data', BYTE_ARRAY),
+	#	)
+	#
+	#class RPC_SECURITY_DESCRIPTOR(NDRSTRUCT):
+	#	structure =  (
+	#		('lpSecurityDescriptor',PBYTE_ARRAY),
+	#		('cbInSecurityDescriptor',DWORD),
+	#		('cbOutSecurityDescriptor',DWORD),
+	#	)
+
+	#constuct the request
+
+	secdesc = RPC_SECURITY_DESCRIPTOR()
+	secdesc['lpSecurityDescriptor'] = pRpcSecurityDescriptor
+	secdesc['cbInSecurityDescriptor'] = len(pRpcSecurityDescriptor)
+	secdesc['cbOutSecurityDescriptor'] = len(pRpcSecurityDescriptor)
+
+	request = BaseRegSetKeySecurity()
+	request['hKey'] = hKey
+	request['SecurityInformation'] = securityInformation
+	request['pRpcSecurityDescriptor'] = secdesc
+	return await dce.request(request)
 
 async def hBaseRegLoadKey(dce, hKey, lpSubKey, lpFile):
 	request = BaseRegLoadKey()

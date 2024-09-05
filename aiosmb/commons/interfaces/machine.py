@@ -397,20 +397,33 @@ class SMBMachine:
 				target_users = [target_users]
 			
 			async with samrrpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as samrpc:
-				if target_domain is None:
-					logger.debug('No domain defined, fetching it from SAMR')
+				if target_domain is None or target_domain == '':
+					if self.print_cb is not None:
+						await self.print_cb('No domain defined, fetching it from SAMR')
+					else:
+						logger.debug('No domain defined, fetching it from SAMR')
 					
 					logger.debug('Fetching domains...')
+					available_domains = []
 					async for domain, err in samrpc.list_domains():
 						if err is not None:
 							raise err
 						if domain == 'Builtin':
 							continue
-						if target_domain is None: #using th first available
-							target_domain = domain
+						#using th first available #if target_domain is None: 
+						available_domains.append(domain)
+						if self.print_cb is not None:
+							await self.print_cb('Domain available: %s' % domain)
+						else:
 							logger.debug('Domain available: %s' % domain)
+
+					target_domain = available_domains[0]
+					if self.print_cb is not None:
+						await self.print_cb('Selecting first available: %s' % available_domains[0])
+					else:
+						logger.debug('Selecting first available: %s' % available_domains[0])
 				
-				async with drsuapirpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as drsuapi:
+				async with drsuapirpc_from_smb(self.connection, domain=target_domain, auth_level=self.force_rpc_auth) as drsuapi:
 					#async with drsuapi:
 					logger.debug('Using domain: %s' % target_domain)
 					if len(target_users) > 0:
@@ -431,7 +444,8 @@ class SMBMachine:
 								yield None, err
 								return
 							logger.debug('username: %s' % username)
-							secrets, err = await drsuapi.get_user_secrets(username)
+							#secrets, err = await drsuapi.get_user_secrets(username)
+							secrets, err = await drsuapi.get_user_secrets(user_sid)
 							if err is not None:
 								yield None, err
 								return

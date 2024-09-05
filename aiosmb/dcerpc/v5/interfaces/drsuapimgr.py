@@ -2,6 +2,7 @@
 import logging
 from aiosmb import logger
 import traceback
+import enum
 
 from aiosmb.dcerpc.v5.common.connection.authentication import DCERPCAuth
 from aiosmb.dcerpc.v5.common.connection.target import DCERPCTarget
@@ -22,8 +23,8 @@ from aiosmb.dcerpc.v5.rpcrt import RPC_C_AUTHN_LEVEL_PKT_INTEGRITY,\
 from contextlib import asynccontextmanager
 
 @asynccontextmanager
-async def drsuapirpc_from_smb(connection, auth_level=None, open=True, perform_dummy=False):
-    instance, err = await DRSUAPIRPC.from_smbconnection(connection, auth_level=auth_level, open=open, perform_dummy=perform_dummy)
+async def drsuapirpc_from_smb(connection, domain=None, auth_level=None, open=True, perform_dummy=False):
+    instance, err = await DRSUAPIRPC.from_smbconnection(connection, domain=domain, auth_level=auth_level, open=open, perform_dummy=perform_dummy)
     if err:
         # Handle or raise the error as appropriate
         raise err
@@ -31,6 +32,17 @@ async def drsuapirpc_from_smb(connection, auth_level=None, open=True, perform_du
         yield instance
     finally:
         await instance.close()
+
+
+class DS_NAME_ERROR(enum.Enum):
+	NO_ERROR = 0
+	RESOLVING = 1
+	NOT_FOUND = 2
+	NOT_UNIQUE = 3
+	NO_MAPPING = 4
+	DOMAIN_ONLY = 5
+	NO_SYNTACTICAL_MAPPING = 6
+	TRUST_REFERRAL = 7
 
 
 class DRSUAPIRPC:
@@ -177,7 +189,8 @@ class DRSUAPIRPC:
 
 			# If dwExtCaps is not included in the answer, let's just add it so we can unpack DRS_EXTENSIONS_INT right.
 			ppextServer = b''.join(resp['ppextServer']['rgb']) + b'\x00' * (
-			len(drsuapi.DRS_EXTENSIONS_INT()) - resp['ppextServer']['cb'])
+				len(drsuapi.DRS_EXTENSIONS_INT()) - resp['ppextServer']['cb']
+			)
 			drsExtensionsInt.fromString(ppextServer)
 
 			if drsExtensionsInt['dwReplEpoch'] != 0:
@@ -198,6 +211,7 @@ class DRSUAPIRPC:
 			resp, err = await drsuapi.hDRSDomainControllerInfo(self.dce, self.handle, self.domainname, 2)
 			if err is not None:
 				raise err
+			
 			if logger.level == logging.DEBUG:
 				logger.debug('DRSDomainControllerInfo() answer %s' % resp.dump())
 
@@ -211,7 +225,8 @@ class DRSUAPIRPC:
 		except Exception as e:
 			return None, e
 	
-	async def get_user_secrets(self, username):
+	async def get_user_secrets(self, username, formatOffered = None): #drsuapi.DS_NT4_ACCOUNT_NAME_SANS_DOMAIN
+		# formatoffered https://learn.microsoft.com/en-us/windows/win32/api/ntdsapi/ne-ntdsapi-ds_name_format
 		try:
 			ra = {
 				'userPrincipalName': '1.2.840.113556.1.4.656',
@@ -225,25 +240,56 @@ class DRSUAPIRPC:
 				'pwdLastSet': '1.2.840.113556.1.4.96',
 				'userAccountControl':'1.2.840.113556.1.4.8'
 			}
-			formatOffered = drsuapi.DS_NT4_ACCOUNT_NAME_SANS_DOMAIN
-			crackedName, err = await self.DRSCrackNames(
-					formatOffered,
-					drsuapi.DS_NAME_FORMAT.DS_UNIQUE_ID_NAME,
-					name=username
-				)
-			if err is not None:
-				raise err
+
+			username = str(username)
 			
-			###### TODO: CHECKS HERE
+			if formatOffered is None:
+				if username.upper().find('CN=') != -1:
+					formatOffered_list = [drsuapi.DS_NAME_FORMAT.DS_FQDN_1779_NAME]
+				elif username.upper().find('S-1-5-') != -1:
+					formatOffered_list = [drsuapi.DS_NAME_FORMAT.DS_SID_OR_SID_HISTORY_NAME]
+				elif username.find('@') != -1:
+					formatOffered_list = [drsuapi.DS_NAME_FORMAT.DS_USER_PRINCIPAL_NAME, drsuapi.DS_NAME_FORMAT.DS_SERVICE_PRINCIPAL_NAME]
+				else:
+					formatOffered_list = [drsuapi.DS_NT4_ACCOUNT_NAME_SANS_DOMAIN, drsuapi.DS_NAME_FORMAT.DS_UNKNOWN_NAME]
+			else:
+				formatOffered_list = [formatOffered]
 			
-			#guid = GUID.from_string(crackedName['pmsgOut']['V1']['pResult']['rItems'][0]['pName'][:-1][1:-1])
-			guid = crackedName['pmsgOut']['V1']['pResult']['rItems'][0]['pName'][:-1][1:-1]
-			if len(guid) == 0:
-				raise Exception('User "%s" cannot be found in the domain!' % username)
+			rstatus = 'UNKNOWN'
+			guid = None
+			for formatOffered in formatOffered_list:
+				crackedName, err = await self.DRSCrackNames(
+						formatOffered,
+						drsuapi.DS_NAME_FORMAT.DS_UNIQUE_ID_NAME,
+						name=username
+					)
+				if err is not None:
+					raise err
+				
+				
+				###### TODO: CHECKS HERE
+				# https://learn.microsoft.com/en-us/windows/win32/api/ntdsapi/ne-ntdsapi-ds_name_error
+				rstatus = crackedName['pmsgOut']['V1']['pResult']['rItems'][0]['status']
+				if rstatus != 0:
+					try:
+						s = DS_NAME_ERROR(rstatus)
+						rstatus = '%s - %s' % (rstatus, s.name)
+					except:
+						rstatus = '%s - %s' % (rstatus, 'UNKNOWN')
+				#guid = GUID.from_string(crackedName['pmsgOut']['V1']['pResult']['rItems'][0]['pName'][:-1][1:-1])
+				guid = crackedName['pmsgOut']['V1']['pResult']['rItems'][0]['pName'][:-1][1:-1]
+				if len(guid) == 0:
+					continue
+				break
+			else:
+				if rstatus == 0:
+					raise Exception('User "%s" lookup returned empty GUID' % username)
+				raise Exception('User "%s" lookup failed. Reason: %s' % (username, rstatus))
 
 			userRecord, err = await self.DRSGetNCChanges(guid, ra)
 			if err is not None:
 				return None, err
+			
 			
 			replyVersion = 'V%d' % userRecord['pdwOutVersion']
 			if userRecord['pmsgOut'][replyVersion]['cNumObjects'] == 0:
@@ -409,11 +455,11 @@ class DRSUAPIRPC:
 		except Exception as e:
 			return None, e
 			
-	async def DRSCrackNames(self, formatOffered=drsuapi.DS_NAME_FORMAT.DS_DISPLAY_NAME, formatDesired=drsuapi.DS_NAME_FORMAT.DS_FQDN_1779_NAME, name=''):
+	async def DRSCrackNames(self, formatOffered=drsuapi.DS_NAME_FORMAT.DS_UNKNOWN_NAME, formatDesired=drsuapi.DS_NAME_FORMAT.DS_FQDN_1779_NAME, name=''):
 		try:
 			logger.debug('Calling DRSCrackNames for %s' % name)
 			resp, err = await drsuapi.hDRSCrackNames(self.dce, self.handle, 0, formatOffered, formatDesired, (name,))
-			return resp, None
+			return resp, err
 		except Exception as e:
 			return None, e
 	

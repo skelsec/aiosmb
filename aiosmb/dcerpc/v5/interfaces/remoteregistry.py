@@ -1,5 +1,8 @@
 
 import enum
+import ntpath
+import functools
+import copy
 
 from aiosmb.dcerpc.v5.common.connection.smbdcefactory import SMBDCEFactory
 from aiosmb.connection import SMBConnection
@@ -9,6 +12,9 @@ from aiosmb import logger
 from aiosmb.dcerpc.v5 import system_errors
 from aiosmb.wintypes.dtyp.structures.filetime import FILETIME
 from winacl.dtyp.security_descriptor import SECURITY_DESCRIPTOR
+from winacl.dtyp.ace import ACCESS_ALLOWED_ACE, AceFlags
+from winacl.dtyp.sid import SID
+
 from aiosmb.wintypes.dtyp.constrcuted_security.security_information import SECURITY_INFORMATION
 from aiosmb.dcerpc.v5.rpcrt import RPC_C_AUTHN_LEVEL_NONE,\
 	RPC_C_AUTHN_LEVEL_CONNECT,\
@@ -345,6 +351,22 @@ class RRPRPC:
 			if isinstance(e, rrp.DCERPCSessionError):
 				return None, None, None, OSError(e.get_error_code(), system_errors.ERROR_MESSAGES[e.get_error_code()][1])
 			return None, None, None, e
+	
+	async def QueryInfoKeySpecial(self, key):
+		# yes, it's special
+		try:
+			key = await self.__get_rawhandle(key)
+			res , err = await rrp.hBaseRegQueryInfoKey(self.dce, key)
+			if err is not None:
+				raise err
+			
+			return res, None
+
+		except Exception as e:
+			if isinstance(e, rrp.DCERPCSessionError):
+				return None, OSError(e.get_error_code(), system_errors.ERROR_MESSAGES[e.get_error_code()][1])
+			return None, e
+		
 		
 
 	async def GetKeySecurity(self, key, securityInformation = SECURITY_INFORMATION.OWNER):
@@ -354,6 +376,19 @@ class RRPRPC:
 			if err is not None:
 				raise err
 			return SECURITY_DESCRIPTOR.from_bytes(res), None
+		
+		except Exception as e:
+			if isinstance(e, rrp.DCERPCSessionError):
+				return None, OSError(e.get_error_code(), system_errors.ERROR_MESSAGES[e.get_error_code()][1])
+			return None, e
+	
+	async def SetKeySecurity(self, key, security_descriptor, securityInformation = SECURITY_INFORMATION.OWNER):
+		try:
+			key = await self.__get_rawhandle(key)
+			_, err = await rrp.hBaseRegSetKeySecurity(self.dce, key, security_descriptor.to_bytes(), securityInformation = securityInformation)
+			if err is not None:
+				raise err
+			return True, None
 		
 		except Exception as e:
 			if isinstance(e, rrp.DCERPCSessionError):
@@ -457,6 +492,217 @@ class RRPRPC:
 		except Exception as e:
 			return None, e
 
+
+
+class SMBWinRegHive:
+	"""
+	Async version of the hive parser
+	"""
+	def __init__(self, rrprpc:RRPRPC, hive_path:str, target_sid:str = 'S-1-5-32-544', cache_enabled = True, print_cb = None):
+		# target_sid assumes that the user is a member of the Administrators group
+		self.print_cb = print_cb
+		self.rrprpc = rrprpc
+		self.hive_path = hive_path
+		self.hive_handle = None
+		self.target_sid = target_sid
+		self.cache_enabled = cache_enabled
+
+		self.original_sd = None
+		self.__original_sd = {}
+		self.__key_lookup = {}
+
+		# caching values for performance, this will mess up if the registry is changed during the session
+		self.__names_lookup = {}
+		self.__classes_lookup = {}
+		self.__values_lookup = {}
+		self.__values_lookup_2 = {}
+		
+	async def close(self):
+		for key in self.__original_sd:
+			try:			
+				_, err = await self.rrprpc.SetKeySecurity(key, self.__original_sd[key], securityInformation=SECURITY_INFORMATION.DACL)
+				if err is not None:
+					raise err
+				#print('Restored security descriptor for %s' % key)
+			except Exception as e:
+				if self.print_cb is not None:
+					self.print_cb('[!] Failed to restore security descriptor for %s Reason %s' % (key, e))
+				continue
+
+		for key in self.__key_lookup:
+			await self.rrprpc.CloseKey(key)
+		
+		return
+	
+	
+	async def add_access(self, key_handle):
+		original_key_sd = await self.get_sd(key_handle)		
+		secdata = copy.deepcopy(original_key_sd)
+		ace = ACCESS_ALLOWED_ACE() # BUILTIN\Administrators get generic read
+		ace.Sid = SID.from_string(self.target_sid)
+		ace.Mask = 0x80000000 | 0x00000008 | 0x00000001
+		ace.AceFlags = AceFlags.CONTAINER_INHERIT_ACE
+		secdata.Dacl.aces.append(ace)
+			
+		_, err = await self.rrprpc.SetKeySecurity(key_handle, secdata, securityInformation=SECURITY_INFORMATION.DACL)
+		if err is not None:
+			raise err
+		
+		return original_key_sd
+
+	async def setup(self):
+		self.hive_handle, err = await self.rrprpc.OpenRegPath(self.hive_path, access = REG_ACCESS_MASK.GENERIC_READ)
+		if err is not None:
+			raise err
+	
+	async def find_subkey(self, parent, key_name):
+		raise NotImplementedError()
+		return None	
+		
+	async def find_key(self, key_path, throw = True):
+		"""Find and return a key by its full path"""
+
+		if key_path in self.__key_lookup:
+			return self.__key_lookup[key_path]
+		
+		# opening the key first time
+		keynames = key_path.split('\\')
+		key_handle = self.hive_handle
+		for keyname in keynames:
+			key_handle, err = await self.rrprpc.OpenKey(key_handle, keyname, access=REG_ACCESS_MASK.GENERIC_READ)
+			if err is not None:
+				raise err
+		
+		#adding access to the key
+		original_sd = await self.add_access(key_handle)
+		
+		#closing the key to reopen it with the new access
+		_, err = await self.rrprpc.CloseKey(key_handle)
+
+		key_handle = self.hive_handle
+		for keyname in keynames:
+			key_handle, err = await self.rrprpc.OpenKey(key_handle, keyname, access=REG_ACCESS_MASK.GENERIC_READ)
+			if err is not None:
+				raise err
+
+		# adding the key to the lookup table
+		self.__key_lookup[key_path] = key_handle
+		self.__original_sd[key_handle] = original_sd
+		return key_handle
+		
+	async def enum_key(self, key_path, throw = True):
+		"""Return a list of subkey names"""
+		
+		if key_path in self.__names_lookup:
+			return self.__names_lookup[key_path]
+			
+		key_handle = await self.find_key(key_path, throw)
+		if key_handle is None:
+			return None
+		
+		names = {}
+		for i in range(255):
+			res, err = await self.rrprpc.EnumKey(key_handle, i)
+			if err is not None:
+				if err.errno == 259: #no more data is available
+					break
+				if throw is True:
+					raise err
+				return []
+			names[res.replace('\x00', '')] = None
+		
+		if self.cache_enabled is True:
+			self.__names_lookup[key_path] = list(names.keys())
+		
+		return list(names.keys())
+		
+		
+	async def list_values(self, key):
+		"""Return a list of value names"""
+		if key in self.__values_lookup_2:
+			return self.__values_lookup_2[key]
+		
+		values = []
+		for i in range(255):
+			value_name, value_type, value_data, err = await self.rrprpc.EnumValue(key, i)
+			if err is not None:
+				if isinstance(err, OSError) and err.errno == 259:
+					break
+				if isinstance(err, DCERPCException) and err.error_code == 259:
+					break
+				raise err
+			values.append(value_name.replace('\x00', '').encode())
+		
+		if self.cache_enabled is True:
+			self.__values_lookup_2[key] = values
+
+		return values
+	
+		
+	async def get_value(self, value_path, throw = True, key = None):
+		"""Return a value by its full path"""
+
+		if value_path in self.__values_lookup:
+			return self.__values_lookup[value_path]
+			
+		keynames = value_path.split('\\')
+		value_name = keynames[-1]
+		if value_name == 'default':
+			value_name = ''
+			key_path = '\\'.join(keynames[:-1])
+		else:
+			key_path = '\\'.join(keynames[:-1])
+
+		key_handle = await self.find_key(key_path, throw)
+		
+		val_type, val_data, err = await self.rrprpc.QueryValue(key_handle, value_name, unpack_vals=True)
+		if err is not None:
+			if throw is True:
+				raise err
+			return None, None, err
+
+		if self.cache_enabled is True:
+			self.__values_lookup[value_path] = (val_type, val_data, None)
+
+		return val_type, val_data, None
+		
+	async def get_class(self, key_path, throw = True):
+		"""Return the class value of a key"""
+
+		if key_path in self.__classes_lookup:
+			return self.__classes_lookup[key_path]
+
+		key = await self.find_key(key_path, throw)
+
+		if key is None:
+			self.__classes_lookup[key_path] = None
+			return None
+		
+		data, err = await self.rrprpc.QueryInfoKeySpecial(key)
+		if err is not None:
+			if throw is True:
+				raise err
+			return None
+		
+		result = data['lpClassOut'].replace('\x00', '')
+		if self.cache_enabled is True:
+			self.__classes_lookup[key_path] = result
+		return result
+
+	async def get_sd(self, key_handle):
+		"""Return the security descriptor of a key"""
+		sd, err = await self.rrprpc.GetKeySecurity(key_handle, securityInformation=SECURITY_INFORMATION.DACL|SECURITY_INFORMATION.OWNER|SECURITY_INFORMATION.GROUP)
+		if err is not None:
+			raise err
+		return sd
+
+	async def walk(self, path, depth = -1):
+		"""Walk the registry tree"""
+		raise NotImplementedError()
+	
+	async def search(self, pattern, in_keys = True, in_valuenames = True, in_values = True):
+		"""Search the registry tree for a pattern"""
+		raise NotImplementedError()
 
 ################## CUT HERE
 class PERF_OBJECT_TYPE:
