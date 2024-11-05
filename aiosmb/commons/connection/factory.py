@@ -137,7 +137,7 @@ class SMBConnectionFactory:
 		else:
 			raise Exception('Unknown authproto: %s' % authproto)
 
-		return SMBConnectionFactory(target, credential)
+		return SMBConnectionFactory(credential, target)
 	
 	def __str__(self):
 		t = '==== SMBConnectionFactory ====\r\n'
