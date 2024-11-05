@@ -338,7 +338,7 @@ class SMBMachine:
 		return await SMBDirectory.delete_unc(self.connection, dir_path)
 
 	async def create_subdirectory(self, directory_name:str, parent_directory_obj:SMBDirectory) -> Awaitable[Tuple[bool, Union[Exception, None]]]:
-		await parent_directory_obj.create_subdir(directory_name, self.connection)
+		return await parent_directory_obj.create_subdir(directory_name, self.connection)
 		
 
 	async def list_services(self) -> AsyncGenerator[Tuple[SMBService, Union[Exception, None]], None]:
