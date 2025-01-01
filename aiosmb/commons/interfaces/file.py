@@ -588,7 +588,7 @@ class SMBFile:
 async def smb_open(path:str, mode = 'r', connection = None) -> SMBFile:
 	"""
 	Opens a file on the remote server
-	path can be a smb:// url or a path like \\server\share\path\to\file
+	path can be a smb:// url or a path like \\\\server\\share\\path\\to\\file
 	"""
 	try:
 		if path.lower().startswith('smb'):

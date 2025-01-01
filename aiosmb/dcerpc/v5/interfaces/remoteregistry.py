@@ -831,7 +831,7 @@ async def amain():
 	await ConnectRegistryTest(rs)
 
 
-	res, err = await rs.OpenRegPath(r'HKEY_LOCAL_MACHINE\Software\Microsoft\Windows\CurrentVersion\Run')
+	res, err = await rs.OpenRegPath(r'HKEY_LOCAL_MACHINE\\Software\\Microsoft\\Windows\\CurrentVersion\\Run')
 	if err is not None:
 		print(err)
 	
