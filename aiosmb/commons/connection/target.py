@@ -182,6 +182,7 @@ class SMBTarget(UniTarget):
 		
 		unitarget, extraparams = UniTarget.from_url(connection_url, protocol, port, smbtarget_url_params)
 		compression = extraparams.get('compress', False)
+		fragment = extraparams.get('fragment')
 
 		target = SMBTarget(
 			ip = unitarget.ip,
@@ -195,7 +196,7 @@ class SMBTarget(UniTarget):
 			dns = unitarget.dns,
 			path = path,
 			compression=compression,
-			fragment = extraparams.get('fragment')
+			fragment = fragment
 		)
 		target.update_dialect(dialect)
 		return target

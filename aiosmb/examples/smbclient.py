@@ -34,7 +34,7 @@ from aiosmb.protocol.smb2.commands import *
 
 
 class SMBClient(aiocmd.PromptToolkitCmd):
-	def __init__(self, url = None, silent = False, no_dce = False):
+	def __init__(self, url = None, silent = False, no_dce = False, nosig = False):
 		aiocmd.PromptToolkitCmd.__init__(self, ignore_sigint=False) #Setting this to false, since True doesnt work on windows...
 		self.conn_url:str = None
 		if url is not None:
@@ -43,6 +43,7 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 		self.machine:SMBMachine = None
 		self.is_anon:bool = False
 		self.silent:bool = silent
+		self.nosig:bool = nosig
 		self.no_dce:bool = no_dce # diables ANY use of the DCE protocol (eg. share listing) This is useful for new(er) windows servers where they forbid the users to use any form of DCE
 
 		self.shares:Dict[str, SMBShare] = {} #name -> share
@@ -124,8 +125,7 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 				self.conn_url = SMBConnectionFactory.from_url(url)
 
 			cred = self.conn_url.get_credential()				
-			
-			self.connection  = self.conn_url.get_connection()
+			self.connection  = self.conn_url.get_connection(nosign=self.nosig)
 			
 			logger.debug(self.conn_url.get_credential())
 			logger.debug(self.conn_url.get_target())
@@ -142,6 +142,7 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 				print('Login success')
 			return True, None
 		except Exception as e:
+			traceback.print_exc()
 			return self.handle_exception(e, 'Login failed!')
 
 	async def do_logout(self):
@@ -1193,6 +1194,16 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			return True, None
 		except Exception as e:
 			return self.handle_exception(e)
+		
+	async def do_sharewritetest(self):
+		try:
+			async for share, writable, err in self.machine.share_write_test():
+				if err is not None:
+					raise err
+				print('%s %s' % (share.name, writable))
+			return True, None
+		except Exception as e:
+			return self.handle_exception(e)
 
 	async def do_pipetest(self, data = 'HELLO!'):
 		""" pipetest """
@@ -1239,8 +1250,8 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 				await pipe.close()
 	
 
-async def amain(smb_url:str, commands:List[str] = [], silent:bool = False, continue_on_error:bool = False, no_interactive:bool=False):
-	client = SMBClient(smb_url, silent = silent)
+async def amain(smb_url:str, commands:List[str] = [], silent:bool = False, continue_on_error:bool = False, no_interactive:bool=False, nosig:bool=False):
+	client = SMBClient(smb_url, silent = silent, nosig=nosig)
 	if len(commands) == 0:
 		if no_interactive is True:
 			print('Not starting interactive!')
@@ -1284,6 +1295,7 @@ def main():
 	parser.add_argument('-s', '--silent', action='store_true', help='do not print banner')
 	parser.add_argument('-n', '--no-interactive', action='store_true')
 	parser.add_argument('-c', '--continue-on-error', action='store_true', help='When in batch execution mode, execute all commands even if one fails')
+	parser.add_argument('--nosig', action='store_true', help='Disable SMB signing (SMB2 only)')
 	parser.add_argument('smb_url', help = 'Connection string that describes the authentication and target. Example: smb+ntlm-password://TEST\\Administrator:password@10.10.10.2')
 	parser.add_argument('commands', nargs='*')
 	
@@ -1310,7 +1322,8 @@ def main():
 			args.commands, 
 			args.silent, 
 			args.continue_on_error, 
-			args.no_interactive
+			args.no_interactive,
+			args.nosig
 		)
 	)
 

@@ -50,12 +50,12 @@ class DCERPCTCPTransport:
 	
 	async def disconnect(self):
 		try:
-			if self.reader_task is not None:
-				self.reader_task.cancel()
-
 			if self.connection is not None:
 				await self.connection.close()
-				
+
+			if self.reader_task is not None:
+				self.reader_task.cancel()
+						
 		except Exception as e:
 			return None, e
 
@@ -63,6 +63,8 @@ class DCERPCTCPTransport:
 		try:
 			async for data in self.connection.read():
 				await self.packets.put(data)
+				if data is None or len(data) == 0:
+					break
 		except asyncio.CancelledError:
 			return
 

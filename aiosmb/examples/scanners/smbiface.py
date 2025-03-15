@@ -13,6 +13,11 @@ class SMBInterfaceRes:
 
 	def to_line(self, separator = '\t'):
 		return self.interface
+	
+	def to_dict(self):
+		return {
+			'interface' : self.interface
+		}
 
 class SMBInterfaceScanner:
 	def __init__(self, factory:SMBConnectionFactory):

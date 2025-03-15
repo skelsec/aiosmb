@@ -16,6 +16,12 @@ class SMBPrintnightmareRes:
 
 	def to_line(self, separator = '\t'):
 		return separator.join([str(self.vulntype), str(self.is_vuln)])
+	
+	def to_dict(self):
+		return {
+			'VULNTYPE' : self.vulntype,
+			'IS_VULNERABLE' : self.is_vuln
+		}
 
 class SMBPrintnightmareScanner:
 	def __init__(self, factory:SMBConnectionFactory):

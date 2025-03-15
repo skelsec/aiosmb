@@ -93,6 +93,8 @@ class SMBFile:
 			return None
 		
 		fpath = target.path.replace('/','\\')
+		if fpath.startswith('\\') is False:
+			fpath = '\\' + fpath
 		temp = '\\\\%s%s'
 		unc = temp % (target.get_hostname_or_ip(), fpath)
 		return SMBFile.from_uncpath(unc)
@@ -251,6 +253,8 @@ class SMBFile:
 			i = size // self.__connection.MaxReadSize
 			for _ in range(i+1):
 				data, remaining, err = await self.__connection.read(self.tree_id, self.file_id, offset = offset, length = self.__connection.MaxReadSize)
+				if err is not None:
+					return None, err
 				offset += len(data)
 				buffer += data
 				
@@ -284,7 +288,7 @@ class SMBFile:
 		except Exception as e:
 			return None, e
 
-	async def open(self, connection:SMBConnection, mode:str = 'r'):
+	async def open(self, connection:SMBConnection, mode:str = 'r', share_mode = None):
 		try:
 			self.__connection = connection
 			self.maxreadsize = connection.MaxReadSize
@@ -306,7 +310,7 @@ class SMBFile:
 				
 			if 'r' in mode:
 				desired_access = FileAccessMask.FILE_READ_DATA | FileAccessMask.FILE_READ_ATTRIBUTES
-				share_mode = ShareAccess.FILE_SHARE_READ
+				share_mode = ShareAccess.FILE_SHARE_READ if share_mode is None else share_mode
 				create_options = CreateOptions.FILE_NON_DIRECTORY_FILE | CreateOptions.FILE_SYNCHRONOUS_IO_NONALERT 
 				file_attrs = 0
 				create_disposition = CreateDisposition.FILE_OPEN
@@ -318,7 +322,7 @@ class SMBFile:
 				
 			elif 'w' in mode:
 				desired_access = FileAccessMask.GENERIC_READ | FileAccessMask.GENERIC_WRITE
-				share_mode = ShareAccess.FILE_SHARE_READ | ShareAccess.FILE_SHARE_WRITE
+				share_mode = ShareAccess.FILE_SHARE_READ | ShareAccess.FILE_SHARE_WRITE if share_mode is None else share_mode
 				create_options = CreateOptions.FILE_NON_DIRECTORY_FILE | CreateOptions.FILE_SYNCHRONOUS_IO_NONALERT 
 				file_attrs = 0
 				create_disposition = CreateDisposition.FILE_OPEN_IF #FILE_OPEN ? might cause an issue?
@@ -335,7 +339,7 @@ class SMBFile:
 		except Exception as e:
 			return False, e
 
-	async def download(self, connection:SMBConnection ,local_path:str):
+	async def download(self, connection:SMBConnection ,local_path:str, share_mode = ShareAccess.FILE_SHARE_READ | ShareAccess.FILE_SHARE_WRITE):
 		"""Downloads the file to the local path. File must not be open."""
 		try:
 			if self.is_pipe:
@@ -343,12 +347,15 @@ class SMBFile:
 			if self.__connection is not None:
 				raise Exception('Cannot download a file that is already open!')
 			
-			_, err = await self.open(connection, 'r')
+			_, err = await self.open(connection, 'r', share_mode = share_mode)
 			if err is not None:
 				raise err
 			
-			lfpath = Path(local_path).joinpath(self.name)
-			with open(lfpath, 'wb') as f:
+			local_path = Path(local_path)
+			if local_path.is_dir():
+				local_path = local_path.joinpath(self.name)
+			
+			with open(local_path, 'wb') as f:
 				async for data, err in self.read_chunked():
 					if err is not None:
 						raise err
@@ -356,7 +363,7 @@ class SMBFile:
 						break
 					f.write(data)
 			
-			return lfpath, None
+			return str(local_path.absolute()), None
 		except Exception as e:
 			return False, e
 		finally:

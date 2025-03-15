@@ -13,6 +13,12 @@ class SMBSessionRes:
 
 	def to_line(self, separator = '\t'):
 		return separator.join([str(self.session.username), str(self.session.ip_addr)])
+	
+	def to_dict(self):
+		return {
+			'USERNAME' : self.session.username,
+			'IP' : self.session.ip_addr
+		}
 
 class SMBSessionScanner:
 	def __init__(self, factory:SMBConnectionFactory):

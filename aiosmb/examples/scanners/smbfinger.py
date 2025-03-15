@@ -1,5 +1,6 @@
 
 import traceback
+import asyncio
 from asysocks.unicomm.common.scanner.common import *
 from aiosmb.commons.connection.factory import SMBConnectionFactory
 from asyauth.protocols.ntlm.structures.serverinfo import NTLMSERVERINFO_TSV_HDR, NTLMServerInfo
@@ -16,6 +17,10 @@ class SMBFingerRes:
 
 	def to_line(self, separator = '\t'):
 		return self.res.to_tsv(separator)
+	
+	def to_dict(self):
+		return self.res.to_dict()
+	
 
 class SMBFingerScanner:
 	def __init__(self, factory:SMBConnectionFactory):
@@ -24,7 +29,7 @@ class SMBFingerScanner:
 	async def run(self, targetid, target, out_queue):
 		try:
 			connection = self.factory.create_connection_newtarget(target)
-			res, err = await connection.fake_login()
+			res, err = await asyncio.wait_for(connection.fake_login(), timeout = 5)
 			if err is not None:
 				raise err
 			

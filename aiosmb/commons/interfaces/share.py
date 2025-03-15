@@ -13,7 +13,7 @@ class SMBShare:
 		self.unc_path = fullpath
 		self.name = name
 		self.type = stype
-		self.remark = remark
+		self.remark = str(remark).replace('\x00', '') if remark is not None else None
 		self.flags = None
 		self.capabilities = None
 		self.maximal_access = None

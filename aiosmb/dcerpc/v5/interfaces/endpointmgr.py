@@ -29,6 +29,12 @@ class EPM:
 		self.data_representation = data_representation
 		if data_representation is None:
 			self.data_representation = uuidtup_to_bin(('8a885d04-1ceb-11c9-9fe8-08002b104860', '2.0'))
+	
+	async def __aenter__(self):
+		return self
+	
+	async def __aexit__(self, exc_type, exc, traceback):
+		await self.disconnect()
 
 	@staticmethod
 	def from_address(ip, port:int = 135, protocol:str = 'ncacn_ip_tcp', data_representation = None, proxies:List[UniProxyTarget] = None):
@@ -36,7 +42,10 @@ class EPM:
 		Sets up the EPM object from IP/hostname port protocol parameters
 		"""
 		dcerpc_target_str = r'%s:%s[%s]' % (protocol, ip, port)
-		target = DCERPCTarget.from_connection_string(dcerpc_target_str, proxies = proxies)
+		target = DCERPCTarget.from_connection_string(
+			dcerpc_target_str, 
+			proxies = proxies
+		)
 		auth = None
 		connection = DCERPC5Connection(auth, target)
 		connection.set_auth_type(RPC_C_AUTHN_LEVEL_NONE)
@@ -48,7 +57,13 @@ class EPM:
 		Sets up the EPM connection from an existing SMB connection
 		"""
 		dcerpc_target_str = r'%s:%s[%s]' % (protocol, smb_connection.target.get_ip_or_hostname(), port)
-		target = DCERPCTarget.from_connection_string(dcerpc_target_str, proxies=smb_connection.target.proxies)
+		target = DCERPCTarget.from_connection_string(
+			dcerpc_target_str, 
+			proxies=smb_connection.target.proxies, 
+			dc_ip = smb_connection.target.dc_ip, 
+			domain = smb_connection.target.domain, 
+			hostname = smb_connection.target.get_hostname_or_ip()
+		)
 		auth = DCERPCAuth.from_smb_gssapi(smb_connection.gssapi)
 		connection = DCERPC5Connection(auth, target)
 		connection.set_auth_type(RPC_C_AUTHN_LEVEL_NONE)
@@ -57,7 +72,13 @@ class EPM:
 	@staticmethod
 	def from_unitarget(target:UniTarget, protocol:str = 'ncacn_ip_tcp', port:int = 135, data_representation = None, credentials = None):
 		dcerpc_target_str = r'%s:%s[%s]' % (protocol, target.get_ip_or_hostname(), port)
-		target = DCERPCTarget.from_connection_string(dcerpc_target_str, proxies = target.proxies)
+		target = DCERPCTarget.from_connection_string(
+			dcerpc_target_str,
+			proxies = target.proxies,
+			dc_ip=target.dc_ip,
+			domain=target.domain,
+			hostname=target.get_hostname_or_ip()
+		)
 		auth = None
 		if credentials is not None:
 			auth = DCERPCAuth.from_smb_gssapi(credentials)
@@ -110,7 +131,9 @@ class EPM:
 				await epm.disconnect()
 
 	async def disconnect(self):
-		await self.dce.disconnect()
+		if self.dce is not None:
+			await self.dce.disconnect()
+		
 
 	async def connect(self, autobind = True):
 		try:
@@ -210,15 +233,15 @@ class EPM:
 			if self.dce.target.rpcprotocol == 'ncacn_np':
 				# Pipe Name should be the 4th floor
 				pipeName = EPMPipeName(tower['Floors'][3].getData())
-				result = 'ncacn_np:%s[%s]' % (self.dce.target.get_hostname_or_ip(), pipeName['PipeName'].decode('utf-8')[:-1])
+				result = 'ncacn_np:%s[%s]' % (self.dce.target.get_ip_or_hostname(), pipeName['PipeName'].decode('utf-8')[:-1])
 			elif self.dce.target.rpcprotocol == 'ncacn_ip_tcp':
 				# Port Number should be the 4th floor
 				portAddr = EPMPortAddr(tower['Floors'][3].getData())
-				result = 'ncacn_ip_tcp:%s[%s]' % (self.dce.target.get_hostname_or_ip(), portAddr['IpPort'])
+				result = 'ncacn_ip_tcp:%s[%s]' % (self.dce.target.get_ip_or_hostname(), portAddr['IpPort'])
 			elif self.dce.target.rpcprotocol == 'ncacn_http':
 				# Port Number should be the 4th floor
 				portAddr = EPMPortAddr(tower['Floors'][3].getData())
-				result = 'ncacn_http:%s[%s]' % (self.dce.target.get_hostname_or_ip(), portAddr['IpPort'])
+				result = 'ncacn_http:%s[%s]' % (self.dce.target.get_ip_or_hostname(), portAddr['IpPort'])
 			
 			return result, None
 		except Exception as e:

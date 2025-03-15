@@ -1,5 +1,6 @@
 import copy
 from typing import List
+import ipaddress
 
 from aiosmb.dcerpc.v5.common.connection.connectionstring import DCERPCStringBinding
 from asysocks.unicomm.common.proxy import UniProxyTarget
@@ -12,6 +13,20 @@ class DCERPCTarget(UniTarget):
 		self.rpcprotocol = rpcprotocol
 		self.pipe = pipe
 		self.smb_connection = smb_connection #storing the smb connection if already exists...
+
+		### This part is to keep ip and hostname consistent with smb connection
+		### This makes Kerberos work properly
+		if self.smb_connection is not None:
+			self.domain = self.smb_connection.target.domain
+			self.dc_ip = self.smb_connection.target.dc_ip
+			ip = self.smb_connection.target.get_ip_or_hostname()
+			hostname = self.smb_connection.target.get_hostname_or_ip()
+		### End of the part
+
+		try:
+			ip = str(ipaddress.ip_address(ip))
+		except:
+			hostname = ip
 		UniTarget.__init__(self, ip, port, protocol, timeout, hostname = hostname, proxies = proxies, domain = domain, dc_ip = dc_ip)
 		
 
@@ -58,8 +73,15 @@ class DCERPCTarget(UniTarget):
 		else:
 			raise Exception('Unknown string binding type %s' % type(s))
 		
+		### This part is to keep ip and hostname consistent with smb connection
+		### This makes Kerberos work properly
 		if domain is None and smb_connection is not None:
 			domain = smb_connection.target.domain
+		if dc_ip is None and smb_connection is not None:
+			dc_ip = smb_connection.target.dc_ip
+		if hostname is None and smb_connection is not None:
+			hostname = smb_connection.target.get_hostname_or_ip()
+		### End of the part
 
 		na = connection_string.get_network_address()
 		ps = connection_string.get_protocol_sequence()

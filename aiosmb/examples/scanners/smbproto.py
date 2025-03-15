@@ -16,10 +16,21 @@ class SMBProtocolRes:
 	def to_line(self, separator = '\t'):
 		return separator.join([str(self.protores), str(self.signing_enabled), str(self.signing_required)])
 
+	def to_dict(self):
+		return {
+			'PROTO' : self.protores,
+			'SIGN_ENABLED' : self.signing_enabled,
+			'SIGN_ENFORCED' : self.signing_required
+		}
+
 class SMBProtocolScanner:
-	def __init__(self, factory:SMBConnectionFactory):
+	def __init__(self, factory:SMBConnectionFactory, protocols = SMB_NEGOTIATE_PROTOCOL_TEST):
 		self.factory:SMBConnectionFactory = factory
-		self.protocols = SMB_NEGOTIATE_PROTOCOL_TEST
+		self.protocols = protocols
+		if isinstance(protocols, dict) is True:
+			self.protocols = list(protocols.keys())
+		if not isinstance(self.protocols, list):
+			self.protocols = [self.protocols]
 
 	async def run(self, targetid, target, out_queue):
 		try:

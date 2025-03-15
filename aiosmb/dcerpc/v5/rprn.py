@@ -495,6 +495,23 @@ class RpcClosePrinterResponse(NDRCALL):
 	   ('ErrorCode', ULONG),
 	)
 
+# 3.1.4.10.4 RpcRemoteFindFirstPrinterChangeNotificationEx (Opnum 62)
+class RpcRemoteFindFirstPrinterChangeNotification(NDRCALL):
+	opnum = 65
+	structure = (
+	   ('hPrinter', PRINTER_HANDLE),
+	   ('fdwFlags', DWORD),
+	   ('fdwOptions', DWORD),
+	   ('pszLocalMachine', LPWSTR),
+	   ('dwPrinterLocal', DWORD),
+	   ('pOptions', PRPC_V2_NOTIFY_OPTIONS),
+	)
+
+class RpcRemoteFindFirstPrinterChangeNotificationResponse(NDRCALL):
+	structure = (
+	   ('ErrorCode', ULONG),
+	)
+
 # 3.1.4.10.4 RpcRemoteFindFirstPrinterChangeNotificationEx (Opnum 65)
 class RpcRemoteFindFirstPrinterChangeNotificationEx(NDRCALL):
 	opnum = 65
@@ -571,6 +588,7 @@ OPNUMS = {
 	1  : (RpcOpenPrinter, RpcOpenPrinterResponse),
 	10 : (RpcEnumPrinterDrivers, RpcEnumPrinterDriversResponse),
 	29 : (RpcClosePrinter, RpcClosePrinterResponse),
+	62 : (RpcRemoteFindFirstPrinterChangeNotification, RpcRemoteFindFirstPrinterChangeNotificationResponse),
 	65 : (RpcRemoteFindFirstPrinterChangeNotificationEx, RpcRemoteFindFirstPrinterChangeNotificationExResponse),
 	69 : (RpcOpenPrinterEx, RpcOpenPrinterExResponse),
 }
@@ -686,6 +704,22 @@ async def hRpcRemoteFindFirstPrinterChangeNotificationEx(dce, hPrinter, fdwFlags
 	:return: a RpcRemoteFindFirstPrinterChangeNotificationExResponse instance, raises DCERPCSessionError on error.
 	"""
 	request = RpcRemoteFindFirstPrinterChangeNotificationEx()
+
+	request['hPrinter'] = hPrinter
+	request['fdwFlags'] = fdwFlags
+	request['fdwOptions'] = fdwOptions
+	request['dwPrinterLocal'] = dwPrinterLocal
+	if pszLocalMachine is NULL:
+		raise Exception('pszLocalMachine cannot be NULL')
+	request['pszLocalMachine'] = checkNullString(pszLocalMachine)
+	request['pOptions'] = pOptions
+	return await dce.request(request)
+
+async def hRpcRemoteFindFirstPrinterChangeNotification(dce, hPrinter, fdwFlags, fdwOptions=0, pszLocalMachine=NULL,
+												   dwPrinterLocal=0, pOptions=NULL):
+	"""
+	"""
+	request = RpcRemoteFindFirstPrinterChangeNotification()
 
 	request['hPrinter'] = hPrinter
 	request['fdwFlags'] = fdwFlags

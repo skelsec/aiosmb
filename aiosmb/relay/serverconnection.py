@@ -31,6 +31,7 @@ class SMBRelayServerConnection:
 	def __init__(self, settings, connection, shutdown_evt = asyncio.Event()):
 		self.settings = settings
 		self.gssapi = self.settings.gssapi
+		self.gssapi.set_connection_info(connection)
 		
 		#######DONT CHANGE THIS
 		#use this for smb2 > self.supported_dialects = [NegotiateDialects.WILDCARD, NegotiateDialects.SMB202, NegotiateDialects.SMB210]
@@ -78,8 +79,13 @@ class SMBRelayServerConnection:
 		self.SessionKey = None
 
 	async def run(self):
-		self.incoming_task = self.__handle_smb_in()
-		await self.incoming_task
+		self.incoming_task = asyncio.create_task(self.__handle_smb_in())
+		return self.incoming_task
+	
+	async def stop(self):
+		if self.incoming_task is not None:
+			self.incoming_task.cancel()
+
 
 	async def __handle_smb_in(self):
 		"""
@@ -189,8 +195,8 @@ class SMBRelayServerConnection:
 					#reply.command.Buffer, to_continue, err  = await self.gssapi.authenticate(msg.command.Buffer)
 					reply.command.Buffer, to_continue, err  = await self.gssapi.authenticate_relay_server(msg.command.Buffer)
 					
-					print('reply.command.Buffer: %s' % reply.command.Buffer)
-					print('to_continue: %s' % to_continue)
+					#print('reply.command.Buffer: %s' % reply.command.Buffer)
+					#print('to_continue: %s' % to_continue)
 					if err is not None:
 						raise err
 					
@@ -224,7 +230,7 @@ class SMBRelayServerConnection:
 				await self.sendSMB(reply)
 				return
 		except Exception as e:
-			traceback.print_exc()
+			await self.settings.log_callback('[SMBSERVERCONN][ERR] %s' % e)
 		
 		finally:
 			reply = SMB2Message()
@@ -236,7 +242,6 @@ class SMBRelayServerConnection:
 			reply.header.Flags = SMB2HeaderFlag.SMB2_FLAGS_SERVER_TO_REDIR
 			reply.header.CreditReq = 0
 			reply.header.Status = NTStatus.ACCESS_DENIED
-			print(reply.header.Status)
 			await self.sendSMB(reply)
 
 	
@@ -291,8 +296,6 @@ class SMBRelayServerConnection:
 				return message_id, msg
 			return message_id
 				
-		print('RUNNING')
-		print(self.signing_required)
 		if msg.header.Command is not SMB2Command.CANCEL:
 			msg.header.MessageId = self.SequenceWindow
 			self.SequenceWindow += 1

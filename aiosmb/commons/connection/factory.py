@@ -35,13 +35,21 @@ class SMBConnectionFactory:
 		target = SMBTarget.from_url(connection_url)
 		credential = UniCredential.from_url(connection_url)
 		return SMBConnectionFactory(credential, target)
+	
+	@staticmethod
+	def from_smbconnection(smbconnection:SMBConnection):
+		"""Creates a new SMBConnectionFactory object from an existing SMBConnection object"""
+		"""This is useful when you have a connection object, but you need to create a new connection with the same credentials"""
+		return SMBConnectionFactory(smbconnection.gssapi.get_copy(), copy.deepcopy(smbconnection.target))
 
-	def get_connection(self):
+	def get_connection(self, nosign:bool=False):
 		"""Creates a new SMBConnection object"""
 		spneg = self.get_credential()
 		target = self.get_target()
+		if nosign is None:
+			nosign = False
 		
-		return SMBConnection(spneg, target)
+		return SMBConnection(spneg, target, nosign=nosign)
 
 	def create_connection_newtarget(self, ip_or_hostname):
 		"""Creates a new SMBConnection object with a new target. 

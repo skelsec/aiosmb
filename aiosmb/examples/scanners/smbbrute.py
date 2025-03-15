@@ -20,6 +20,13 @@ class SMBBruteForceRes:
 
 	def to_line(self, separator = '\t'):
 		return separator.join([str(self.domain), str(self.username), str(self.password)])
+	
+	def to_dict(self):
+		return {
+			'DOMAIN' : self.domain,
+			'USERNAME' : self.username,
+			'PASSWORD' : self.password
+		}
 
 class SMBBruteForceScanner:
 	def __init__(self, target:SMBTarget, exclude_users):

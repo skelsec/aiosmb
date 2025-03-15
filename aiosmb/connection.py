@@ -164,6 +164,7 @@ class SMBConnection:
 		self.keepalive_task = None
 		self.keepalive_timeout = 15
 		self.connection_closed_evt = None
+		self.login_ok = False
 		# TODO: turn it back on 
 		self.supress_keepalive = False
 		self.activity_at = None
@@ -390,6 +391,7 @@ class SMBConnection:
 			
 			self.keepalive_task = asyncio.create_task(self.keepalive())
 			
+			self.login_ok = True
 			return True, None
 		except Exception as e:
 			await self.disconnect()
@@ -690,7 +692,7 @@ class SMBConnection:
 					#logger.exception('GSSAPI auth failed!')
 					#TODO: Clear this up, kerberos lib needs it's own exceptions!
 					if str(e).find('Preauth') != -1:
-						raise SMBKerberosPreauthFailed()
+						raise SMBKerberosPreauthFailed(str(e))
 					else:
 						raise e
 						#raise SMBKerberosPreauthFailed()

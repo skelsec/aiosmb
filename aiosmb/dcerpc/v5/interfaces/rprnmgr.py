@@ -1,10 +1,8 @@
 import traceback
-import asyncio
-from aiosmb.dcerpc.v5.common.connection.smbdcefactory import SMBDCEFactory
-from aiosmb.connection import SMBConnection
-from aiosmb.dcerpc.v5.connection import DCERPC5Connection
 from aiosmb.dcerpc.v5 import rprn
 from aiosmb import logger
+from aiosmb.dcerpc.v5.interfaces import InterfaceManager, InterfaceEndpoint
+
 from aiosmb.dcerpc.v5.dtypes import NULL
 import pathlib
 from aiosmb.dcerpc.v5.rpcrt import RPC_C_AUTHN_LEVEL_NONE,\
@@ -19,7 +17,7 @@ from contextlib import asynccontextmanager
 
 @asynccontextmanager
 async def rprnrpc_from_smb(connection, auth_level=None, open=True, perform_dummy=False):
-    instance, err = await RPRNRPC.from_smbconnection(connection, auth_level=auth_level, open=open, perform_dummy=perform_dummy)
+    instance, err = await RPRNRPC.from_smbconnection(connection, connect=open)
     if err:
         # Handle or raise the error as appropriate
         raise err
@@ -28,76 +26,26 @@ async def rprnrpc_from_smb(connection, auth_level=None, open=True, perform_dummy
     finally:
         await instance.close()
 
-class RPRNRPC:
-	def __init__(self):
-		self.service_pipename = r'\spoolss'
-		self.service_uuid = rprn.MSRPC_UUID_RPRN
-		self.dce = None
-		#self.handle = None
+class RPRNRPC(InterfaceManager):
+	def __init__(self, connection, endpoint):
+		super().__init__(connection, endpoint)
 		
 		self.handle_ctr = 0
 		self.printer_handles = {}
-		
-	async def __aenter__(self):
-		return self
-		
-	async def __aexit__(self, exc_type, exc, traceback):
-		await self.close()
-		return True,None
+	
+	@classmethod
+	def endpoints(cls):
+		return [
+			InterfaceEndpoint('ncan_np', "12345678-1234-abcd-ef00-0123456789ab", "1.0", pipename=r"\spoolss", authlevel=RPC_C_AUTHN_LEVEL_PKT_PRIVACY),
+			InterfaceEndpoint('ncacn_ip_tcp', "12345678-1234-abcd-ef00-0123456789ab", "1.0", authlevel=RPC_C_AUTHN_LEVEL_PKT_PRIVACY),
+		]
 	
 	@staticmethod
-	async def from_rpcconnection(connection:DCERPC5Connection, auth_level = None, open:bool = True, perform_dummy:bool = False):
-		try:
-			service = RPRNRPC()
-			service.dce = connection
-			
-			service.dce.set_auth_level(auth_level)
-			if auth_level is None:
-				service.dce.set_auth_level(RPC_C_AUTHN_LEVEL_PKT_PRIVACY) #secure default :P 
-			
-			_, err = await service.dce.connect()
-			if err is not None:
-				raise err
-			
-			_, err = await service.dce.bind(service.service_uuid)
-			if err is not None:
-				raise err
-				
-			return service, None
-		except Exception as e:
-			return False, e
+	def create_instance(connection, endpoint):
+		return RPRNRPC(connection, endpoint)
 	
-	@staticmethod
-	async def from_smbconnection(connection:SMBConnection, auth_level = None, open:bool = True, perform_dummy:bool = False):
-		"""
-		Creates the connection to the service using an established SMBConnection.
-		This connection will use the given SMBConnection as transport layer.
-		"""
-		try:
-			if auth_level is None:
-				#for SMB connection no extra auth needed
-				auth_level = RPC_C_AUTHN_LEVEL_NONE
-			rpctransport = SMBDCEFactory(connection, filename=RPRNRPC().service_pipename)		
-			service, err = await RPRNRPC.from_rpcconnection(rpctransport.get_dce_rpc(), auth_level=auth_level, open=open, perform_dummy = perform_dummy)	
-			if err is not None:
-				raise err
-
-			return service, None
-		except Exception as e:
-			return None, e
-	
-	async def close(self):
-		try:
-			if self.dce:
-				try:
-					await self.dce.disconnect()
-				except:
-					pass
-				return
-			
-			return True,None
-		except Exception as e:
-			return None, e
+	async def cleanup(cls):
+		pass
 	
 	async def open_printer(self, printerName, pDatatype = NULL, pDevModeContainer = NULL, accessRequired = rprn.SERVER_READ):
 		try:
@@ -116,6 +64,25 @@ class RPRNRPC:
 		try:
 			handle = self.printer_handles[handle]
 			resp, err = await rprn.hRpcRemoteFindFirstPrinterChangeNotificationEx(
+				self.dce, 
+				handle, 
+				fdwFlags, 
+				fdwOptions=fdwOptions,
+				pszLocalMachine=pszLocalMachine,
+				dwPrinterLocal=dwPrinterLocal, 
+				pOptions=pOptions
+			)
+			if err is not None:
+				raise err
+
+			return resp, None
+		except Exception as e:
+			return None, e
+	
+	async def hRpcRemoteFindFirstPrinterChangeNotification(self, handle, fdwFlags, fdwOptions=0, pszLocalMachine=NULL, dwPrinterLocal=0, pOptions=NULL):
+		try:
+			handle = self.printer_handles[handle]
+			resp, err = await rprn.hRpcRemoteFindFirstPrinterChangeNotification(
 				self.dce, 
 				handle, 
 				fdwFlags, 

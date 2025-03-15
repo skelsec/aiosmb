@@ -65,6 +65,21 @@ class SMBMachine:
 		finally:
 			await instance.close()
 	
+	async def list_pipes(self) -> AsyncGenerator[Tuple[str, Union[Exception, None]], None]:
+		try:
+			async for share, err in self.list_shares():
+				if err is not None:
+					pass
+				if share.name.upper() == 'IPC$':
+					_, err = await share.connect(self.connection)
+					if err is not None:
+						raise err
+					async for entry, entrytype, err in share.subdirs[''].list_r(self.connection, depth = 1, maxentries = 100):
+						if entrytype == 'file':
+							yield entry.name, None
+		except Exception as e:
+			yield None, e
+	
 	async def list_shares(self, fetch_share_sd:bool = False) -> AsyncGenerator[Tuple[SMBShare, Union[Exception, None]], None]:
 		try:
 			async with srvsrpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as rpc:
@@ -235,6 +250,11 @@ class SMBMachine:
 			yield entry, None
 
 	async def enum_all_recursively(self, depth:int = 3, maxentries:int = None, exclude_share:List[str]=['print$', 'PRINT$'], exclude_dir:List[str]=[], fetch_share_sd:bool = False, fetch_dir_sd:bool = False, fetch_file_sd:bool = False) -> AsyncGenerator[Tuple[Union[SMBShare, SMBDirectory, SMBFile], str, Union[Exception, None]], None]:
+		if exclude_share is None:
+			exclude_share = []
+		if exclude_dir is None:
+			exclude_dir = []
+		
 		shares:Dict[str, SMBShare] = {}
 		async for share, err in self.list_shares(fetch_share_sd):
 			if err is not None:
@@ -257,7 +277,7 @@ class SMBMachine:
 				yield entry
 				await asyncio.sleep(0)
 	
-	async def enum_files_with_filter(self, filter_cb:Callable[[str, str], Awaitable[bool]]) -> AsyncGenerator[Tuple[Union[SMBShare, SMBDirectory, SMBFile], str, Union[Exception, None]], None]:
+	async def enum_files_with_filter(self, filter_cb:Callable[[str, str], Awaitable[bool]], depth:int = 1000) -> AsyncGenerator[Tuple[Union[SMBShare, SMBDirectory, SMBFile], str, Union[Exception, None]], None]:
 		shares:Dict[str, SMBShare] = {}
 		async for share, err in self.list_shares():
 			if err is not None:
@@ -278,7 +298,7 @@ class SMBMachine:
 			if res is False:
 				continue
 
-			async for entry in shares[share_name].subdirs[''].list_r(self.connection, depth = 1000, maxentries = -1, filter_cb = filter_cb):
+			async for entry in shares[share_name].subdirs[''].list_r(self.connection, depth = depth, maxentries = -1, filter_cb = filter_cb):
 				yield entry
 				await asyncio.sleep(0)
 
@@ -1000,6 +1020,36 @@ class SMBMachine:
 				return await rpc.get_job(job_id, servername = server_name)
 		except Exception as e:
 			return None, e
+	
+	async def share_write_test(self):
+		try:
+			async for share, err in self.list_shares():
+				if err is not None:
+					continue
+				if share.name in ['IPC$', 'C$', 'ADMIN$', 'PRINT$', 'D$', 'E$', 'F$', 'G$', 'H$', 'I$', 'J$', 'K$', 'L$', 'M$', 'N$', 'O$', 'P$', 'Q$', 'R$', 'S$', 'T$', 'U$', 'V$', 'W$', 'X$', 'Y$', 'Z$']:
+					yield share, False, None
+					continue
+
+				writeable = False
+				test_path_dir = share.unc_path + '\\test_%s' % os.urandom(4).hex()
+				test_path_file = share.unc_path + '\\test_file_%s' % os.urandom(4).hex()
+
+				_, err = await SMBDirectory.create_remote(self.connection, test_path_dir)
+				if err is None:
+					writeable = True
+					await SMBDirectory.delete_unc(self.connection, test_path_dir)
+				
+				if writeable is False:
+					smbfile = SMBFile.from_uncpath(test_path_file)
+					_, err = await smbfile.open(self.connection, mode='w')
+					if err is None:
+						writeable = True
+						await smbfile.delete()
+
+				yield share, writeable, None
+
+		except Exception as e:
+			yield None, None, e
 	
 	async def whoami(self) -> Awaitable[Tuple[str, Union[Exception, None]]]:
 		try:

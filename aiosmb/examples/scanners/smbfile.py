@@ -10,6 +10,15 @@ class SMBFileRes:
 		self.otype = otype
 		self.err = err
 
+		self.unc_path = ''
+		self.creationtime = ''
+		self.size = ''
+		self.sizefmt = ''
+		self.security_descriptor_sddl = ''
+
+		self.process()
+	
+
 	# https://stackoverflow.com/questions/1094841/get-human-readable-version-of-file-size
 	@staticmethod
 	def sizeof_fmt(num, suffix='B'):
@@ -23,60 +32,113 @@ class SMBFileRes:
 
 	def get_header(self):
 		return ['otype', 'path', 'creationtime', 'size', 'sizefmt', 'sddl']
-
-	def to_line(self, separator = '\t'):
+	
+	def process(self):
 		if self.err is not None:
-			unc_path = ''
 			try:
-				unc_path = str(self.obj.unc_path)
+				self.unc_path = str(self.obj.unc_path)
 			except:
 				pass
-			return separator.join([
-				'err',
-				unc_path,
-				str(self.err)
-			])
-
-		unc_path = ''
-		creationtime = ''
-		size = ''
-		sizefmt = ''
-		security_descriptor_sddl = ''
+		
 		if self.otype in ['dir', 'file', 'share']:
-			unc_path = str(self.obj.unc_path)
+			self.unc_path = str(self.obj.unc_path)
 			if self.otype == 'dir' or self.otype == 'file' or self.otype == 'share':
 				if self.otype == 'dir' or self.otype == 'file':
 					if self.obj.creation_time is not None:
-						creationtime = self.obj.creation_time.isoformat()
+						self.creationtime = self.obj.creation_time.isoformat()
 				security_descriptor = self.obj.security_descriptor
-				security_descriptor_sddl = '' if security_descriptor is None else str(security_descriptor.to_sddl())
+				self.security_descriptor_sddl = '' if security_descriptor is None else str(security_descriptor.to_sddl())
 			
 			if self.otype == 'file':
-				size = self.obj.size
-				sizefmt = SMBFileRes.sizeof_fmt(size)
+				self.size = self.obj.size
+				self.sizefmt = SMBFileRes.sizeof_fmt(self.size)
 
+	def to_line(self, separator = '\t'):
+		if self.err is not None:
+			return separator.join([
+				'err',
+				self.unc_path,
+				'',
+				'0',
+				'',
+				str(self.err)
+			])
 		if self.otype == 'file':
 			return separator.join([
 				'file',
-				unc_path,
-				creationtime,
-				str(size), 
-				sizefmt,
-				security_descriptor_sddl,
+				self.unc_path,
+				self.creationtime,
+				str(self.size), 
+				self.sizefmt,
+				self.security_descriptor_sddl,
 			])
 		if self.otype == 'dir':
 			return separator.join([
 				'dir',
-				unc_path, 
-				creationtime, 
-				security_descriptor_sddl
+				self.unc_path, 
+				self.creationtime, 
+				'0',
+				'',
+				self.security_descriptor_sddl
 			])
 		if self.otype == 'share':
 			return separator.join([
 				'share',
-				unc_path,
-				security_descriptor_sddl
+				self.unc_path,
+				'',
+				'0',
+				'',
+				self.security_descriptor_sddl
 			])
+		
+		return separator.join([
+			'unknown',
+			self.unc_path,
+			self.creationtime,
+			self.size,
+			self.sizefmt,
+			self.security_descriptor_sddl
+		])
+	
+	def to_dict(self):
+		if self.err is not None:
+			return {
+				'otype' : 'err',
+				'path' : self.unc_path,
+				'err' : str(self.err)
+			}
+		if self.otype == 'file':
+			return {
+				'otype' : 'file',
+				'path' : self.unc_path,
+				'creationtime' : self.creationtime,
+				'size' : self.size,
+				'sizefmt' : self.sizefmt,
+				'sddl' : self.security_descriptor_sddl
+			}
+		if self.otype == 'dir':
+			return {
+				'otype' : 'dir',
+				'path' : self.unc_path,
+				'creationtime' : self.creationtime,
+				'sddl' : self.security_descriptor_sddl
+			}
+		if self.otype == 'share':
+			return {
+				'otype' : 'share',
+				'path' : self.unc_path,
+				'sddl' : self.security_descriptor_sddl
+			}
+		
+		return {
+			'otype' : 'unknown',
+			'path' : self.unc_path,
+			'creationtime' : self.creationtime,
+			'size' : self.size,
+			'sizefmt' : self.sizefmt,
+			'sddl' : self.security_descriptor_sddl
+		}
+
 
 class SMBFileScanner:
 	def __init__(self, 

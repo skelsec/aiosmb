@@ -324,12 +324,12 @@ OPNUMS = {
 ################################################################################
 # HELPER FUNCTIONS
 ################################################################################
-async def hElfrOpenBELW(dce, backupFileName = NULL):
+async def hElfrOpenBELW(dce, backupFileName = NULL, MajorVersion = 1, MinorVersion = 1):
 	request = ElfrOpenBELW()
 	request['UNCServerName'] = NULL
 	request['BackupFileName'] = backupFileName
-	request['MajorVersion'] = 1
-	request['MinorVersion'] = 1
+	request['MajorVersion'] = MajorVersion
+	request['MinorVersion'] = MinorVersion
 	return await dce.request(request)
 
 async def hElfrOpenELW(dce, moduleName = NULL, regModuleName = NULL):

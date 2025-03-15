@@ -17,6 +17,13 @@ class SMBAdminRes:
 
 	def to_line(self, separator = '\t'):
 		return separator.join([str(self.share), str(self.servicemgr), str(self.registry)])
+	
+	def to_dict(self):
+		return {
+			'SHARE' : self.share,
+			'SERVICE' : self.servicemgr,
+			'REGISTRY' : self.registry
+		}
 
 class SMBAdminScanner:
 	def __init__(self, factory:SMBConnectionFactory):

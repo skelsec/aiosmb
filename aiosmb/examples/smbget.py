@@ -121,7 +121,6 @@ async def amain():
 	SMBConnectionParams.extend_parser(parser)
 	parser.add_argument('-v', '--verbose', action='count', default=0)
 	parser.add_argument('-s', '--stdin', action='store_true', help='Read targets from stdin')
-	parser.add_argument('-r', '--recursive', action='store_true', help='Recirsively donwload all files from the remote folder')
 	parser.add_argument('--progress', action='store_true', help='Show progress')
 	parser.add_argument('--url', help='Connection URL base, target can be set to anything. Owerrides all parameter based connection settings! Example: "smb2+ntlm-password://TEST\\victim@test"')
 	parser.add_argument('targets', nargs='*', help = 'UNC paths of file eg. \\\\HOST\\SHARE\\file_or_folder')

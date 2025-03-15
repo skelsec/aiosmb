@@ -9,8 +9,11 @@ from asyauth.protocols.ntlm.relay.native import NTLMRelaySettings, ntlmrelay_fac
 import traceback
 import asyncio
 
+async def log_callback(msg):
+	print(msg)
+
 class SMBServerSettings:
-	def __init__(self, gssapi_factory):
+	def __init__(self, gssapi_factory, log_callback = log_callback):
 		self.gssapi_factory = gssapi_factory
 		self.preferred_dialects = [NegotiateDialects.SMB202]
 		self.MaxTransactSize = 0x100000
@@ -18,6 +21,7 @@ class SMBServerSettings:
 		self.MaxWriteSize = 0x100000
 		self.ServerGuid = GUID.random()
 		self.RequireSigning = False
+		self.log_callback = log_callback
 
 		self.shares = {} #share_name -> path on disk
 	
@@ -33,19 +37,31 @@ class SMBRelayServer:
 		self.server = None
 		self.serving_task = None
 		self.connections = {}
+	
+	async def print(self, msg):
+		if self.settings.log_callback is not None:
+			await self.settings.log_callback(msg)
 
 	async def __handle_connection(self):
 		try:
 			async for connection in self.server.serve():
-				print('connection in!')
+				await self.print('[SMBRELAY][INF] Got new connection!')
 				
-				smbconnection = SMBRelayServerConnection(self.settings, connection)
-				self.connections[self.settings.ServerGuid] = smbconnection
-				await smbconnection.run()
+				try:
+					smbconnection = SMBRelayServerConnection(self.settings, connection)
+					if self.settings.ServerGuid not in self.connections:
+						self.connections[self.settings.ServerGuid] = []
+					self.connections[self.settings.ServerGuid].append(smbconnection)
+					await smbconnection.run()
+				except Exception as e:
+					await self.print('[SMBRELAY][ERR] %s' % e)
 
 		except Exception as e:
 			traceback.print_exc()
 			return
+		finally:
+			for connection in self.connections[self.settings.ServerGuid]:
+				await connection.stop()
 
 	async def run(self):
 		self.server = UniServer(self.target, NetBIOSPacketizer())
