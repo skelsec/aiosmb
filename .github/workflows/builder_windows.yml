@@ -48,12 +48,12 @@ jobs:
       working-directory: ${{ github.workspace }}/builder/pyinstaller
       shell: cmd
 
-    - name: Upload Artifacts for Download
-      uses: actions/upload-artifact@v2
-      with:
-        name: executables.zip
-        path: builder\pyinstaller\*.exe
-        retention-days: 10
+    #- name: Upload Artifacts for Download
+    #  uses: actions/upload-artifact@v2
+    #  with:
+    #    name: executables.zip
+    #    path: builder\pyinstaller\*.exe
+    #    retention-days: 10
 
     - name: 'Set up Cloud SDK'
       uses: google-github-actions/setup-gcloud@v1
