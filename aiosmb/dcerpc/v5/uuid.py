@@ -29,7 +29,7 @@ def bin_to_string(uuid):
     return '%08X-%04X-%04X-%04X-%04X%08X' % (uuid1, uuid2, uuid3, uuid4, uuid5, uuid6)
 
 def string_to_bin(uuid):
-    matches = re.match('([\dA-Fa-f]{8})-([\dA-Fa-f]{4})-([\dA-Fa-f]{4})-([\dA-Fa-f]{4})-([\dA-Fa-f]{4})([\dA-Fa-f]{8})', uuid)
+    matches = re.match(r'([\dA-Fa-f]{8})-([\dA-Fa-f]{4})-([\dA-Fa-f]{4})-([\dA-Fa-f]{4})-([\dA-Fa-f]{4})([\dA-Fa-f]{8})', uuid)
     (uuid1, uuid2, uuid3, uuid4, uuid5, uuid6) = [int(x, 16) for x in matches.groups()]
     uuid = pack('<LHH', uuid1, uuid2, uuid3)
     uuid += pack('>HHL', uuid4, uuid5, uuid6)
@@ -59,7 +59,7 @@ def bin_to_uuidtup(bin):
 #           "10000000-2000-3000-4000-500000000000 v 3.0" returns ('00000000-0000-0000-0000-000000000000','3.0') 
 #           "10000000-2000-3000-4000-500000000000" returns ('00000000-0000-0000-0000-000000000000','1.0') 
 def string_to_uuidtup(s):
-    g =  re.search("([A-Fa-f0-9]{8}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{12}).*?([0-9]{1,5}\.[0-9]{1,5})",s+" 1.0")
+    g =  re.search(r"([A-Fa-f0-9]{8}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{12}).*?([0-9]{1,5}\.[0-9]{1,5})",s+" 1.0")
     if g: 
         (u,v) = g.groups()
         return (u,v)
