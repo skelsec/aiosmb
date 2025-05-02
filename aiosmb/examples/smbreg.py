@@ -6,7 +6,6 @@ from aiosmb.commons.connection.params import SMBConnectionParams
 from aiosmb.commons.connection.factory import SMBConnectionFactory
 from aiosmb.commons.interfaces.machine import SMBMachine
 from aiosmb.dcerpc.v5.common.service import ServiceStatus
-from aiosmb.external.aiocmd.aiocmd import aiocmd
 import enum
 
 class SMBREG_COMMAND(enum.Enum):
@@ -25,7 +24,7 @@ async def amain():
 	SMBConnectionParams.extend_parser(parser)
 	parser.add_argument('-v', '--verbose', action='count', default=0)
 	parser.add_argument('url', help='Connection URL base, target can be set to anything. Owerrides all parameter based connection settings! Example: "smb2+ntlm-password://TEST\\victim@test"')
-	parser.add_argument('commands', nargs='*', help = 'Commands in the following format: "r:HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\SecurityProviders\WDigest:Negotiate"')
+	parser.add_argument('commands', nargs='*', help = r'Commands in the following format: "r:HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\SecurityProviders\WDigest:Negotiate"')
 
 	args = parser.parse_args()
 
