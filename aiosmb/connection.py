@@ -682,7 +682,7 @@ class SMBConnection:
 			while status == NTStatus.MORE_PROCESSING_REQUIRED and maxiter > 0:
 				command = SESSION_SETUP_REQ()
 				try:
-					command.Buffer, res, err  = await self.gssapi.authenticate(authdata, spn=self.target.to_target_string())
+					command.Buffer, res, err  = await self.gssapi.authenticate(authdata, spn=self.target.to_target_string(), target=self.target)
 					if err is not None:
 						raise err
 					if fake_auth == True:
