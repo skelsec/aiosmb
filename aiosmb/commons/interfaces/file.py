@@ -426,6 +426,8 @@ class SMBFile:
 	async def read(self, size:int = -1):
 		try:
 			if self.is_pipe is True:
+				if size == -1:
+					size = self.__connection.MaxReadSize
 				data, err = await self.__read(size, 0)
 				return data, err
 			

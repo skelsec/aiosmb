@@ -4,8 +4,11 @@ import tqdm
 from aiosmb import logger
 import uuid
 import asyncio
+import zipfile
+import tempfile
+import os
 from pathlib import PureWindowsPath
-
+import datetime
 from aiosmb.commons.connection.factory import SMBConnectionFactory
 from aiosmb.commons.interfaces.file import SMBFile
 
@@ -69,43 +72,53 @@ class SMBGET:
 			self.task_q = asyncio.Queue()
 			self.target_gen_task = asyncio.create_task(self.__target_gen())
 
-			while True:
-				t = await self.task_q.get()
-				if t is None:
-					return True, None
+			zip_file_path = f'output_{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}.zip'
+			with zipfile.ZipFile(zip_file_path, 'w') as zip_file:
+				while True:
+					t = await self.task_q.get()
+					if t is None:
+						return True, None
 				
-				tid, target = t
-				unc = PureWindowsPath(target)
-				file_name = unc.name
-				print()
-				connection = self.smb_mgr.create_connection_newtarget(target.replace('\\\\','').split('\\')[0])
-				async with connection:
-					_, err = await connection.login()
-					if err is not None:
-						raise err
-					
-					print(target)
-					smbfile = SMBFile.from_uncpath(target)
-					_, err = await smbfile.open(connection, 'r')
-					if err is not None:
-						logger.info('Error Downloading file %s' % target)
-						continue
-					
-					if self.show_progress is True:
-						pbar = tqdm.tqdm(desc = 'Downloading %s' % file_name, total=smbfile.size, unit='B', unit_scale=True, unit_divisor=1024)
-					
-					with open(file_name, 'wb') as f:
-						async for data, err in smbfile.read_chunked():
-							if err is not None:
-								logger.info('Error Downloading file %s' % target)
-								continue
-							if data is None:
-								break
+					tid, target = t
+					unc = PureWindowsPath(target)
+					file_name = unc.name
 
-							f.write(data)
+					connection = self.smb_mgr.create_connection_newtarget(target.replace('\\\\','').split('\\')[0])
+					async with connection:
+						_, err = await connection.login()
+						if err is not None:
+							raise err
+						
+						smbfile = SMBFile.from_uncpath(target)
+						_, err = await smbfile.open(connection, 'r')
+						if err is not None:
+							logger.info('Error Downloading file %s' % target)
+							continue
+						
+						if self.show_progress is True:
+							pbar = tqdm.tqdm(desc = 'Downloading %s' % file_name, total=smbfile.size, unit='B', unit_scale=True, unit_divisor=1024)
+						
+						# create a temp binary write
+						temp_file = tempfile.NamedTemporaryFile(delete=False)
+						temp_file_path = temp_file.name
+						try:
+							with open(temp_file_path, 'wb') as f:
+								async for data, err in smbfile.read_chunked():
+									if err is not None:
+										logger.info('Error Downloading file %s' % target)
+										continue
+									if data is None:
+										break
 
-							if self.show_progress is True:
-								pbar.update(len(data))
+									f.write(data)
+
+									if self.show_progress is True:
+										pbar.update(len(data))
+
+							zip_file.write(temp_file_path, target)
+						finally:
+							os.remove(temp_file_path)
+
 
 			return True, None
 		except Exception as e:
@@ -133,7 +146,7 @@ async def amain():
 		asyncio.get_event_loop().set_debug(True)
 		logging.basicConfig(level=logging.DEBUG)
 
-	smb_url = args.smb_url
+	smb_url = args.smb_url	
 	smbget = SMBGET(smb_url, show_progress=args.progress)
 	
 	notfile = []

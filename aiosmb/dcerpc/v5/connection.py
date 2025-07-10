@@ -595,7 +595,6 @@ class DCERPC5Connection:
 			while not finished:
 				# At least give me the MSRPCRespHeader, especially important for 
 				# TCP/UDP Transports
-
 				response_data, err = await self.transport.recv(1) #test
 				if err is not None:
 					raise err
@@ -626,6 +625,7 @@ class DCERPC5Connection:
 					
 			return response_data, None
 		except Exception as e:
+			print(traceback.format_exc())
 			return None, e
 	
 	async def _transport_send(self, rpc_packet, forceWriteAndx = 0, forceRecv = 0):

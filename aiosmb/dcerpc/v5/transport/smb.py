@@ -8,6 +8,7 @@ class DCERPCSMBTransport:
 		self.smbfile = None
 		
 		self._max_send_frag = None
+		self._recv_buffer = b''
 
 	def get_session_key(self):
 		return self.target.smb_connection.get_session_key()
@@ -60,17 +61,52 @@ class DCERPCSMBTransport:
 	#	except Exception as e:
 	#		return None, e
 
+
+	# old
+	#async def recv(self, count):
+	#	try:
+	#		hdr_data, err = await self.smbfile.read(24)
+	#		if err is not None:
+	#			raise err
+	#		response_header = MSRPCRespHeader(hdr_data)
+	#
+	#		msg_data, err = await self.smbfile.read(response_header['frag_len'])
+	#		if err is not None:
+	#			raise err
+	#
+	#		return hdr_data+msg_data, None
+	#	except Exception as e:
+	#		return None, e
+		
+
 	async def recv(self, count):
 		try:
-			hdr_data, err = await self.smbfile.read(24)
+			if len(self._recv_buffer) >= 24:
+				tbuff = self._recv_buffer
+				self._recv_buffer = b''
+				return tbuff, None
+
+			hdr_data, err = await self.smbfile.read() # this will read MaxReadSize bytes
 			if err is not None:
 				raise err
+			hdr_data += self._recv_buffer
+			self._recv_buffer = b''
 			response_header = MSRPCRespHeader(hdr_data)
 
-			msg_data, err = await self.smbfile.read(response_header['frag_len'])
+			dlen = len(hdr_data)
+
+			if response_header['frag_len'] == dlen:
+				return hdr_data, None
+			
+			if dlen > response_header['frag_len']:
+				self._recv_buffer = hdr_data[response_header['frag_len']:]
+				return hdr_data[:response_header['frag_len']], None
+			
+			body_len = response_header['frag_len'] - len(hdr_data)
+			msg_data, err = await self.smbfile.read(body_len)
 			if err is not None:
 				raise err
 
-			return hdr_data+msg_data, None
+			return hdr_data + msg_data, None
 		except Exception as e:
 			return None, e

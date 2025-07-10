@@ -1,10 +1,8 @@
 
 import asyncio
-import enum
 import uuid
 import logging
 import json
-import ipaddress
 
 from aiosmb import logger
 from aiosmb.examples.scancommons.targetgens import *
@@ -96,7 +94,7 @@ class EnumResultFinal:
 
 
 class SMBFileEnum:
-	def __init__(self, smb_url, worker_count = 10, depth = 3, enum_url = False, out_file = None, show_pbar = True, max_items = None, max_runtime = None, fetch_share_sd = False, fetch_dir_sd = False, fetch_file_sd = False, task_q = None, res_q = None, output_type = 'str', exclude_share = [], exclude_dir = [], exclude_target = [], ext_result_q = None):
+	def __init__(self, smb_url, worker_count = 10, depth = 3, enum_url = False, out_file = None, show_pbar = True, max_items = None, max_runtime = None, fetch_share_sd = False, fetch_dir_sd = False, fetch_file_sd = False, task_q = None, res_q = None, output_type = 'str', exclude_share = [], exclude_dir = [], exclude_target = [], ext_result_q = None, connection_timeout = 5):
 		self.target_gens = []
 		self.smb_mgr = smb_url
 		if isinstance(smb_url, str):
@@ -120,6 +118,7 @@ class SMBFileEnum:
 		self.exclude_dir = exclude_dir
 		self.exclude_target = exclude_target
 		self.ext_result_q = ext_result_q
+		self.connection_timeout = connection_timeout
 
 		self.__gens_finished = False
 		self.__total_targets = 0
@@ -136,7 +135,7 @@ class SMBFileEnum:
 		try:
 			connection = self.smb_mgr.create_connection_newtarget(target)
 			async with connection:
-				_, err = await connection.login()
+				_, err = await asyncio.wait_for(connection.login(), timeout=self.connection_timeout)
 				if err is not None:
 					raise err
 
@@ -407,6 +406,7 @@ Output legend:
 	parser.add_argument('--tsv', action='store_true', help='Output in TSV format. (TAB Separated Values)')
 	parser.add_argument('--es', '--exclude-share', action='append', help = 'Exclude shares with name specified')
 	parser.add_argument('--ed', '--exclude-dir', action='append', help = 'Exclude directories with name specified')
+	parser.add_argument('--connection-timeout', type = int, default=5, help='Connection timeout')
 	parser.add_argument('targets', nargs='*', help = 'Hostname or IP address or file with a list of targets')
 
 	args = parser.parse_args()
@@ -451,6 +451,7 @@ Output legend:
 		max_runtime = args.max_runtime,
 		exclude_share = exclude_share,
 		exclude_dir = exclude_dir,
+		connection_timeout = args.connection_timeout
 	)
 	
 	notfile = []
