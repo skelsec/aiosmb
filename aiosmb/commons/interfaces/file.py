@@ -368,6 +368,8 @@ class SMBFile:
 			return False, e
 		finally:
 			await self.close()
+			if self.tree_id is not None:
+				await connection.tree_disconnect(self.tree_id)
 		
 	async def open_pipe(self, connection:SMBConnection, mode:str):
 		try:

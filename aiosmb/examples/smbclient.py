@@ -534,6 +534,9 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 	def _use_completions(self):
 		return SMBPathCompleter(get_current_dirs = lambda: list(self.shares.keys()))
 
+	def _cat_completions(self):
+		return SMBPathCompleter(get_current_dirs = self.get_current_files)
+
 
 	async def do_services(self):
 		"""Lists remote services"""
@@ -716,8 +719,39 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			return True, None
 		
 		except Exception as e:
-			return self.handle_exception(e)	
+			return self.handle_exception(e)
+			
+	async def do_cat(self, file_name):
+		"""Prints the content of a file to the console."""
+		try:
+			matched = []
+			if file_name not in self.__current_directory.files:
+				
+				for fn in fnmatch.filter(list(self.__current_directory.files.keys()), file_name):
+					matched.append(fn)
+				if len(matched) == 0:
+					print('File with name %s is not present in the directory %s' % (file_name, self.__current_directory.name))
+					return False, None
+			else:
+				matched.append(file_name)
+			
+			for file_name in matched:
+				file_obj = self.__current_directory.files[file_name]
+				print('---------------------- %s ----------------------' % file_obj.fullpath)
+				async for data, err in self.machine.get_file_data(file_obj):
+					if err is not None:
+						raise err
+					if data is None:
+						break
+					try:
+						print(data.decode())
+					except:
+						print(data)
+			return True, None
 
+		except Exception as e:
+			return self.handle_exception(e)
+	
 	async def do_get(self, file_name):
 		"""Download a file from the remote share to the current folder"""
 		try:
@@ -809,6 +843,7 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 				total_size = 0
 				dir_obj = self.__current_directory.subdirs[dir_name]
 				basedirname = os.path.basename(dir_obj.name) + time.strftime("%Y%m%d_%H%M%S")
+				os.makedirs(basedirname, exist_ok=True)
 				with tqdm.tqdm(desc = 'Downloading files...', total=0, unit='B', unit_scale=True, unit_divisor=1024) as pbar:
 					async for lfile, entry in get_directory(basedirname, dir_obj):
 						if maxfsize is not None and entry.size > maxfsize:
