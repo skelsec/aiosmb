@@ -287,7 +287,7 @@ class SMBConnection:
 				self.activity_at = datetime.datetime.utcnow()
 
 				if msg_data is None:
-					raise SMBConnectionTerminated()
+					raise SMBConnectionTerminated(self.target.get_hostname_or_ip() if self.target is not None else 'Unknown target')
 
 				if msg_data[0] < 252:
 					raise Exception('Unknown SMB packet type %s' % msg_data[0])
@@ -472,6 +472,9 @@ class SMBConnection:
 		
 		self.status = SMBConnectionStatus.CLOSED
 		
+		if self.incoming_task is not None:
+			self.incoming_task.cancel()
+		
 		if self.network_connection is not None:
 			await self.network_connection.close()
 			await asyncio.sleep(0)
@@ -479,8 +482,7 @@ class SMBConnection:
 		if self.keepalive_task is not None:
 			self.keepalive_task.cancel()
 		
-		if self.incoming_task is not None:
-			self.incoming_task.cancel()		
+		
 
 	async def keepalive(self):
 		"""

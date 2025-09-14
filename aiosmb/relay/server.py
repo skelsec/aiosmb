@@ -24,10 +24,11 @@ class SMBServerSettings:
 		self.log_callback = log_callback
 
 		self.shares = {} #share_name -> path on disk
-	
-	@property
-	def gssapi(self):
-		return self.gssapi_factory()
+
+	def create_new_gssapi(self, connection):
+		gssapi = self.gssapi_factory()
+		gssapi.set_connection_info(connection)
+		return gssapi
 	
 
 class SMBRelayServer:
@@ -37,27 +38,30 @@ class SMBRelayServer:
 		self.server = None
 		self.serving_task = None
 		self.connections = {}
+		self.connection_ctr = 0
 	
 	async def print(self, msg):
 		if self.settings.log_callback is not None:
 			await self.settings.log_callback(msg)
 
-	async def __handle_connection(self):
+	async def __handle_connection(self, connection):
 		try:
-			async for connection in self.server.serve():
-				await self.print('[SMBRELAY][INF] Got new connection!')
-				
-				try:
-					smbconnection = SMBRelayServerConnection(self.settings, connection)
-					if self.settings.ServerGuid not in self.connections:
-						self.connections[self.settings.ServerGuid] = []
-					self.connections[self.settings.ServerGuid].append(smbconnection)
-					await smbconnection.run()
-				except Exception as e:
-					await self.print('[SMBRELAY][ERR] %s' % e)
+			self.connection_ctr += 1
+			await self.print('[SMBRELAY][%s][INF] Got new connection!' % self.connection_ctr)
+			
+			try:
+				smbconnection = SMBRelayServerConnection(self.settings, connection, connection_id=self.connection_ctr)
+				if self.settings.ServerGuid not in self.connections:
+					self.connections[self.settings.ServerGuid] = []
+				self.connections[self.settings.ServerGuid].append(smbconnection)
+				connection_task = await smbconnection.run()
+				await connection_task
+				await self.print('[SMBRELAY][%s][INF] Connection end' % self.connection_ctr)
+			except Exception as e:
+				await self.print('[SMBRELAY][%s][ERR] %s' % (self.connection_ctr, e))
 
 		except Exception as e:
-			traceback.print_exc()
+			await self.print('[SMBRELAY][%s][ERR] SMB Server stopped! Error: %s' % (self.connection_ctr, e))
 			return
 		finally:
 			for connection in self.connections[self.settings.ServerGuid]:
@@ -65,8 +69,7 @@ class SMBRelayServer:
 
 	async def run(self):
 		self.server = UniServer(self.target, NetBIOSPacketizer())
-		self.serving_task = asyncio.create_task(self.__handle_connection())
-		return self.serving_task
+		return await self.server.serve_callback(self.__handle_connection)
 
 async def test_relay_queue(rq):
 	try:

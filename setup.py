@@ -40,10 +40,10 @@ setup(
 	python_requires='>=3.7',
 	install_requires=[
 		'unicrypto>=0.0.10',
-		'asyauth>=0.0.16',
-		'asysocks>=0.2.9',
+		'asyauth>=0.0.22',
+		'asysocks>=0.2.17',
 		'prompt-toolkit>=3.0.2',
-		'winacl>=0.1.8',
+		'winacl>=0.1.9',
 		'six',
 		'tqdm',
 		'colorama',

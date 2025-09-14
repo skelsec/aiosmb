@@ -2,6 +2,7 @@ import enum
 import asyncio
 import datetime
 import traceback
+import typing
 
 from aiosmb import logger
 from aiosmb.commons.exceptions import *
@@ -10,14 +11,12 @@ from aiosmb.wintypes.ntstatus import NTStatus
 from aiosmb.protocol.smb.message import SMBMessage
 from aiosmb.protocol.smb.commands import *
 from aiosmb.protocol.smb2.message import SMB2Message
+from aiosmb.protocol.smb2.commands.tree_connect import *
 from aiosmb.protocol.smb2.commands import *
 from aiosmb.protocol.smb2.headers import *
 from aiosmb.protocol.smb2.command_codes import *
 from aiosmb.protocol.common import *
 from aiosmb.wintypes.dtyp.constrcuted_security.guid import *
-
-from unicrypto import hmac
-from unicrypto import hashlib
 
 
 class SMBConnectionStatus(enum.Enum):
@@ -28,10 +27,10 @@ class SMBConnectionStatus(enum.Enum):
 	
 
 class SMBRelayServerConnection:
-	def __init__(self, settings, connection, shutdown_evt = asyncio.Event()):
+	def __init__(self, settings, connection, connection_id, shutdown_evt = asyncio.Event()):
 		self.settings = settings
-		self.gssapi = self.settings.gssapi
-		self.gssapi.set_connection_info(connection)
+		self.gssapi = self.settings.create_new_gssapi(connection)
+		self.connection_id = connection_id
 		
 		#######DONT CHANGE THIS
 		#use this for smb2 > self.supported_dialects = [NegotiateDialects.WILDCARD, NegotiateDialects.SMB202, NegotiateDialects.SMB210]
@@ -83,9 +82,19 @@ class SMBRelayServerConnection:
 		return self.incoming_task
 	
 	async def stop(self):
-		if self.incoming_task is not None:
-			self.incoming_task.cancel()
+		try:
+			await self.print('[INF] Stopping connection')
+			if self.incoming_task is not None:
+				self.incoming_task.cancel()
+			if self.connection is not None:
+				await self.connection.close()
+		except Exception as e:
+			traceback.print_exc()
+			await self.print('[ERR] %s' % e)
 
+	async def print(self, msg):
+		if self.settings.log_callback is not None:
+			await self.settings.log_callback(f'[SMBSERVERCONN][{self.connection_id}] {msg}')
 
 	async def __handle_smb_in(self):
 		"""
@@ -110,10 +119,16 @@ class SMBRelayServerConnection:
 				if msg_data[0] == 0xFE:
 					#version2
 					msg = SMB2Message.from_bytes(msg_data)
+					await self.print('[PACKET] %s' % msg)
+
 					if self.status == SMBConnectionStatus.NEGOTIATING:
 						await self.negotiate(msg)
 					elif self.status == SMBConnectionStatus.SESSIONSETUP:
 						await self.session_setup(msg)
+						#res, err = await self.session_setup(msg)
+						#if res is False:
+						#	# this means we can drop the connection
+						#	return
 					
 					elif self.status == SMBConnectionStatus.RUNNING:
 						if msg.header.Command == SMB2Command.TREE_CONNECT:
@@ -126,6 +141,7 @@ class SMBRelayServerConnection:
 				if msg_data[0] == 0xFF:
 					#version1
 					msg = SMBMessage.from_bytes(msg_data)
+					await self.print('[PACKET] %s' % msg)
 					if self.status == SMBConnectionStatus.NEGOTIATING:
 						if msg.header.Command == SMBCommand.SMB_COM_NEGOTIATE:
 							await self.negotiate(msg)
@@ -143,6 +159,8 @@ class SMBRelayServerConnection:
 			return
 		except:
 			traceback.print_exc()
+		finally:
+			await self.stop()
 		
 	async def negotiate(self, req):
 		try:
@@ -183,6 +201,7 @@ class SMBRelayServerConnection:
 			traceback.print_exc()
 
 	async def session_setup(self, msg):
+		err = None
 		try:
 			maxiter = 5
 			if self.SessionId == 0:
@@ -192,19 +211,41 @@ class SMBRelayServerConnection:
 				reply.command = SESSION_SETUP_REPLY()
 				reply.command.SessionFlags = 0
 				try:
+					await self.print('[INF] Calling authenticate_relay_server')
 					#reply.command.Buffer, to_continue, err  = await self.gssapi.authenticate(msg.command.Buffer)
 					reply.command.Buffer, to_continue, err  = await self.gssapi.authenticate_relay_server(msg.command.Buffer)
+					await self.print('[INF] Authenticate results: %s, %s, %s' % (reply.command.Buffer, to_continue, err))
 					
-					#print('reply.command.Buffer: %s' % reply.command.Buffer)
-					#print('to_continue: %s' % to_continue)
 					if err is not None:
 						raise err
 					
 					if to_continue is False and reply.command.Buffer is None:
-						return
+						reply = SMB2Message()
+						reply.command = SESSION_SETUP_REPLY()
+						reply.command.SessionFlags = 0
+
+						reply.command.Buffer, err  = await self.gssapi.authenticate_relay_server_finished()
+
+						if err is not None:
+							raise err
+
+						reply.header = SMB2Header_SYNC()
+						reply.header.Command  = SMB2Command.SESSION_SETUP
+						reply.header.Flags = SMB2HeaderFlag.SMB2_FLAGS_SERVER_TO_REDIR
+						reply.header.Flags |= SMB2HeaderFlag.SMB2_FLAGS_SIGNED
+						reply.header.SessionId = self.SessionId
+						
+						reply.header.CreditCharge = 1
+						reply.header.CreditReq = 1
+						reply.header.Status = NTStatus.SUCCESS
+						reply.header.Flags |= SMB2HeaderFlag.SMB2_FLAGS_SIGNED
+						
+						await self.sendSMB(reply)
+						self.SessionKey = self.gssapi.get_session_key()[:16]
+						self.status = SMBConnectionStatus.RUNNING
+						return False, None
 					
 				except Exception as e:
-					logger.exception('GSSAPI auth failed!')
 					#TODO: Clear this up, kerberos lib needs it's own exceptions!
 					if str(e).find('Preauth') != -1:
 						raise SMBKerberosPreauthFailed()
@@ -212,65 +253,78 @@ class SMBRelayServerConnection:
 						raise e
 						#raise SMBKerberosPreauthFailed()
 				
-				reply.header = SMB2Header_SYNC()
-				reply.header.Command  = SMB2Command.SESSION_SETUP
-				reply.header.Flags = SMB2HeaderFlag.SMB2_FLAGS_SERVER_TO_REDIR
-				reply.header.SessionId = self.SessionId
-				
-				reply.header.CreditCharge = 1
-				reply.header.CreditReq = 1
-				reply.header.Status = NTStatus.SUCCESS if to_continue is False else NTStatus.MORE_PROCESSING_REQUIRED
+				if to_continue is True:
+					reply.header = SMB2Header_SYNC()
+					reply.header.Command  = SMB2Command.SESSION_SETUP
+					reply.header.Flags = SMB2HeaderFlag.SMB2_FLAGS_SERVER_TO_REDIR
+					reply.header.SessionId = self.SessionId
+					
+					reply.header.CreditCharge = 1
+					reply.header.CreditReq = 1
+					reply.header.Status = NTStatus.MORE_PROCESSING_REQUIRED
+					await self.sendSMB(reply)
 				
 				if to_continue is False:
-					self.SessionKey = self.gssapi.get_session_key()[:16]
+					reply.header = SMB2Header_SYNC()
+					reply.header.Command  = SMB2Command.SESSION_SETUP
+					reply.header.Flags = SMB2HeaderFlag.SMB2_FLAGS_SERVER_TO_REDIR
+					reply.header.SessionId = self.SessionId
+					
+					reply.header.CreditCharge = 1
+					reply.header.CreditReq = 1
+					reply.header.Status = NTStatus.SUCCESS
 					reply.header.Flags |= SMB2HeaderFlag.SMB2_FLAGS_SIGNED
 					reply.header.CreditReq = 127
+
+					await self.sendSMB(reply)
+
+
+					
+
+
+					self.SessionKey = self.gssapi.get_session_key()[:16]
 					self.status = SMBConnectionStatus.RUNNING
-				
-				await self.sendSMB(reply)
-				return
+
+				return True, None
 		except Exception as e:
-			await self.settings.log_callback('[SMBSERVERCONN][ERR] %s' % e)
-		
-		finally:
-			reply = SMB2Message()
-			reply.command = SESSION_SETUP_REPLY()
-			reply.command.SessionFlags = 0
-			reply.command.Buffer = b''				
+			await self.print('[ERR] %s' % e)
+
 			reply.header = SMB2Header_SYNC()
 			reply.header.Command  = SMB2Command.SESSION_SETUP
 			reply.header.Flags = SMB2HeaderFlag.SMB2_FLAGS_SERVER_TO_REDIR
-			reply.header.CreditReq = 0
+			reply.header.Flags |= SMB2HeaderFlag.SMB2_FLAGS_SIGNED
+			reply.header.SessionId = self.SessionId
+			reply.header.CreditCharge = 1
+			reply.header.CreditReq = 127
 			reply.header.Status = NTStatus.ACCESS_DENIED
 			await self.sendSMB(reply)
+			return False, None # none because relay doesnt need to know the error
 
-	
-	async def recvSMB(self, message_id, ret_data = False):
-		"""
-		Returns an SMB message from the outstandingresponse dict, OR waits until the expected message_id appears.
-		"""
-		if message_id not in self.OutstandingResponses:
-			logger.log(1, 'Waiting on messageID : %s' % message_id)
-			await self.OutstandingResponsesEvent[message_id].wait() #TODO: add timeout here?
-			
-		msg, msg_data = self.OutstandingResponses.pop(message_id)
-		if msg is None:
-			# this indicates and exception, so the msg_data is the exception
-			raise msg_data
-		
-		if self.status != SMBConnectionStatus.NEGOTIATING:
-			if self.selected_dialect != NegotiateDialects.SMB202:
-				self.SequenceWindow += (msg.header.CreditCharge - 1)
 
-		if msg.header.Status != NTStatus.PENDING:
-			if message_id in self.OutstandingResponsesEvent:
-				del self.OutstandingResponsesEvent[message_id]
+	async def tree_connect(self, msg:SMB2Message):
+		command = typing.cast(TREE_CONNECT_REQ, msg.command)
+
+		reply = SMB2Message()
+		reply.header = SMB2Header_SYNC()
+		reply.header.Command = SMB2Command.TREE_CONNECT
+		reply.header.Flags = SMB2HeaderFlag.SMB2_FLAGS_SERVER_TO_REDIR
+		reply.header.SessionId = self.SessionId
+		reply.header.CreditCharge = 0
+		reply.header.CreditReq = 1
+		reply.header.Status = NTStatus.SUCCESS
+		reply.command = TREE_CONNECT_REPLY()
+
+		if command.Path.endswith('IPC$'):
+			reply.command.ShareType = ShareType.PIPE
 		else:
-			self.OutstandingResponsesEvent[message_id].clear()
-		
-		if ret_data is False:
-			return msg
-		return msg, msg_data
+			reply.command.ShareType = ShareType.DISK
+
+		reply.command.ShareFlags = ShareFlags.SMB2_SHAREFLAG_MANUAL_CACHING
+		reply.command.Capabilities = TreeCapabilities.SMB2_SHARE_CAP_NONE
+		reply.command.MaximalAccess = FileAccessMask.GENERIC_ALL
+
+		await self.sendSMB(reply)
+	
 		
 	async def sendSMB(self, msg, ret_message = False, compression_cb = None):
 		"""

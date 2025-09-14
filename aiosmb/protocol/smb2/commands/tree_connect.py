@@ -100,20 +100,20 @@ class TreeCapabilities(enum.IntFlag):
 # https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-smb2/dd34e26c-a75e-47fa-aab2-6efc27502e96
 class TREE_CONNECT_REPLY():
 	def __init__(self):
-		self.StructureSize = 16
-		self.ShareType = None
-		self.Reserved = 0
-		self.ShareFlags = None
-		self.Capabilities = None
-		self.MaximalAccess = None
+		self.StructureSize:int = 16
+		self.ShareType:ShareType = None
+		self.Reserved:int = 0
+		self.ShareFlags:ShareFlags = None
+		self.Capabilities:TreeCapabilities = None
+		self.MaximalAccess:FileAccessMask = None
 
 	def to_bytes(self):
 		t =  self.StructureSize.to_bytes(2, byteorder='little')
 		t += self.ShareType.value.to_bytes(1, byteorder='little')
 		t += self.Reserved.to_bytes(1, byteorder='little')
-		t += self.ShareFlags.to_bytes(4, byteorder='little')
-		t += self.Capabilities.to_bytes(4, byteorder='little')
-		t += self.MaximalAccess.to_bytes(4, byteorder='little')
+		t += self.ShareFlags.value.to_bytes(4, byteorder='little')
+		t += self.Capabilities.value.to_bytes(4, byteorder='little')
+		t += self.MaximalAccess.value.to_bytes(4, byteorder='little')
 		return t
 
 	@staticmethod
@@ -123,7 +123,7 @@ class TREE_CONNECT_REPLY():
 	@staticmethod
 	def from_buffer(buff):
 		msg = TREE_CONNECT_REPLY()
-		msg.StructureSize   = int.from_bytes(buff.read(2), byteorder='little')
+		msg.StructureSize = int.from_bytes(buff.read(2), byteorder='little')
 		assert msg.StructureSize == 16
 		msg.ShareType = ShareType(int.from_bytes(buff.read(1), byteorder='little'))
 		msg.Reserved = int.from_bytes(buff.read(1), byteorder='little')
