@@ -51,6 +51,7 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 		self.__current_directory:SMBDirectory = None
 		self.__current_usersid = None
 		self.__current_user_groups = None
+		self.aliases['ll'] = 'ls'
 	
 	def handle_exception(self, e, msg = None):
 		#providing a more consistent exception handling
