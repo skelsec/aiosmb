@@ -54,7 +54,7 @@ class IOCTL_REQ:
 		t  = self.StructureSize.to_bytes(2, byteorder='little', signed = False)
 		t += self.Reserved.to_bytes(2, byteorder='little', signed = False)
 		t += self.CtlCode.value.to_bytes(4, byteorder='little', signed = False)
-		t += self.FileId
+		t += self.FileId.to_bytes(16, byteorder='little', signed = False)
 		t += self.InputOffset.to_bytes(4, byteorder='little', signed = False)
 		t += self.InputCount.to_bytes(4, byteorder='little', signed = False)
 		t += self.MaxInputResponse.to_bytes(4, byteorder='little', signed = False)
@@ -95,7 +95,9 @@ class IOCTL_REQ:
 				data = buff.read(msg.InputCount)
 				msg.Buffer = VALIDATE_NEGOTIATE_INFO_REQ.from_bytes(data)
 			else:
-				raise NotImplementedError()
+				buff.seek(msg.InputOffset)
+				data = buff.read(msg.InputCount)
+				msg.Buffer = data # TODO: implement other structures
 		
 
 		return msg
@@ -238,7 +240,7 @@ class IOCTL_REPLY:
 		t = self.StructureSize.to_bytes(2, byteorder='little', signed = False)
 		t += self.Reserved.to_bytes(2, byteorder='little', signed = False)
 		t += self.CtlCode.value.to_bytes(4, byteorder='little', signed = False)
-		t += self.FileId
+		t += self.FileId.to_bytes(16, byteorder='little', signed = False)
 		t += self.InputOffset.to_bytes(4, byteorder='little', signed = False)
 		t += self.InputCount.to_bytes(4, byteorder='little', signed = False)
 		t += self.OutputOffset.to_bytes(4, byteorder='little', signed = False)

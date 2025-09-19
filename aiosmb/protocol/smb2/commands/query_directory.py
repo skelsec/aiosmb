@@ -13,7 +13,7 @@ class QueryDirectoryFlag(enum.IntFlag):
 class QUERY_DIRECTORY_REQ:
 	def __init__(self):
 		self.StructureSize = 33
-		self.FileInformationClass  = None
+		self.FileInformationClass:FileInfoClass  = None
 		self.Flags  = None
 		self.FileIndex  = None
 		self.FileId  = None
@@ -54,7 +54,7 @@ class QUERY_DIRECTORY_REQ:
 		msg = QUERY_DIRECTORY_REQ()
 		msg.StructureSize   = int.from_bytes(buff.read(2), byteorder='little')
 		assert msg.StructureSize == 33
-		msg.FileInformationClass  = FileInformationClass(int.from_bytes(buff.read(1), byteorder='little'))
+		msg.FileInformationClass  = FileInfoClass(int.from_bytes(buff.read(1), byteorder='little'))
 		msg.Flags   = QueryDirectoryFlag(int.from_bytes(buff.read(1), byteorder='little'))
 		msg.FileIndex    = int.from_bytes(buff.read(4), byteorder = 'little')
 		msg.FileId    = int.from_bytes(buff.read(16), byteorder = 'little')
@@ -64,7 +64,7 @@ class QUERY_DIRECTORY_REQ:
 
 		if msg.FileNameLength > 0:
 			buff.seek(msg.FileNameOffset, io.SEEK_SET)
-			msg.FileName = buff.read(msg.FileNameLength).deocde('utf-16-le')
+			msg.FileName = buff.read(msg.FileNameLength).decode('utf-16-le')
 
 		return msg
 

@@ -1,0 +1,560 @@
+import enum
+import asyncio
+import datetime
+import traceback
+import typing
+from dataclasses import dataclass, field
+from pathlib import Path
+
+from aiosmb import logger
+from aiosmb.commons.exceptions import *
+from aiosmb.protocol.smb.command_codes import SMBCommand
+from aiosmb.wintypes.ntstatus import NTStatus
+from aiosmb.protocol.smb.message import SMBMessage
+from aiosmb.protocol.smb.commands import *
+from aiosmb.protocol.smb2.message import SMB2Message
+from aiosmb.protocol.smb2.commands.tree_connect import *
+from aiosmb.protocol.smb2.commands import *
+from aiosmb.protocol.smb2.headers import *
+from aiosmb.protocol.smb2.command_codes import *
+from aiosmb.protocol.common import *
+from aiosmb.wintypes.dtyp.constrcuted_security.guid import *
+from aiosmb.protocol.smb2.commands.sessionsetup import *
+from aiosmb.protocol.smb2.commands.create import *
+
+
+def convert_to_ft(linux_filetime:int):
+	return int((linux_filetime + 11644473600) * 10000000)
+
+class SMBConnectionStatus(enum.Enum):
+	NEGOTIATING = 'NEGOTIATING'
+	SESSIONSETUP = 'SESSIONSETUP'
+	RUNNING = 'RUNNING'
+	CLOSED = 'CLOSED'
+
+@dataclass
+class FileEntry:
+	file_id:int = None
+	path:Path = None
+	handle:io.FileIO = None
+
+@dataclass
+class TreeEntry:
+	file_entries:dict[int, FileEntry] = field(default_factory=dict)
+	hostname:str = None
+	path:Path = None
+	tree_id:int = None
+
+
+
+class SMBServerConnection:
+	def __init__(self, settings, connection, connection_id, shutdown_evt = asyncio.Event()):
+		self.settings = settings
+		self.gssapi = self.settings.create_new_gssapi(connection)
+		self.connection_id = connection_id
+		
+		#######DONT CHANGE THIS
+		#use this for smb2 > self.supported_dialects = [NegotiateDialects.WILDCARD, NegotiateDialects.SMB202, NegotiateDialects.SMB210]
+		#self.supported_dialects = [NegotiateDialects.SMB202, NegotiateDialects.SMB210]
+		self.supported_dialects = self.settings.preferred_dialects #[NegotiateDialects.WILDCARD, NegotiateDialects.SMB311]
+		#######
+		
+		self.connection = connection
+		self.incoming_task = None
+		
+		self.selected_dialect = None
+		self.signing_required = self.settings.RequireSigning
+		self.encryption_required = False
+		self.last_treeid = 10
+		
+		self.status = SMBConnectionStatus.NEGOTIATING
+		
+		self.OutstandingResponsesEvent = {}
+		self.OutstandingRequests = {}
+		self.OutstandingResponses = {}
+
+		self.pending_table = {}
+		
+		self.SequenceWindow = 0
+		self.MaxTransactSize = self.settings.MaxTransactSize
+		self.MaxReadSize = self.settings.MaxReadSize
+		self.MaxWriteSize = self.settings.MaxWriteSize
+		self.ServerGuid = self.settings.ServerGuid
+
+		self.SupportsFileLeasing = False
+		self.SupportsMultiCredit = False
+		
+		self.SupportsDirectoryLeasing = False
+		self.SupportsMultiChannel = False
+		self.SupportsPersistentHandles = False
+		self.SupportsEncryption = False
+		self.ClientCapabilities = 0
+		self.ServerCapabilities = NegotiateCapabilities.LARGE_MTU #NegotiateCapabilities.DFS | NegotiateCapabilities.LARGE_MTU
+		self.ClientSecurityMode = 0
+		self.ServerSecurityMode = NegotiateSecurityMode.SMB2_NEGOTIATE_SIGNING_ENABLED
+		if self.signing_required is True:
+			self.ServerSecurityMode |= NegotiateSecurityMode.SMB2_NEGOTIATE_SIGNING_REQUIRED
+		
+		self.SessionId = 0
+		self.SessionKey = None
+
+		self.__treeid_to_entry = {}
+
+	async def run(self):
+		self.incoming_task = asyncio.create_task(self.__handle_smb_in())
+		return self.incoming_task
+	
+	async def stop(self):
+		try:
+			await self.print('[INF] Stopping connection')
+			if self.incoming_task is not None:
+				self.incoming_task.cancel()
+			if self.connection is not None:
+				await self.connection.close()
+		except Exception as e:
+			traceback.print_exc()
+			await self.print('[ERR] %s' % e)
+
+	async def print(self, msg):
+		if self.settings.log_callback is not None:
+			await self.settings.log_callback(f'[SMBSERVERCONN][{self.connection_id}] {msg}')
+
+	async def __handle_smb_in(self):
+		"""
+		Waits from SMB message bytes from the transport in_queue, and fills the connection table.
+		This function started automatically when calling connect.
+		Pls don't touch it.
+		"""
+		try:
+			async for msg_data in self.connection.read():
+				if msg_data is None:
+					break
+				
+				if msg_data[0] < 252:
+					raise Exception('Unknown SMB packet type %s' % msg_data[0])
+
+				if msg_data[0] == 0xFD:
+					raise Exception('SMB2_COMPRESSED_DATA_HEADER is not implemented yet')
+
+				if msg_data[0] == 0xFC:
+					raise Exception('SMB2_COMPRESSED_TRANSFORM_HEADER is not implemented yet')
+					
+				if msg_data[0] == 0xFE:
+					#version2
+					try:
+						msg = SMB2Message.from_bytes(msg_data)
+						await self.print('[PACKET] %s' % msg)
+					except Exception as e:
+						raise Exception('Failed to parse SMB data. Probably not implemented feature.')
+
+					if self.status == SMBConnectionStatus.NEGOTIATING:
+						await self.negotiate(msg)
+					elif self.status == SMBConnectionStatus.SESSIONSETUP:
+						await self.session_setup(msg)
+					
+					elif self.status == SMBConnectionStatus.RUNNING:
+						if msg.header.Command == SMB2Command.TREE_CONNECT:
+							await self.tree_connect(msg)
+						elif msg.header.Command == SMB2Command.CREATE:
+							await self.create(msg)
+						elif msg.header.Command == SMB2Command.IOCTL:
+							await self.ioctl(msg)
+						elif msg.header.Command == SMB2Command.ECHO:
+							await self.echo(msg)
+						elif msg.header.Command == SMB2Command.QUERY_DIRECTORY:
+							await self.query_directory(msg)
+						elif msg.header.Command == SMB2Command.CLOSE:
+							await self.close(msg)
+						else:
+							print('SMB2 command not implemented! %s' % msg.header.Command)
+							continue
+				if msg_data[0] == 0xFF:
+					#version1
+					msg = SMBMessage.from_bytes(msg_data)
+					await self.print('[PACKET] %s' % msg)
+					if self.status == SMBConnectionStatus.NEGOTIATING:
+						if msg.header.Command == SMBCommand.SMB_COM_NEGOTIATE:
+							await self.negotiate(msg)
+					else:
+						print('SMBv1 message recieved! This is unexpected! %s' % msg.header.Command)
+						continue
+
+				logger.log(1, '__handle_smb_in got new message with Id %s' % msg.header.MessageId)
+
+				if msg.header.MessageId in self.pending_table:
+					await self.pending_table[msg.header.MessageId].stop()
+					del self.pending_table[msg.header.MessageId]
+				
+		except asyncio.CancelledError:
+			return
+		except:
+			traceback.print_exc()
+		finally:
+			await self.stop()
+	
+	async def sendSMB(self, msg, compression_cb = None):
+		"""
+		Sends an SMB message to teh remote endpoint.
+		msg: SMB2Message or SMBMessage
+		Returns: MessageId integer
+		"""
+		try:
+			if self.status == SMBConnectionStatus.NEGOTIATING:
+				if isinstance(msg, SMBMessage):
+					message_id = 0
+					self.SequenceWindow += 1
+				else:
+					msg.header.CreditCharge = 1
+					if msg.header.CreditReq is None:
+						msg.header.CreditReq = 1
+					msg.header.MessageId = self.SequenceWindow
+					message_id = self.SequenceWindow
+					self.SequenceWindow += 1
+
+				self.OutstandingResponsesEvent[message_id] = asyncio.Event()
+				await self.connection.write(msg.to_bytes())
+				return message_id, msg, None
+					
+			if msg.header.Command is not SMB2Command.CANCEL:
+				msg.header.MessageId = self.SequenceWindow
+				self.SequenceWindow += 1
+			
+			msg.header.SessionId = self.SessionId
+			
+			if not msg.header.CreditCharge:
+				msg.header.CreditCharge = 0
+
+			
+			
+			if self.status != SMBConnectionStatus.SESSIONSETUP and msg.header.CreditReq is None:
+				msg.header.CreditReq = 127
+			
+			message_id = msg.header.MessageId
+			#print(msg)
+
+			#creating an event for outstanding response
+			self.OutstandingResponsesEvent[message_id] = asyncio.Event()
+			await self.connection.write(msg.to_bytes())
+			
+			return message_id, msg, None
+		except Exception as e:
+			traceback.print_exc()
+			return None, None, e
+		
+	async def negotiate(self, req):
+		try:
+			if (isinstance(req, SMBMessage) and 'SMB 2.???' in req.command.Dialects) or isinstance(req, SMB2Message):
+					#if NegotiateDialects.WILDCARD in self.supported_dialects:
+					reply = SMB2Message()
+					reply.command = NEGOTIATE_REPLY()
+					reply.command.SecurityMode = self.ServerSecurityMode
+					reply.command.DialectRevision = NegotiateDialects.SMB202
+					reply.command.NegotiateContextCount = 0
+					reply.command.ServerGuid = self.ServerGuid
+					reply.command.Capabilities = self.ServerCapabilities
+					reply.command.MaxTransactSize = self.MaxTransactSize
+					reply.command.MaxReadSize = self.MaxReadSize
+					reply.command.MaxWriteSize = self.MaxWriteSize
+					reply.command.SystemTime = datetime.datetime.utcnow()
+					reply.command.ServerStartTime = datetime.datetime.utcnow()
+					reply.command.SecurityBuffer = self.gssapi.get_mechtypes_list()
+					reply.command.NegotiateContextOffset = 0
+					reply.command.NegotiateContextList = []
+					
+					reply.header = SMB2Header_SYNC()
+					reply.header.Command  = SMB2Command.NEGOTIATE
+					reply.header.Flags = SMB2HeaderFlag.SMB2_FLAGS_SERVER_TO_REDIR
+					reply.header.CreditCharge = 1
+					await self.sendSMB(reply)
+
+					self.selected_dialect = NegotiateDialects.SMB202
+
+					
+					self.SupportsMultiChannel = NegotiateCapabilities.MULTI_CHANNEL in self.ServerCapabilities
+					self.SupportsFileLeasing = NegotiateCapabilities.LEASING in self.ServerCapabilities
+					self.SupportsMultiCredit = NegotiateCapabilities.LARGE_MTU in self.ServerCapabilities
+					
+					self.status = SMBConnectionStatus.SESSIONSETUP
+			return
+		except Exception as e:
+			traceback.print_exc()
+
+	async def session_setup(self, msg):
+		err = None
+		try:
+			maxiter = 5
+			if self.SessionId == 0:
+				self.SessionId += 1
+			while maxiter > 0:
+				reply = SMB2Message()
+				reply.command = SESSION_SETUP_REPLY()
+				reply.command.SessionFlags = 0
+				try:
+					await self.print('[INF] Calling authenticate_server')
+					#reply.command.Buffer, to_continue, err  = await self.gssapi.authenticate(msg.command.Buffer)
+					reply.command.Buffer, to_continue, err  = await self.gssapi.authenticate_server(msg.command.Buffer)
+					await self.print('[INF] Authenticate results: %s, %s, %s' % (reply.command.Buffer, to_continue, err))
+					
+					if err is not None:
+						raise err
+					
+					if to_continue is False and reply.command.Buffer is None:
+						reply = SMB2Message()
+						reply.command = SESSION_SETUP_REPLY()
+						reply.command.SessionFlags = SessionFlags.SMB2_SESSION_FLAG_IS_GUEST
+
+						reply.command.Buffer, err  = await self.gssapi.authenticate_server_finished()
+
+						if err is not None:
+							raise err
+
+						reply.header = SMB2Header_SYNC()
+						reply.header.Command  = SMB2Command.SESSION_SETUP
+						reply.header.Flags = SMB2HeaderFlag.SMB2_FLAGS_SERVER_TO_REDIR
+						#reply.header.Flags |= SMB2HeaderFlag.SMB2_FLAGS_SIGNED
+						reply.header.SessionId = self.SessionId
+						
+						reply.header.CreditCharge = 1
+						reply.header.CreditReq = 1
+						reply.header.Status = NTStatus.SUCCESS
+						#reply.header.Flags |= SMB2HeaderFlag.SMB2_FLAGS_SIGNED
+						
+						await self.sendSMB(reply)
+						#self.SessionKey = self.gssapi.get_session_key()[:16]
+						self.status = SMBConnectionStatus.RUNNING
+						return False, None
+					
+				except Exception as e:
+					#TODO: Clear this up, kerberos lib needs it's own exceptions!
+					if str(e).find('Preauth') != -1:
+						raise SMBKerberosPreauthFailed()
+					else:
+						raise e
+						#raise SMBKerberosPreauthFailed()
+				
+				if to_continue is True:
+					reply.header = SMB2Header_SYNC()
+					reply.header.Command  = SMB2Command.SESSION_SETUP
+					reply.header.Flags = SMB2HeaderFlag.SMB2_FLAGS_SERVER_TO_REDIR
+					reply.header.SessionId = self.SessionId
+					
+					reply.header.CreditCharge = 1
+					reply.header.CreditReq = 1
+					reply.header.Status = NTStatus.MORE_PROCESSING_REQUIRED
+					await self.sendSMB(reply)
+				
+				if to_continue is False:
+					reply.header = SMB2Header_SYNC()
+					reply.header.Command  = SMB2Command.SESSION_SETUP
+					reply.header.Flags = SMB2HeaderFlag.SMB2_FLAGS_SERVER_TO_REDIR
+					reply.header.SessionId = self.SessionId
+					
+					reply.header.CreditCharge = 1
+					reply.header.CreditReq = 1
+					reply.header.Status = NTStatus.SUCCESS
+					reply.header.Flags |= SMB2HeaderFlag.SMB2_FLAGS_SIGNED
+					reply.header.CreditReq = 127
+
+					await self.sendSMB(reply)
+
+					#self.SessionKey = self.gssapi.get_session_key()[:16]
+					self.status = SMBConnectionStatus.RUNNING
+
+				return True, None
+		except Exception as e:
+			await self.print('[ERR] %s' % e)
+
+			reply.header = SMB2Header_SYNC()
+			reply.header.Command  = SMB2Command.SESSION_SETUP
+			reply.header.Flags = SMB2HeaderFlag.SMB2_FLAGS_SERVER_TO_REDIR
+			reply.header.Flags |= SMB2HeaderFlag.SMB2_FLAGS_SIGNED
+			reply.header.SessionId = self.SessionId
+			reply.header.CreditCharge = 1
+			reply.header.CreditReq = 127
+			reply.header.Status = NTStatus.ACCESS_DENIED
+			await self.sendSMB(reply)
+			return False, None # none because relay doesnt need to know the error
+
+
+	async def tree_connect(self, msg:SMB2Message):
+		try:
+			command = typing.cast(TREE_CONNECT_REQ, msg.command)
+
+			reply = SMB2Message()
+			reply.header = SMB2Header_SYNC()
+			reply.header.Command = SMB2Command.TREE_CONNECT
+			reply.header.Flags = SMB2HeaderFlag.SMB2_FLAGS_SERVER_TO_REDIR
+			reply.header.SessionId = self.SessionId
+			reply.header.CreditCharge = 1
+			reply.header.CreditReq = msg.header.CreditReq
+			reply.header.Status = NTStatus.SUCCESS
+			reply.command = TREE_CONNECT_REPLY()
+
+			if command.Path.endswith('IPC$'):
+				reply.command.ShareType = ShareType.PIPE
+			else:
+				reply.command.ShareType = ShareType.DISK
+
+			reply.command.ShareFlags = ShareFlags.SMB2_SHAREFLAG_MANUAL_CACHING
+			reply.command.Capabilities = TreeCapabilities.SMB2_SHARE_CAP_NONE
+			reply.command.MaximalAccess = FileAccessMask.GENERIC_ALL
+
+			# splitting the unc path to hostname and share name
+			hostname, share_name, *rest = command.Path.split('\\')
+			self.__treeid_to_entry[reply.header.TreeId] = TreeEntry(hostname=hostname, path=Path(share_name), tree_id=reply.header.TreeId)
+
+			await self.sendSMB(reply)
+		except Exception as e:
+			traceback.print_exc()
+	
+	async def ioctl(self, msg:SMB2Message):
+		try:
+			command = typing.cast(IOCTL_REQ, msg.command)
+			if command.CtlCode == CtlCode.FSCTL_DFS_GET_REFERRALS:
+				reply = SMB2Message()
+				reply.header = SMB2Header_SYNC()
+				reply.header.Command = SMB2Command.IOCTL
+				reply.header.Flags = SMB2HeaderFlag.SMB2_FLAGS_SERVER_TO_REDIR
+				reply.header.SessionId = self.SessionId
+				reply.header.CreditCharge = 1
+				reply.header.CreditReq = msg.header.CreditReq
+				reply.header.Status = NTStatus.FS_DRIVER_REQUIRED
+				reply.header.messageId = msg.header.MessageId
+				# we're currently not handling the DFS_GET_REFERRALS
+				reply.command = IOCTL_REPLY()
+				reply.command.CtlCode = command.CtlCode
+				reply.command.FileId = command.FileId
+				reply.command.InputOffset = command.InputOffset
+				reply.command.InputCount = command.InputCount
+				reply.command.OutputOffset = 0
+				reply.command.OutputCount = 0
+				reply.command.Flags = command.Flags
+				reply.command.Reserved2 = command.Reserved2
+				reply.command.Buffer = b''
+				await self.sendSMB(reply)
+
+		except Exception as e:
+			traceback.print_exc()
+		
+	async def create(self, msg:SMB2Message):
+		try:
+			command = typing.cast(CREATE_REQ, msg.command)
+			handle = None
+			if command.Name is None:
+				# this means we want to open the share which was specified in tree connect
+				share = self.__treeid_to_entry[msg.header.TreeId].path
+				print('OPENING SHARE %s' % share.name)
+				# this must be a directory
+				if not (share.exists() and share.is_dir()):
+					raise Exception('Share %s does not exist' % share.name)
+				
+				reply = SMB2Message()
+				reply.header = SMB2Header_SYNC()
+				reply.header.Command = SMB2Command.CREATE
+				reply.header.Flags = SMB2HeaderFlag.SMB2_FLAGS_SERVER_TO_REDIR
+				reply.header.SessionId = self.SessionId
+				reply.header.CreditCharge = 1
+				reply.header.CreditReq = msg.header.CreditReq
+				reply.header.Status = NTStatus.SUCCESS
+				reply.command = CREATE_REPLY()
+				reply.command.OplockLevel = OplockLevel.SMB2_OPLOCK_LEVEL_NONE
+				reply.command.Flags = CreateOptions.FILE_WRITE_THROUGH
+				reply.command.CreateAction = CreateAction.FILE_CREATED
+				reply.command.CreationTime = convert_to_ft(share.stat().st_ctime)
+				reply.command.LastAccessTime = convert_to_ft(share.stat().st_atime)
+				reply.command.LastWriteTime = convert_to_ft(share.stat().st_mtime)
+				reply.command.ChangeTime = convert_to_ft(share.stat().st_mtime)
+				reply.command.AllocationSize = 0
+				reply.command.EndofFile = 0
+				reply.command.FileAttributes = FileAttributes.FILE_ATTRIBUTE_DIRECTORY
+				reply.command.FileId = 0
+				reply.command.CreateContextsOffset = 0
+				reply.command.CreateContextsLength = 0
+			else:
+				# this can be a file or a pipe or a printer etc.
+				# we only handle files for now
+				# first we need to translate the UNC path to a local path
+				# this happens by getting the share name from the tree entry (via tree_id)
+				if msg.header.TreeId not in self.__treeid_to_entry:
+					raise Exception('Tree ID %s not found' % msg.header.TreeId)
+				
+				te = self.__treeid_to_entry[msg.header.TreeId]
+				if te is None:
+					raise Exception('Tree entry for Tree ID %s not found' % msg.header.TreeId)
+				
+				share = te.path
+
+				file_name = command.Name
+				local_path = share / Path(file_name).relative_to(share)
+				if not local_path.exists():
+					raise Exception('File %s does not exist' % local_path)
+				if not local_path.is_file():
+					raise Exception('File %s is not a file' % local_path)
+				if local_path.is_file():
+					file_id = 0
+					handle = open(local_path, 'rb') #this must change based on the mode
+					# store the handle in the file entry
+					fe = FileEntry(path=local_path, handle=handle, file_id=file_id)
+					te.file_entries[reply.command.FileId] = fe
+
+				fstat = local_path.stat()
+				reply = SMB2Message()
+				reply.header = SMB2Header_SYNC()
+				reply.header.Command = SMB2Command.CREATE
+				reply.header.Flags = SMB2HeaderFlag.SMB2_FLAGS_SERVER_TO_REDIR
+				reply.header.SessionId = self.SessionId
+				reply.header.CreditCharge = 1
+				reply.header.CreditReq = msg.header.CreditReq
+				reply.header.Status = NTStatus.SUCCESS
+				reply.command = CREATE_REPLY()
+				reply.command.OplockLevel = OplockLevel.SMB2_OPLOCK_LEVEL_NONE
+				reply.command.Flags = CreateOptions.FILE_WRITE_THROUGH
+				reply.command.CreateAction = CreateAction.FILE_CREATED
+				reply.command.CreationTime = convert_to_ft(fstat.st_ctime)
+				reply.command.LastAccessTime = convert_to_ft(fstat.st_atime)
+				reply.command.LastWriteTime = convert_to_ft(fstat.st_mtime)
+				reply.command.ChangeTime = convert_to_ft(fstat.st_mtime)
+				reply.command.AllocationSize = fstat.st_size
+				reply.command.EndofFile = fstat.st_size
+				reply.command.FileAttributes = FileAttributes.FILE_ATTRIBUTE_NORMAL
+				reply.command.FileId = fe.file_id
+				reply.command.CreateContextsOffset = 0
+				reply.command.CreateContextsLength = 0
+			await self.sendSMB(reply)
+		except Exception as e:
+			traceback.print_exc()
+	
+	async def query_directory(self, msg:SMB2Message):
+		try:
+			command = typing.cast(QUERY_DIRECTORY_REQ, msg.command)
+			# here we need to provide a list of files that matches the search pattern
+			# TODO
+		except Exception as e:
+			traceback.print_exc()
+
+	async def close(self, msg:SMB2Message):
+		try:
+			command = typing.cast(CLOSE_REQ, msg.command)
+			# find handle treeid->fileid->handle
+			# close the handle
+			# remove the file entry
+		except Exception as e:
+			traceback.print_exc()
+	
+	
+	async def echo(self, msg:SMB2Message):
+		try:
+			command = typing.cast(ECHO_REQ, msg.command)
+			reply = SMB2Message()
+			reply.header = SMB2Header_SYNC()
+			reply.header.Command = SMB2Command.ECHO
+			reply.header.Flags = SMB2HeaderFlag.SMB2_FLAGS_SERVER_TO_REDIR
+			reply.header.SessionId = self.SessionId
+			reply.header.CreditCharge = 1
+			reply.header.CreditReq = msg.header.CreditReq
+			reply.header.Status = NTStatus.SUCCESS
+			reply.command = ECHO_REPLY()
+			await self.sendSMB(reply)
+		except Exception as e:
+			traceback.print_exc()
+	
