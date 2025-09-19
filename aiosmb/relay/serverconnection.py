@@ -118,8 +118,11 @@ class SMBRelayServerConnection:
 					
 				if msg_data[0] == 0xFE:
 					#version2
-					msg = SMB2Message.from_bytes(msg_data)
-					await self.print('[PACKET] %s' % msg)
+					try:
+						msg = SMB2Message.from_bytes(msg_data)
+						await self.print('[PACKET] %s' % msg)
+					except Exception as e:
+						raise Exception('Failed to parse SMB data. Probably not implemented feature.')
 
 					if self.status == SMBConnectionStatus.NEGOTIATING:
 						await self.negotiate(msg)
@@ -136,6 +139,7 @@ class SMBRelayServerConnection:
 						elif msg.header.Command == SMB2Command.CREATE:
 							await self.create(msg)
 						elif msg.header.Command == SMB2Command.IOCTL:
+							return
 							await self.ioctl(msg)
 				
 				if msg_data[0] == 0xFF:
