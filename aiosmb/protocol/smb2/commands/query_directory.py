@@ -94,7 +94,14 @@ class QUERY_DIRECTORY_REPLY:
 		self.Data = None
 		
 	def to_bytes(self):
-		pass
+			data = self.Data if self.Data is not None else b''
+			self.OutputBufferLength = len(data)
+			self.OutputBufferOffset = 64 + 8
+			t  = self.StructureSize.to_bytes(2, byteorder='little', signed=False)
+			t += self.OutputBufferOffset.to_bytes(2, byteorder='little', signed=False)
+			t += self.OutputBufferLength.to_bytes(4, byteorder='little', signed=False)
+			t += data
+			return t
 
 	@staticmethod
 	def from_bytes(bbuff):

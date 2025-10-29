@@ -20,6 +20,8 @@ class ERROR_REPLY:
 		t += self.ByteCount.to_bytes(4, byteorder='little', signed = False)
 		if self.ByteCount > 0:
 			t += self.ErrorData.to_bytes()
+		else:
+			t += b'\xFF' # because structure size is 9
 		return t
 
 	@staticmethod

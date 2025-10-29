@@ -42,6 +42,7 @@ class SAMRRPC:
 		
 		self.user_handles = {} #handle to domain-sid
 		self.alias_handles = {} #handle to domain-sid
+		self.group_handles = {}
 		
 	async def __aenter__(self):
 		return self
@@ -123,6 +124,18 @@ class SAMRRPC:
 					await self.close_handle(uhandle)
 				except:
 					pass
+
+			for uhandle in self.group_handles:
+				try:
+					await self.close_handle(uhandle)
+				except:
+					pass
+
+			for uhandle in self.alias_handles:
+				try:
+					await self.close_handle(uhandle)
+				except:
+					pass
 			
 			try:
 				await self.close_handle(self.handle)
@@ -148,14 +161,15 @@ class SAMRRPC:
 			return None, err
 		return resp, None
 	
-	async def get_user_by_name(self, domain_handle, username):
+	async def get_user_rid_by_name(self, domain_handle, username):
 		resp, err = await samr.hSamrLookupNamesInDomain(self.dce, domain_handle, [username])
 		if err is not None:
-			print(err)
 			return None, err
 		
-		print(resp.dump())
-		return resp, err
+		rids = []
+		for ridraw in resp['RelativeIds']['Element']:
+			rids.append(ridraw['Data'])
+		return rids[0], err
 	
 	async def list_domains(self):
 		try:
@@ -197,6 +211,33 @@ class SAMRRPC:
 		except Exception as e:
 			return None, e
 	
+	async def open_domain_by_name(self, domain_name:str, access_level=samr.MAXIMUM_ALLOWED):
+		try:
+			foundname = None
+			async for domainname, err in self.list_domains():
+				if err is not None:
+					raise err
+				if domainname == domain_name:
+					foundname = domainname
+					break
+			if foundname is None:
+				raise Exception('Domain not found! %s' % domain_name)
+
+			resp, err = await samr.hSamrLookupDomainInSamServer(self.dce, self.handle, foundname)
+			if err is not None:
+				raise err
+			domain_id = resp['DomainId']
+			resp, err = await samr.hSamrOpenDomain(self.dce, self.handle, domainId=domain_id, desiredAccess=access_level)
+			if err is not None:
+				raise err
+			
+			self.domain_handles[resp['DomainHandle']] = domain_id.formatCanonical()
+			self.domain_ids[domain_id.formatCanonical()] = domain_id
+			return resp['DomainHandle'], None
+
+		except Exception as e:
+			return None, e
+
 
 	async def list_domain_users(self, domain_handle):
 		try:
@@ -319,9 +360,9 @@ class SAMRRPC:
 		except Exception as e:
 			yield None, None, e
 
-	async def open_alias(self, domain_handle, alias_id):
+	async def open_alias(self, domain_handle, alias_id, access_level=samr.MAXIMUM_ALLOWED):
 		try:
-			resp, err = await samr.hSamrOpenAlias(self.dce, domain_handle, aliasId=alias_id)
+			resp, err = await samr.hSamrOpenAlias(self.dce, domain_handle, aliasId=alias_id, desiredAccess=access_level)
 			if err is not None:
 				raise err
 			self.alias_handles[resp['AliasHandle']] = self.domain_handles[domain_handle]
@@ -339,6 +380,27 @@ class SAMRRPC:
 				yield sidr['SidPointer'].formatCanonical(), None
 		except Exception as e:
 			yield None, e
+
+	async def open_group(self, domain_handle, group_id, access_level=samr.MAXIMUM_ALLOWED):
+		try:
+			resp, err = await samr.hSamrOpenGroup(self.dce, domain_handle, aliasId=group_id, desiredAccess=access_level)
+			if err is not None:
+				raise err
+			self.group_handles[resp['GroupHandle']] = self.domain_handles[domain_handle]
+			return resp['GroupHandle'], None
+		except Exception as e:
+			return None, e
+
+	async def list_group_members(self, group_handle):
+		try:
+			resp, err = await samr.hSamrGetMembersInGroup(self.dce, group_handle)
+			if err is not None:
+				raise err
+			
+			for sidr in resp['Members']['Sids']:
+				yield sidr['SidPointer'].formatCanonical(), None
+		except Exception as e:
+			yield None, e
 	
 	async def get_security_info(self, handle, securityInformation = DACL_SECURITY_INFORMATION):
 		try:
@@ -348,3 +410,301 @@ class SAMRRPC:
 			return resp, None
 		except Exception as e:
 			return None, e
+
+	async def openBuiltinDomain(self, access_level=samr.MAXIMUM_ALLOWED):
+		try:
+			resp, err = await samr.hSamrEnumerateDomainsInSamServer(self.dce, self.handle)
+			if resp is None:
+				raise err
+			
+			domain_name = resp['Buffer']['Buffer'][1]['Name'] #change it back to 0
+			resp, err = await samr.hSamrLookupDomainInSamServer(self.dce, self.handle, domain_name)
+			if err is not None:
+				raise err
+			domain_id = resp['DomainId']
+			resp, err = await samr.hSamrOpenDomain(self.dce, self.handle, domainId=domain_id, desiredAccess=access_level)
+			if err is not None:
+				raise err
+			self.domain_handles[resp['DomainHandle']] = domain_id
+			return resp['DomainHandle'], None
+			
+		except Exception as e:
+			return None, e
+
+	async def create_user(self, dhandle, username:str, password:str, account_type=samr.USER_NORMAL_ACCOUNT):
+		try:
+			res, err = await samr.hSamrCreateUser2InDomain(self.dce, dhandle, username, accountType=account_type, desiredAccess=samr.USER_ALL_ACCESS)
+			if err is not None:
+				raise err
+			
+			user_handle = res['UserHandle']
+			try:
+				_, err = await samr.hSamrSetNTInternal1(self.dce, user_handle, password, '')
+				if err is not None:
+					raise err
+			except samr.DCERPCSessionError as e:
+				samr.hSamrDeleteUser(self.dce, user_handle)
+				raise
+			
+			return await self.enable_account(user_handle)
+		
+		except Exception as e:
+			return None, e
+
+	async def enable_account(self, uhandle):
+		try:
+			res, err = await samr.hSamrQueryInformationUser2(self.dce, uhandle, samr.USER_INFORMATION_CLASS.UserAllInformation)
+			if err is not None:
+				raise err
+			uac = res['Buffer']['All']['UserAccountControl']
+			buffer = samr.SAMPR_USER_INFO_BUFFER()
+			buffer['tag'] = samr.USER_INFORMATION_CLASS.UserControlInformation
+			buffer['Control']['UserAccountControl'] = uac ^ samr.USER_ACCOUNT_DISABLED
+			res, err = await samr.hSamrSetInformationUser2(self.dce, uhandle, buffer)
+			if err is not None:
+				raise err
+			return True, None
+		except Exception as e:
+			return None, e
+
+	async def disable_account(self, uhandle):
+		try:
+			res, err = await samr.hSamrQueryInformationUser2(self.dce, uhandle, samr.USER_INFORMATION_CLASS.UserAllInformation)
+			if err is not None:
+				raise err
+			uac = res['Buffer']['All']['UserAccountControl']
+			buffer = samr.SAMPR_USER_INFO_BUFFER()
+			buffer['tag'] = samr.USER_INFORMATION_CLASS.UserControlInformation
+			buffer['Control']['UserAccountControl'] = samr.USER_ACCOUNT_DISABLED | uac
+			_, err = await samr.hSamrSetInformationUser2(self.dce, uhandle, buffer)
+			if err is not None:
+				raise err
+			return True, None
+		except Exception as e:
+			return None, e
+
+	async def delete_account(self, uhandle):
+		return await samr.hSamrDeleteUser(self.dce, uhandle)
+
+	async def change_account_password(self, uhandle, oldpw, newpw):
+		return await samr.hSamrChangePasswordUser(self.dce, uhandle, oldpw, newpw)
+
+	async def change_account_password_nt(self, uhandle, oldpwNT, newpw):
+		return await samr.hSamrChangePasswordUser_hash(self.dce, uhandle, oldpwNT, newpw)
+	
+	async def change_account_password_4(self, uhandle, newpw):
+		return await samr.hSamrSetPasswordInternal4New(self.dce, uhandle, newpw)
+	
+	async def change_account_password_internal(self, uhandle, newpw):
+		return await samr.hSamrSetNTInternal1(self.dce, uhandle, newpw)
+
+	async def unroll_group(self, dhandle, grid, all_grids = None, grids_seen = None):
+		ghandle = None
+		if grids_seen is None:
+			grids_seen = {}
+		try:
+			if all_grids is None:
+				all_grids = {}
+				async for gname, tg, err in self.list_domain_groups(dhandle):
+					if err is not None:
+						raise err
+					all_grids[tg] = 1
+
+			ghandle, err = await self.open_group(dhandle, grid)
+			if err is not None:
+				raise err
+			
+			async for sid, err in self.list_group_members(ghandle):
+				if err is not None:
+					raise err
+				rid = int(str(sid).split('-')[-1])
+				if rid in all_grids:
+					# okay this is a group
+					if rid not in grids_seen:
+						grids_seen[rid] = 1
+						async for sid, err in self.unroll_group(dhandle, rid, all_grids = all_grids, grids_seen = grids_seen):
+							if err is not None:
+								break
+							yield sid, None
+				else:
+					# this is a user
+					yield sid, None
+		except Exception as e:
+			traceback.print_exc()
+			yield None, e
+		finally:
+			if ghandle is not None:
+				await self.close_handle(ghandle)
+				del self.group_handles[ghandle]
+
+	async def unroll_alias(self, dhandle, grid, all_arids = None, arids_seen = None):
+		ghandle = None
+		if arids_seen is None:
+			arids_seen = {}
+		try:
+			if all_arids is None:
+				all_arids = {}
+				async for gname, tg, err in self.list_aliases(dhandle):
+					if err is not None:
+						raise err
+					all_arids[tg] = 1
+
+			ghandle, err = await self.open_alias(dhandle, grid)
+			if err is not None:
+				raise err
+			
+			async for sid, err in self.list_alias_members(ghandle):
+				if err is not None:
+					raise err
+				rid = int(str(sid).split('-')[-1])
+				if rid in all_arids:
+					# okay this is a group
+					if rid not in arids_seen:
+						arids_seen[rid] = 1
+						async for sid, err in self.unroll_alias(dhandle, rid, all_arids = all_arids, arids_seen = arids_seen):
+							if err is not None:
+								break
+							yield sid, None
+				else:
+					# this is a user
+					yield sid, None
+		except Exception as e:
+			traceback.print_exc()
+			yield None, e
+		finally:
+			if ghandle is not None:
+				await self.close_handle(ghandle)
+				del self.alias_handles[ghandle]
+	
+
+
+	async def list_users_allowed_to_replicate(self, domain_name):
+		try:
+			alias_rids = {}
+			group_rids = {}
+			denied_rids = {
+				500 : 1,
+				501 : 1,
+				502 : 1,
+				503 : 1
+			}
+			async with self.get_domain_handle(domain_name) as dhandle:
+				async for aname, arid, err in self.list_aliases(dhandle):
+					if err is not None:
+						raise err
+					alias_rids[arid] = 1
+
+				async for gname, grid, err in self.list_domain_groups(dhandle):
+					if err is not None:
+						raise err
+					group_rids[grid] = 1
+				
+				# Denied Password Replication
+				async with self.get_alias_handle(domain_name, 572) as ahandle:
+					async for sid, err in self.list_alias_members(ahandle):
+						rid = str(sid).split('-')[-1]
+						denied_rids[int(rid)] = 1
+				
+				# Unroll groups in denied list
+
+				denied_groups = {}
+				denied_aliases = {}
+				for drid in denied_rids:
+					if drid in group_rids:
+						denied_groups[drid] = 1
+					elif drid in alias_rids:
+						denied_aliases[drid] = 1
+				
+				for grid in denied_groups:
+					async for sid, err in self.unroll_group(dhandle, grid, all_grids=group_rids):
+						if err is not None:
+							break
+						urid = int(str(sid).split('-')[-1])
+						denied_rids[urid] = 1
+				
+				for grid in denied_aliases:
+					async for sid, err in self.unroll_alias(dhandle, grid, all_arids=alias_rids):
+						if err is not None:
+							break
+						urid = int(str(sid).split('-')[-1])
+						denied_rids[urid] = 1
+				
+				async for name, sid, err in self.list_domain_users(dhandle):
+					if err is not None:
+						raise err
+					rid = int(str(sid).split('-')[-1])
+					if rid in denied_rids:
+						continue
+
+					yield name, sid, rid, None
+		except Exception as e:
+			traceback.print_exc()
+			yield None, None, None, e			
+
+
+	@asynccontextmanager
+	async def get_domain_handle(self, domain_name, access_level = samr.MAXIMUM_ALLOWED):
+		try:
+			if domain_name is None or domain_name == '' or domain_name == 'Builtin':
+				dhandle, err = await self.openBuiltinDomain(access_level=access_level)
+			else:
+				dhandle, err = await self.open_domain_by_name(domain_name, access_level=access_level)
+			if err is not None:
+				raise err
+			
+			yield dhandle
+		finally:
+			if dhandle is not None:
+				await self.close_handle(dhandle)
+				del self.domain_handles[dhandle]
+
+
+	@asynccontextmanager
+	async def get_alias_handle(self, domain_name, alias_rid, domain_access_level = samr.MAXIMUM_ALLOWED, alias_access_level = samr.MAXIMUM_ALLOWED):
+		alias_handle = None
+		try:
+			async with self.get_domain_handle(domain_name, access_level=domain_access_level) as dhandle:
+				alias_handle, err = await self.open_alias(dhandle, alias_rid, access_level = alias_access_level)
+				if err is not None:
+					raise err
+				yield alias_handle
+			
+		finally:
+			if alias_handle is not None:
+				await self.close_handle(alias_handle)
+				del self.alias_handles[alias_handle]
+
+	@asynccontextmanager
+	async def get_group_handle(self, domain_name, group_rid, domain_access_level = samr.MAXIMUM_ALLOWED, group_access_level = samr.MAXIMUM_ALLOWED):
+		group_handle = None
+		try:
+			async with self.get_domain_handle(domain_name, access_level=domain_access_level) as dhandle:
+				group_handle, err = await self.open_group(self, dhandle, group_rid, access_level = group_access_level)
+				if err is not None:
+					raise err
+				yield group_handle
+			
+		finally:
+			if group_handle is not None:
+				await self.close_handle(group_handle)
+				del self.group_handles[group_handle]
+
+
+	@asynccontextmanager
+	async def get_user_handle(self, domain_name, user_name, domain_access_level = samr.MAXIMUM_ALLOWED, user_access_level = samr.MAXIMUM_ALLOWED):
+		uhandle = None
+		try:
+			async with self.get_domain_handle(domain_name, access_level=domain_access_level) as dhandle:
+				user_rid, err = await self.get_user_rid_by_name(dhandle, user_name)
+				if err is not None:
+					raise err
+						
+				uhandle, err = await self.open_user(dhandle, user_rid, access_level = user_access_level)
+				if err is not None:
+					raise err
+
+				yield uhandle
+		finally:
+			if uhandle is not None:
+				await self.close_handle(uhandle)
+				del self.user_handles[uhandle]

@@ -342,6 +342,8 @@ class SMBFile:
 	async def download(self, connection:SMBConnection ,local_path:str, share_mode = ShareAccess.FILE_SHARE_READ | ShareAccess.FILE_SHARE_WRITE):
 		"""Downloads the file to the local path. File must not be open."""
 		try:
+			# if treeid is already present, we won't be closing it after download
+			closetree = True if self.tree_id is None else False
 			if self.is_pipe:
 				raise Exception('Cannot download a pipe!')
 			if self.__connection is not None:
@@ -365,10 +367,10 @@ class SMBFile:
 			
 			return str(local_path.absolute()), None
 		except Exception as e:
-			return False, e
+			return None, e #this should return "None, e" and NOT "False, e"
 		finally:
 			await self.close()
-			if self.tree_id is not None:
+			if self.tree_id is not None and closetree is True:
 				await connection.tree_disconnect(self.tree_id)
 		
 	async def open_pipe(self, connection:SMBConnection, mode:str):

@@ -21,6 +21,8 @@
 from __future__ import division
 from __future__ import print_function
 from binascii import unhexlify
+import struct
+import os
 
 from aiosmb import logger as LOG
 from aiosmb.dcerpc.v5.enum import Enum
@@ -30,6 +32,9 @@ from aiosmb.dcerpc.v5.ndr import NDRCALL, NDR, NDRSTRUCT, NDRUNION, NDRPOINTER, 
 from aiosmb.dcerpc.v5.dtypes import NULL, RPC_UNICODE_STRING, ULONG, USHORT, UCHAR, LARGE_INTEGER, RPC_SID, LONG, STR, LPBYTE, SECURITY_INFORMATION, PRPC_SID, PRPC_UNICODE_STRING, LPWSTR
 from aiosmb.dcerpc.v5.rpcrt import DCERPCException
 from aiosmb.wintypes.ntstatus import NTStatus
+from unicrypto.symmetric import DES, cipherMODE, RC4
+from unicrypto import hashlib
+
 
 MSRPC_UUID_SAMR   = uuidtup_to_bin(('12345778-1234-ABCD-EF00-0123456789AC', '1.0'))
 
@@ -268,6 +273,79 @@ SAM_VALIDATE_LOCKOUT_TIME			= 0x00000004
 SAM_VALIDATE_BAD_PASSWORD_COUNT	  = 0x00000008
 SAM_VALIDATE_PASSWORD_HISTORY_LENGTH = 0x00000010
 SAM_VALIDATE_PASSWORD_HISTORY		= 0x00000020
+
+
+
+def LMOWFv1(password):
+	LM_SECRET = b'KGS!@#$%'
+	t1 = password[:14].ljust(14, '\x00').upper()
+	d = DES(t1[:7].encode('ascii'))
+	r1 = d.encrypt(LM_SECRET)
+	d = DES(t1[7:].encode('ascii'))
+	r2 = d.encrypt(LM_SECRET)
+
+	return r1+r2
+	
+
+def NTOWFv1(password):
+	if isinstance(password, str) is True:
+		password = password.encode('utf-16le')
+	return hashlib.md4(password).digest()
+
+def transform_key(input_key):
+	output_key = bytearray(8)
+
+	# Bitwise operations to combine bytes from input_key into output_key
+	output_key[0] = (input_key[0] >> 1) & 0x7F
+	output_key[1] = ((input_key[0] & 0x01) << 6) | (input_key[1] >> 2)
+	output_key[2] = ((input_key[1] & 0x03) << 5) | (input_key[2] >> 3)
+	output_key[3] = ((input_key[2] & 0x07) << 4) | (input_key[3] >> 4)
+	output_key[4] = ((input_key[3] & 0x0F) << 3) | (input_key[4] >> 5)
+	output_key[5] = ((input_key[4] & 0x1F) << 2) | (input_key[5] >> 6)
+	output_key[6] = ((input_key[5] & 0x3F) << 1) | (input_key[6] >> 7)
+	output_key[7] = input_key[6] & 0x7F
+
+	# Shift each byte left by 1 bit and mask to keep the last 7 bits
+	output_key = bytes([(byte << 1) & 0xFE for byte in output_key])
+
+	return bytes(output_key)
+
+
+def SamDecryptNTLMHash(encryptedHash, key):
+	# [MS-SAMR] Section 2.2.11.1.1
+	Block1 = encryptedHash[:8]
+	Block2 = encryptedHash[8:]
+
+	Key1 = key[:7]
+	Key1 = transform_key(Key1)
+	Key2 = key[7:14]
+	Key2 = transform_key(Key2)
+
+	Crypt1 = DES(Key1, cipherMODE.ECB)
+	Crypt2 = DES(Key2, cipherMODE.ECB)
+
+	plain1 = Crypt1.decrypt(Block1)
+	plain2 = Crypt2.decrypt(Block2)
+
+	return plain1 + plain2
+
+def SamEncryptNTLMHash(encryptedHash, key):
+	# [MS-SAMR] Section 2.2.11.1.1
+	Block1 = encryptedHash[:8]
+	Block2 = encryptedHash[8:]
+
+	Key1 = key[:7]
+	Key1 = transform_key(Key1)
+	Key2 = key[7:14]
+	Key2 = transform_key(Key2)
+
+	Crypt1 = DES(Key1, cipherMODE.ECB)
+	Crypt2 = DES(Key2, cipherMODE.ECB)
+
+	plain1 = Crypt1.encrypt(Block1)
+	plain2 = Crypt2.encrypt(Block2)
+
+	return plain1 + plain2
 
 ################################################################################
 # STRUCTURES
@@ -2730,57 +2808,65 @@ async def hSamrGetAliasMembership(dce, domainHandle, sidArray):
 	return await dce.request(request)
 
 async def hSamrChangePasswordUser(dce, userHandle, oldPassword, newPassword):
-	raise Exception('Not implemented, needs additional work!')
 	request = SamrChangePasswordUser()
 	request['UserHandle'] = userHandle
 
-	#from impacket import crypto, ntlm
-
-	oldPwdHashNT = ntlm.NTOWFv1(oldPassword)
-	newPwdHashNT = ntlm.NTOWFv1(newPassword)
-	newPwdHashLM = ntlm.LMOWFv1(newPassword)
+	oldPwdHashNT = NTOWFv1(oldPassword)
+	newPwdHashNT = NTOWFv1(newPassword)
+	newPwdHashLM = LMOWFv1(newPassword)
 
 	request['LmPresent'] = 0
 	request['OldLmEncryptedWithNewLm'] = NULL
 	request['NewLmEncryptedWithOldLm'] = NULL
 	request['NtPresent'] = 1
-	request['OldNtEncryptedWithNewNt'] = crypto.SamEncryptNTLMHash(oldPwdHashNT, newPwdHashNT)
-	request['NewNtEncryptedWithOldNt'] = crypto.SamEncryptNTLMHash(newPwdHashNT, oldPwdHashNT) 
+	request['OldNtEncryptedWithNewNt'] = SamEncryptNTLMHash(oldPwdHashNT, newPwdHashNT)
+	request['NewNtEncryptedWithOldNt'] = SamEncryptNTLMHash(newPwdHashNT, oldPwdHashNT) 
 	request['NtCrossEncryptionPresent'] = 0
 	request['NewNtEncryptedWithNewLm'] = NULL
 	request['LmCrossEncryptionPresent'] = 1
-	request['NewLmEncryptedWithNewNt'] = crypto.SamEncryptNTLMHash(newPwdHashLM, newPwdHashNT)
+	request['NewLmEncryptedWithNewNt'] = SamEncryptNTLMHash(newPwdHashLM, newPwdHashNT)
+
+	return await dce.request(request)
+
+async def hSamrChangePasswordUser_hash(dce, userHandle, oldPwdHashNT, newPassword):
+	request = SamrChangePasswordUser()
+	request['UserHandle'] = userHandle
+
+	if isinstance(oldPwdHashNT, bytes) is False:
+		oldPwdHashNT = bytes.fromhex(oldPwdHashNT)
+
+	newPwdHashNT = NTOWFv1(newPassword)
+	newPwdHashLM = LMOWFv1(newPassword)
+
+	request['LmPresent'] = 0
+	request['OldLmEncryptedWithNewLm'] = NULL
+	request['NewLmEncryptedWithOldLm'] = NULL
+	request['NtPresent'] = 1
+	request['OldNtEncryptedWithNewNt'] = SamEncryptNTLMHash(oldPwdHashNT, newPwdHashNT)
+	request['NewNtEncryptedWithOldNt'] = SamEncryptNTLMHash(newPwdHashNT, oldPwdHashNT) 
+	request['NtCrossEncryptionPresent'] = 0
+	request['NewNtEncryptedWithNewLm'] = NULL
+	request['LmCrossEncryptionPresent'] = 1
+	request['NewLmEncryptedWithNewNt'] = SamEncryptNTLMHash(newPwdHashLM, newPwdHashNT)
 
 	return await dce.request(request)
 
 async def hSamrUnicodeChangePasswordUser2(dce, serverName='\x00', userName='', oldPassword='', newPassword='', oldPwdHashLM = '', oldPwdHashNT = ''):
-	raise Exception('Not implemented, needs additional work!')
 	request = SamrUnicodeChangePasswordUser2()
 	request['ServerName'] = serverName
 	request['UserName'] = userName
 
-	try:
-		from Cryptodome.Cipher import ARC4
-	except Exception:
-		logger.critical("Warning: You don't have any crypto installed. You need pycryptodomex")
-		logger.critical("See https://pypi.org/project/pycryptodomex/")
-	#from impacket import crypto, ntlm
+	if oldPwdHashLM == '' and oldPwdHashLM is None:
+		oldPwdHashLM = LMOWFv1(oldPassword)
+	if oldPwdHashNT == '' or oldPwdHashNT is None:
+		oldPwdHashNT = NTOWFv1(oldPassword)
+	
+	if isinstance(oldPwdHashLM, bytes) is False:
+		oldPwdHashLM = bytes.fromhex(oldPwdHashLM)
+	if isinstance(oldPwdHashNT, bytes) is False:
+		oldPwdHashNT = unhexlify(oldPwdHashNT)
 
-	if oldPwdHashLM == '' and oldPwdHashNT == '':
-		oldPwdHashLM = ntlm.LMOWFv1(oldPassword)
-		oldPwdHashNT = ntlm.NTOWFv1(oldPassword)
-	else:
-		# Let's convert the hashes to binary form, if not yet
-		try:
-			oldPwdHashLM = unhexlify(oldPwdHashLM)
-		except:
-			pass
-		try: 
-			oldPwdHashNT = unhexlify(oldPwdHashNT)
-		except:
-			pass
-
-	newPwdHashNT = ntlm.NTOWFv1(newPassword)
+	newPwdHashNT = NTOWFv1(newPassword)
 
 	samUser = SAMPR_USER_PASSWORD()
 	try:
@@ -2792,10 +2878,10 @@ async def hSamrUnicodeChangePasswordUser2(dce, serverName='\x00', userName='', o
 	samUser['Length'] = len(newPassword)*2
 	pwdBuff = samUser.getData()
 
-	rc4 = ARC4.new(oldPwdHashNT)
+	rc4 = RC4(oldPwdHashNT)
 	encBuf = rc4.encrypt(pwdBuff)
 	request['NewPasswordEncryptedWithOldNt']['Buffer'] = encBuf
-	request['OldNtOwfPasswordEncryptedWithNewNt'] = crypto.SamEncryptNTLMHash(oldPwdHashNT, newPwdHashNT)
+	request['OldNtOwfPasswordEncryptedWithNewNt'] = SamEncryptNTLMHash(oldPwdHashNT, newPwdHashNT)
 	request['LmPresent'] = 0
 	request['NewPasswordEncryptedWithOldLm'] = NULL
 	request['OldLmOwfPasswordEncryptedWithNewNt'] = NULL
@@ -2878,5 +2964,70 @@ async def hSamrLookupIdsInDomain(dce, domainHandle, ids):
 		request['RelativeIds'].append(entry)
 
 	request.fields['RelativeIds'].fields['MaximumCount'] = 1000
+
+	return await dce.request(request)
+
+async def hSamrSetPasswordInternal4New(dce, userHandle, password):
+	request = SamrSetInformationUser2()
+	request['UserHandle'] = userHandle
+	request['UserInformationClass'] = USER_INFORMATION_CLASS.UserInternal4InformationNew
+	request['Buffer']['tag'] = USER_INFORMATION_CLASS.UserInternal4InformationNew
+	request['Buffer']['Internal4New']['I1']['WhichFields'] = 0x01000000 | 0x08000000
+
+	request['Buffer']['Internal4New']['I1']['UserName'] = NULL
+	request['Buffer']['Internal4New']['I1']['FullName'] = NULL
+	request['Buffer']['Internal4New']['I1']['HomeDirectory'] = NULL
+	request['Buffer']['Internal4New']['I1']['HomeDirectoryDrive'] = NULL
+	request['Buffer']['Internal4New']['I1']['ScriptPath'] = NULL
+	request['Buffer']['Internal4New']['I1']['ProfilePath'] = NULL
+	request['Buffer']['Internal4New']['I1']['AdminComment'] = NULL
+	request['Buffer']['Internal4New']['I1']['WorkStations'] = NULL
+	request['Buffer']['Internal4New']['I1']['UserComment'] = NULL
+	request['Buffer']['Internal4New']['I1']['Parameters'] = NULL
+	request['Buffer']['Internal4New']['I1']['LmOwfPassword']['Buffer'] = NULL
+	request['Buffer']['Internal4New']['I1']['NtOwfPassword']['Buffer'] = NULL
+	request['Buffer']['Internal4New']['I1']['PrivateData'] = NULL
+	request['Buffer']['Internal4New']['I1']['SecurityDescriptor']['SecurityDescriptor'] = NULL
+	request['Buffer']['Internal4New']['I1']['LogonHours']['LogonHours'] = NULL
+	request['Buffer']['Internal4New']['I1']['PasswordExpired'] = 1
+
+	#crypto
+	pwdbuff = password.encode("utf-16le")
+	bufflen = len(pwdbuff)
+	pwdbuff = pwdbuff.rjust(512, b'\0')
+	pwdbuff += struct.pack('<I', bufflen)
+	salt = os.urandom(16)
+	session_key = dce.get_session_key()
+	keymd = hashlib.md5()
+	keymd.update(salt)
+	keymd.update(session_key)
+	key = keymd.digest()
+
+	cipher = RC4(key)
+	buffercrypt = cipher.encrypt(pwdbuff) + salt
+
+	request['Buffer']['Internal4New']['UserPassword']['Buffer'] = buffercrypt
+	return await dce.request(request)
+
+async def hSamrSetNTInternal1(dce, userHandle, password, hashNT=''):
+	request = SamrSetInformationUser()
+	request['UserHandle'] = userHandle
+	request['UserInformationClass'] = USER_INFORMATION_CLASS.UserInternal1Information
+	request['Buffer']['tag'] = USER_INFORMATION_CLASS.UserInternal1Information
+
+	if hashNT == '' or hashNT is None:
+		hashNT = NTOWFv1(password)
+	
+	if isinstance(hashNT, bytes) is False:
+		hashNT = bytes.fromhex(hashNT)
+
+	session_key = dce.get_session_key()
+	if session_key is None:
+		raise Exception('This functionality requires the connection\'s session key but this connection doesn\'t have one')
+
+	request['Buffer']['Internal1']['EncryptedNtOwfPassword'] = SamEncryptNTLMHash(hashNT, session_key)
+	request['Buffer']['Internal1']['EncryptedLmOwfPassword'] = NULL
+	request['Buffer']['Internal1']['NtPasswordPresent'] = 1
+	request['Buffer']['Internal1']['LmPasswordPresent'] = 0
 
 	return await dce.request(request)

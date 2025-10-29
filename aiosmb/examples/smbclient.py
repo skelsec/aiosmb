@@ -1241,6 +1241,159 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 		except Exception as e:
 			return self.handle_exception(e)
 
+	async def do_snapshots(self, path = '\\'):
+		""" Lists all snapshots of the remote machine """
+		try:
+			if self.__current_directory is None and self.__current_share is None:
+				print('Select a share or directory first!')
+				return False, None
+
+			if self.__current_directory is None:
+				snapshots, err = await self.__current_share.snapshots(self.connection, path=path)
+			else:
+				snapshots, err = await self.__current_directory.snapshots(self.connection, path=path)
+				
+			if err is not None:
+				raise err
+			for snapshot in snapshots:
+				print(snapshot)
+			return True, None
+		except Exception as e:
+			return self.handle_exception(e)
+	
+	async def do_usercreate(self, username, password, domain:str=''):
+		"""Creates a new user in the given domain. If domain is not set, it will default to the local machine"""
+		try:
+			if domain == '' or domain is None:
+				domain = 'Builtin'
+			
+			_, err = await self.machine.add_new_user(domain, username, password)
+			if err is not None:
+				raise err
+			
+			print('User added OK!')
+			return True, None
+		except Exception as e:
+			return self.handle_exception(e)
+	
+	async def do_userdel(self, username, domain=''):
+		try:
+			if domain == '' or domain is None:
+				domain = 'Builtin'
+			
+			_, err = await self.machine.delete_user(domain, username)
+			if err is not None:
+				raise err
+			
+			print('User removed OK!')
+			return True, None
+		except Exception as e:
+			return self.handle_exception(e)
+	
+	async def do_userenable(self, username, domain=''):
+		try:
+			if domain == '' or domain is None:
+				domain = 'Builtin'
+			
+			_, err = await self.machine.enable_user(domain, username)
+			if err is not None:
+				raise err
+			
+			print('User enabled OK!')
+			return True, None
+		except Exception as e:
+			return self.handle_exception(e)
+	
+	async def do_userdisable(self, username, domain=''):
+		try:
+			if domain == '' or domain is None:
+				domain = 'Builtin'
+			
+			_, err = await self.machine.disable_user(domain, username)
+			if err is not None:
+				raise err
+			
+			print('User disabled OK!')
+			return True, None
+		except Exception as e:
+			return self.handle_exception(e)
+
+	async def do_userchangepw(self, username, oldpassword, password, domain=''):
+		try:
+			if domain == '' or domain is None:
+				domain = 'Builtin'
+			
+			_, err = await self.machine.change_user_password(domain, username, oldpassword, password)
+			if err is not None:
+				raise err
+			
+			print('User pw changed OK!')
+			return True, None
+		except Exception as e:
+			return self.handle_exception(e)
+
+	async def do_userchangepwhash(self, username, oldhash, password, domain=''):
+		try:
+			if domain == '' or domain is None:
+				domain = 'Builtin'
+			
+			_, err = await self.machine.change_user_password_nt(domain, username, oldhash, password)
+			if err is not None:
+				raise err
+			
+			print('User pw changed OK!')
+			return True, None
+		except Exception as e:
+			return self.handle_exception(e)
+	
+	async def do_userchangepw4(self, username, password, domain=''):
+		try:
+			if domain == '' or domain is None:
+				domain = 'Builtin'
+			
+			_, err = await self.machine.change_user_password_new(domain, username, password)
+			if err is not None:
+				raise err
+			
+			print('User pw changed OK!')
+			return True, None
+		except Exception as e:
+			return self.handle_exception(e)
+
+	async def do_userchangepwinternal(self, username, password, domain=''):
+		try:
+			if domain == '' or domain is None:
+				domain = 'Builtin'
+			
+			_, err = await self.machine.change_user_password_internal(domain, username, password)
+			if err is not None:
+				raise err
+			
+			print('User pw changed OK!')
+			return True, None
+		except Exception as e:
+			return self.handle_exception(e)
+
+	async def do_rodcallowertoreplicate(self, domain, with_sid:bool=False):
+		try:
+			if with_sid is True or with_sid == '1' or str(with_sid).upper() == 'TRUE':
+				with_sid = True
+			else:
+				with_sid = False
+			async for name, sid, rid, err in self.machine.list_users_allowed_to_replicate(domain):
+				if err is not None:
+					raise err
+				
+				if with_sid is True:
+					print(f'{name} : {sid}')
+				else:
+					print(name)
+
+			return True, None
+		except Exception as e:
+			return self.handle_exception(e)
+
+
 	async def do_pipetest(self, data = 'HELLO!'):
 		""" pipetest """
 		async def temp(pipe):

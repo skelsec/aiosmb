@@ -997,7 +997,7 @@ class SMBConnection:
 				raise SMBConnectionTerminated()
 			
 			if tree_id not in self.TreeConnectTable_id:
-				raise Exception('Unknown Tree ID!')
+				raise Exception('Unknown Tree ID! %s' % tree_id)
 			
 			command = CREATE_REQ()
 			command.RequestedOplockLevel  = oplock_level
@@ -1058,9 +1058,9 @@ class SMBConnection:
 				raise SMBConnectionTerminated()
 				
 			if tree_id not in self.TreeConnectTable_id:
-				raise Exception('Unknown Tree ID!')
+				raise Exception('Unknown Tree ID! %s' % tree_id)
 			if file_id not in self.FileHandleTable:
-				raise Exception('Unknown File ID!')
+				raise Exception('Unknown File ID! %s' % file_id)
 				
 			async with self.FileHandleTable[file_id].oplock:
 				header = SMB2Header_SYNC()
@@ -1174,9 +1174,9 @@ class SMBConnection:
 				raise SMBConnectionTerminated()
 
 			if tree_id not in self.TreeConnectTable_id:
-				raise Exception('Unknown Tree ID!')
+				raise Exception('Unknown Tree ID! %s' % tree_id)
 			if file_id not in self.FileHandleTable:
-				raise Exception('Unknown File ID!')
+				raise Exception('Unknown File ID! %s' % file_id)
 				
 			command = QUERY_INFO_REQ()
 			command.InfoType = info_type
@@ -1239,9 +1239,9 @@ class SMBConnection:
 				raise SMBConnectionTerminated()
 				
 			if tree_id not in self.TreeConnectTable_id:
-				raise Exception('Unknown Tree ID!')
+				raise Exception('Unknown Tree ID! %s' % tree_id)
 			if file_id not in self.FileHandleTable:
-				raise Exception('Unknown File ID!')
+				raise Exception('Unknown File ID! %s' % file_id)
 				
 			
 			command = QUERY_DIRECTORY_REQ()
@@ -1281,7 +1281,7 @@ class SMBConnection:
 		except Exception as e:
 			return None, e
 
-	async def ioctl(self, tree_id, file_id, ctlcode, data = None, flags = IOCTLREQFlags.IS_IOCTL):
+	async def ioctl(self, tree_id, file_id, ctlcode, data = None, flags = IOCTLREQFlags.IS_IOCTL, MaxOutputResponse=65535):
 		try:
 			if self.session_closed == True or self.status == SMBConnectionStatus.CLOSED:
 				raise SMBConnectionTerminated()
@@ -1291,6 +1291,7 @@ class SMBConnection:
 			command.FileId  = file_id
 			command.Flags = flags
 			command.Buffer = data
+			command.MaxOutputResponse = MaxOutputResponse
 			
 			header = SMB2Header_SYNC()
 			header.Command  = SMB2Command.IOCTL

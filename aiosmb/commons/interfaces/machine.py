@@ -203,6 +203,98 @@ class SMBMachine:
 		except Exception as e:
 			yield None, None, None, e
 
+	async def add_new_user(self, domain_name:str, user_name:str, password:str):
+		try:
+			async with samrrpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as samrpc:
+				if domain_name is None or domain_name == '' or domain_name == 'Builtin':
+					dhandle, err = await samrpc.openBuiltinDomain()
+				else:
+					dhandle, err = await samrpc.open_domain_by_name(domain_name)
+				if err is not None:
+					raise err
+				
+				_, err = await samrpc.create_user(dhandle, user_name, password)
+				if err is not None:
+					raise err
+				return True, None
+
+		except Exception as e:
+			return None, e
+	
+	async def enable_user(self, domain_name:str, user_name:str) -> Awaitable[Tuple[str, Union[Exception, None]]]:
+		try:
+			async with samrrpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as samrpc:
+				async with samrpc.get_user_handle(domain_name, user_name) as uhandle:
+					return await samrpc.enable_account(uhandle)
+
+		except Exception as e:
+			import traceback
+			traceback.print_exc()
+			return None, e
+
+	async def disable_user(self, domain_name:str, user_name:str) -> Awaitable[Tuple[str, Union[Exception, None]]]:
+		try:
+			async with samrrpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as samrpc:
+				async with samrpc.get_user_handle(domain_name, user_name) as uhandle:
+					return await samrpc.disable_account(uhandle)
+		except Exception as e:
+			return None, e
+	
+	async def delete_user(self, domain_name:str, user_name:str) -> Awaitable[Tuple[str, Union[Exception, None]]]:
+		try:
+			async with samrrpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as samrpc:
+				async with samrpc.get_user_handle(domain_name, user_name) as uhandle:
+					return await samrpc.disable_account(uhandle)
+
+		except Exception as e:
+			return None, e
+
+	async def change_user_password(self, domain_name:str, user_name:str, old_password:str, new_password:str) -> Awaitable[Tuple[str, Union[Exception, None]]]:
+		try:
+			async with samrrpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as samrpc:
+				async with samrpc.get_user_handle(domain_name, user_name) as uhandle:
+					return await samrpc.change_account_password(uhandle, old_password, new_password)
+
+		except Exception as e:
+			return None, e
+
+	async def change_user_password_nt(self, domain_name:str, user_name:str, old_pw_hash:str, new_password:str) -> Awaitable[Tuple[str, Union[Exception, None]]]:
+		try:
+			async with samrrpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as samrpc:
+				async with samrpc.get_user_handle(domain_name, user_name) as uhandle:
+					return await samrpc.change_account_password_nt(uhandle, old_pw_hash, new_password)
+
+		except Exception as e:
+			return None, e
+	
+	async def change_user_password_new(self, domain_name:str, user_name:str, new_password:str) -> Awaitable[Tuple[str, Union[Exception, None]]]:
+		try:
+			async with samrrpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as samrpc:
+				async with samrpc.get_user_handle(domain_name, user_name) as uhandle:
+					return await samrpc.change_account_password_4(uhandle, new_password)
+
+		except Exception as e:
+			return None, e
+
+
+	async def change_user_password_internal(self, domain_name:str, user_name:str, new_password:str) -> Awaitable[Tuple[str, Union[Exception, None]]]:
+		try:
+			async with samrrpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as samrpc:
+				async with samrpc.get_user_handle(domain_name, user_name) as uhandle:
+					return await samrpc.change_account_password_internal(uhandle, new_password)
+
+		except Exception as e:
+			return None, e
+	
+	async def list_users_allowed_to_replicate(self, domain_name:str):
+		try:
+			async with samrrpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as samrpc:
+				async for name, sid, rid, err in samrpc.list_users_allowed_to_replicate(domain_name):
+					yield name, sid, rid, err
+		except Exception as e:
+			yield None, None, None, err
+			
+
 	async def add_sid_to_group(self, domain_name:str, group_name:str, sid:str) -> Awaitable[Tuple[bool, Union[Exception, None]]]:
 		try:
 			async with samrrpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as samrpc:
@@ -371,6 +463,13 @@ class SMBMachine:
 		
 		except Exception as e:
 			yield None, e
+
+	async def get_service_config(self, service_name:str) -> Awaitable[Tuple[ServiceStatus, Union[Exception, None]]]:
+		try:
+			async with remsvcrpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as rpc:
+				return await rpc.get_config(service_name)
+		except Exception as e:
+			return None, e
 
 	async def enable_service(self, service_name:str) -> Awaitable[Tuple[bool, Union[Exception, None]]]:
 		try:

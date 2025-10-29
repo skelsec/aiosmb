@@ -39,9 +39,9 @@ setup(
 	# long_description=open("README.txt").read(),
 	python_requires='>=3.7',
 	install_requires=[
-		'unicrypto>=0.0.10',
-		'asyauth>=0.0.22',
-		'asysocks>=0.2.17',
+		'unicrypto>=0.0.12',
+		'asyauth>=0.0.23',
+		'asysocks>=0.2.18',
 		'prompt-toolkit>=3.0.2',
 		'winacl>=0.1.9',
 		'six',

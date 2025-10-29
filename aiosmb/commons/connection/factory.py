@@ -90,6 +90,20 @@ class SMBConnectionFactory:
 		"""Returns a new SPNEGOCredential object with the credential from the factory"""
 		return SPNEGOCredential([copy.deepcopy(self.credential)]).build_context()
 	
+	async def test_connection(self):
+		ntlm_data = None
+		try:
+			connection = self.get_connection()
+			async with connection:
+				_, err = await connection.login()
+				ntlm_data = connection.get_extra_info()
+				if err is not None:
+					raise err
+
+				return True, ntlm_data, None
+		except Exception as e:
+			return False, ntlm_data, e
+
 	@staticmethod
 	def from_components(ip_or_hostname:str, username:str, secret:str, secrettype:str = 'password', 
 							domain:str = None, port:str = 445, dialect:str = 'smb', dcip:str = None, proxies = None, authproto:str = 'ntlm',

@@ -316,6 +316,42 @@ class SMBDirectory:
 		except Exception as e:
 			yield None, None, e
 
+	async def snapshots(self, connection, path = '\\'):
+		"""
+		Lists all snapshots of the share
+		"""
+		try:
+			should_close = False
+			if self.tree_id is None:
+				should_close = True
+				tree_entry, err = await connection.tree_connect(self.get_share_path())
+				if err is not None:
+					raise err
+				self.tree_id = tree_entry.tree_id
+
+			fpath = self.fullpath
+			print(fpath)
+			file_id, err = await connection.create(self.tree_id, '', FileAccessMask.READ_CONTROL|FileAccessMask.FILE_READ_DATA, ShareAccess.FILE_SHARE_READ, CreateOptions.FILE_DIRECTORY_FILE | CreateOptions.FILE_SYNCHRONOUS_IO_NONALERT, CreateDisposition.FILE_OPEN, 0)
+			if err is not None:
+				raise err
+			snapshots, err = await connection.ioctl(self.tree_id, file_id, CtlCode.FSCTL_SRV_ENUMERATE_SNAPSHOTS, flags = IOCTLREQFlags.IS_FSCTL, MaxOutputResponse=16)
+			if err is not None:
+				return None, err
+
+			# checking if we actually got all the snapshots
+			if len(snapshots.SnapShots) < snapshots.NumberOfSnapShots:
+				snapshots, err = await connection.ioctl(self.tree_id, file_id, CtlCode.FSCTL_SRV_ENUMERATE_SNAPSHOTS, flags = IOCTLREQFlags.IS_FSCTL, MaxOutputResponse=snapshots.SnapShotArraySize+12)
+				if err is not None:
+					return None, err
+
+			return snapshots.SnapShots, None
+		except Exception as e:
+			return None, e
+		finally:
+			if file_id is not None:
+				await connection.close(self.tree_id, file_id)
+			if should_close is True:
+				await connection.tree_disconnect(self.tree_id)
 
 	async def list_gen(self, connection:SMBConnection):
 		"""

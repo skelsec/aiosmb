@@ -258,7 +258,7 @@ class RRPRPC:
 		try:
 			key = await self.__get_rawhandle(key)
 			
-			_, err = await  rrp.hBaseRegDeleteValue(self.dce, key, value)
+			_, err = await rrp.hBaseRegDeleteValue(self.dce, key, value)
 			if err is not None:
 				raise err
 			

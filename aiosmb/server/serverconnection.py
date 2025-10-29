@@ -1,4 +1,5 @@
 import enum
+import io
 import asyncio
 import datetime
 import traceback
@@ -21,6 +22,8 @@ from aiosmb.protocol.common import *
 from aiosmb.wintypes.dtyp.constrcuted_security.guid import *
 from aiosmb.protocol.smb2.commands.sessionsetup import *
 from aiosmb.protocol.smb2.commands.create import *
+from aiosmb.wintypes.fscc.FileAttributes import FileAttributes
+from aiosmb.wintypes.fscc.structures.fileinfoclass import FileInfoClass
 
 
 def convert_to_ft(linux_filetime:int):
@@ -44,6 +47,13 @@ class TreeEntry:
 	hostname:str = None
 	path:Path = None
 	tree_id:int = None
+
+@dataclass
+class DirEnumState:
+	entries:list[str] = field(default_factory=list)
+	index:int = 0
+	pattern:str = '*'
+	info_class:FileInfoClass = None
 
 
 
@@ -98,6 +108,8 @@ class SMBServerConnection:
 		self.SessionId = 0
 		self.SessionKey = None
 
+		self.last_treeid = 1
+
 		self.__treeid_to_entry = {}
 
 	async def run(self):
@@ -118,6 +130,10 @@ class SMBServerConnection:
 	async def print(self, msg):
 		if self.settings.log_callback is not None:
 			await self.settings.log_callback(f'[SMBSERVERCONN][{self.connection_id}] {msg}')
+
+	def get_new_tree_id(self):
+		self.last_treeid += 1
+		return self.last_treeid
 
 	async def __handle_smb_in(self):
 		"""
@@ -222,7 +238,7 @@ class SMBServerConnection:
 			msg.header.SessionId = self.SessionId
 			
 			if not msg.header.CreditCharge:
-				msg.header.CreditCharge = 0
+				msg.header.CreditCharge = 1
 
 			
 			
@@ -379,7 +395,7 @@ class SMBServerConnection:
 	async def tree_connect(self, msg:SMB2Message):
 		try:
 			command = typing.cast(TREE_CONNECT_REQ, msg.command)
-
+			# command.Path like \\hostname\sharename
 			reply = SMB2Message()
 			reply.header = SMB2Header_SYNC()
 			reply.header.Command = SMB2Command.TREE_CONNECT
@@ -389,8 +405,15 @@ class SMBServerConnection:
 			reply.header.CreditReq = msg.header.CreditReq
 			reply.header.Status = NTStatus.SUCCESS
 			reply.command = TREE_CONNECT_REPLY()
+			# Parse sharename
+			try:
+				_,_,_, share_name, *rest = command.Path.split('\\')
+				print('TREE_CONNECT: %s' % share_name)
+				print(rest)
+			except Exception:
+				share_name = command.Path
 
-			if command.Path.endswith('IPC$'):
+			if share_name.upper().endswith('IPC$'):
 				reply.command.ShareType = ShareType.PIPE
 			else:
 				reply.command.ShareType = ShareType.DISK
@@ -399,9 +422,20 @@ class SMBServerConnection:
 			reply.command.Capabilities = TreeCapabilities.SMB2_SHARE_CAP_NONE
 			reply.command.MaximalAccess = FileAccessMask.GENERIC_ALL
 
-			# splitting the unc path to hostname and share name
-			hostname, share_name, *rest = command.Path.split('\\')
-			self.__treeid_to_entry[reply.header.TreeId] = TreeEntry(hostname=hostname, path=Path(share_name), tree_id=reply.header.TreeId)
+			# Map sharename to on-disk path from settings.shares
+			mapped = None
+			for k, v in self.settings.shares.items():
+				if k.lower() == share_name.lower():
+					mapped = Path(v)
+					break
+			if mapped is None:
+				reply.header.Status = NTStatus.BAD_NETWORK_NAME
+				#await self.sendSMB(reply)
+				await self.sendSMB2(msg, SMB2Command.TREE_CONNECT, reply.command, NTStatus.BAD_NETWORK_NAME)
+				return
+			tree_id = self.get_new_tree_id()
+			reply.header.TreeId = tree_id
+			self.__treeid_to_entry[tree_id] = TreeEntry(hostname=None, path=mapped, tree_id=tree_id)
 
 			await self.sendSMB(reply)
 		except Exception as e:
@@ -431,7 +465,8 @@ class SMBServerConnection:
 				reply.command.Flags = command.Flags
 				reply.command.Reserved2 = command.Reserved2
 				reply.command.Buffer = b''
-				await self.sendSMB(reply)
+				#await self.sendSMB(reply)
+				await self.sendSMB2(msg, SMB2Command.IOCTL, reply.command, NTStatus.FS_DRIVER_REQUIRED)
 
 		except Exception as e:
 			traceback.print_exc()
@@ -520,24 +555,214 @@ class SMBServerConnection:
 				reply.command.FileId = fe.file_id
 				reply.command.CreateContextsOffset = 0
 				reply.command.CreateContextsLength = 0
-			await self.sendSMB(reply)
+			#await self.sendSMB(reply)
+			await self.sendSMB2(msg, SMB2Command.CREATE, reply.command, NTStatus.SUCCESS)
 		except Exception as e:
 			traceback.print_exc()
 	
 	async def query_directory(self, msg:SMB2Message):
 		try:
 			command = typing.cast(QUERY_DIRECTORY_REQ, msg.command)
-			# here we need to provide a list of files that matches the search pattern
-			# TODO
+			# Validate tree and determine base path
+			if msg.header.TreeId not in self.__treeid_to_entry:
+				raise Exception('Tree ID %s not found' % msg.header.TreeId)
+			te = self.__treeid_to_entry[msg.header.TreeId]
+			share = te.path
+			# FileId 0 means the directory opened by CREATE against the tree root/share
+			# We support listing the root of the share for now
+			base_path = share
+			# Determine pattern
+			pattern = command.FileName if command.FileName else '*'
+			# Special-case: when client sends FileName of "\\" or "." in root, list all
+			if pattern in ['\\\x00', '\\', '.', '.\x00']:
+				pattern = '*'
+			# Load or initialize enumeration state per TreeId
+			if not hasattr(self, '_dir_enum_state'):
+				self._dir_enum_state = {}
+			state_key = (msg.header.TreeId, command.FileId)
+			if QueryDirectoryFlag.SMB2_RESTART_SCANS in command.Flags or state_key not in self._dir_enum_state or QueryDirectoryFlag.SMB2_REOPEN in command.Flags:
+				# Build fresh list according to pattern
+				entries = []
+				for child in base_path.iterdir():
+					name = child.name
+					try:
+						from aiosmb.commons.utils.glob2re import glob2re
+						import re
+						if not re.match(glob2re(pattern), name):
+							continue
+					except Exception:
+						if pattern not in ['*', None]:
+							continue
+					entries.append(name)
+				self._dir_enum_state[state_key] = DirEnumState(entries=entries, index=0, pattern=pattern, info_class=command.FileInformationClass)
+			state = self._dir_enum_state[state_key]
+			# Build from current index forward until OutputBufferLength filled
+			entries = []
+			for name in state.entries[state.index:]:
+				child = base_path / name
+				st = child.stat()
+				# Build directory info record based on requested class
+				# NextEntryOffset filled later when concatenating
+				creation_time = convert_to_ft(int(st.st_ctime))
+				last_access_time = convert_to_ft(int(st.st_atime))
+				last_write_time = convert_to_ft(int(st.st_mtime))
+				change_time = convert_to_ft(int(st.st_mtime))
+				allocation_size = 0 if child.is_dir() else st.st_size
+				end_of_file = 0 if child.is_dir() else st.st_size
+				attrs = FileAttributes.FILE_ATTRIBUTE_DIRECTORY if child.is_dir() else FileAttributes.FILE_ATTRIBUTE_NORMAL
+				filename_bytes = name.encode('utf-16-le')
+				fixed = b''
+				fixed += (0).to_bytes(4, 'little', signed=False) # NextEntryOffset placeholder
+				fixed += (0).to_bytes(4, 'little', signed=False) # FileIndex
+				fixed += creation_time.to_bytes(8, 'little', signed=False)
+				fixed += last_access_time.to_bytes(8, 'little', signed=False)
+				fixed += last_write_time.to_bytes(8, 'little', signed=False)
+				fixed += change_time.to_bytes(8, 'little', signed=False)
+				fixed += end_of_file.to_bytes(8, 'little', signed=True)
+				fixed += allocation_size.to_bytes(8, 'little', signed=True)
+				fixed += attrs.value.to_bytes(4, 'little', signed=False)
+				if command.FileInformationClass == FileInfoClass.FileFullDirectoryInformation:
+					fixed += len(filename_bytes).to_bytes(4, 'little', signed=False)
+					fixed += (0).to_bytes(4, 'little', signed=False) # EaSize
+					entry = fixed + filename_bytes
+				elif command.FileInformationClass == FileInfoClass.FileDirectoryInformation:
+					# Same as Full but without EaSize
+					fixed += len(filename_bytes).to_bytes(4, 'little', signed=False)
+					entry = fixed + filename_bytes
+				elif command.FileInformationClass == FileInfoClass.FileBothDirectoryInformation:
+					# Full + ShortName fields
+					fixed += len(filename_bytes).to_bytes(4, 'little', signed=False)
+					fixed += (0).to_bytes(4, 'little', signed=False) # EaSize
+					fixed += (0).to_bytes(1, 'little', signed=False) # ShortNameLength
+					fixed += (0).to_bytes(1, 'little', signed=False) # Reserved
+					fixed += b'\x00' * 24 # ShortName (12 WCHAR)
+					fixed += (0).to_bytes(2, 'little', signed=False) # Reserved2
+					entry = fixed + filename_bytes
+				elif command.FileInformationClass == FileInfoClass.FileIdFullDirectoryInformation:
+					# Add FileId (8 bytes) then FileNameLength and EaSize
+					file_id = getattr(st, 'st_ino', 0)
+					fixed += file_id.to_bytes(8, 'little', signed=False)
+					fixed += len(filename_bytes).to_bytes(4, 'little', signed=False)
+					fixed += (0).to_bytes(4, 'little', signed=False) # EaSize
+					entry = fixed + filename_bytes
+				elif command.FileInformationClass == FileInfoClass.FileIdBothDirectoryInformation:
+					# Both + FileId
+					fixed += len(filename_bytes).to_bytes(4, 'little', signed=False)
+					fixed += (0).to_bytes(4, 'little', signed=False) # EaSize
+					fixed += (0).to_bytes(1, 'little', signed=False) # ShortNameLength
+					fixed += (0).to_bytes(1, 'little', signed=False) # Reserved
+					fixed += b'\x00' * 24 # ShortName (12 WCHAR)
+					fixed += (0).to_bytes(2, 'little', signed=False) # Reserved2
+					file_id = getattr(st, 'st_ino', 0)
+					fixed += file_id.to_bytes(8, 'little', signed=False)
+					entry = fixed + filename_bytes
+				else:
+					# Unsupported info class, skip for now
+					continue
+				
+				if len(entry) % 8 != 0:
+					entry += b'\x00' * (8 - len(entry) % 8)
+				entries.append(entry)
+
+			# Concatenate entries with proper NextEntryOffset (8-byte aligned) and enforce OutputBufferLength
+			max_len = command.OutputBufferLength if command.OutputBufferLength else 65535
+			buffer = b''
+			emitted = 0
+			for i, entry in enumerate(entries):
+				cur_len = len(entry)
+				# compute 8-byte alignment padding for this entry when followed by another
+				padded_len = (cur_len + 7) & ~7
+				pad_len = padded_len - cur_len
+				# determine buffer start position for this entry
+				start_pos = len(buffer)
+				# If this entry alone doesn't fit, stop
+				if start_pos + cur_len > max_len:
+					break
+				# Decide if we can chain a next entry: we need room for this entry + its padding + at least the next entry header
+				can_chain_next = False
+				if i + 1 < len(entries):
+					next_len = len(entries[i+1])
+					if start_pos + cur_len + pad_len + next_len <= max_len:
+						can_chain_next = True
+				# Append current entry
+				buffer += entry
+				emitted += 1
+				if can_chain_next:
+					# write NextEntryOffset (padded length) and append padding
+					buffer = bytearray(buffer)
+					buffer[start_pos:start_pos+4] = padded_len.to_bytes(4, 'little', signed=False)
+					buffer = bytes(buffer)
+					if pad_len:
+						buffer += b'\x00' * pad_len
+				else:
+					# last entry in this chunk: leave NextEntryOffset as 0 and do not pad
+					pass
+			# Advance enumeration index by number of emitted entries
+			state.index += emitted
+
+			reply = SMB2Message()
+			reply.header = SMB2Header_SYNC()
+			reply.header.Command = SMB2Command.QUERY_DIRECTORY
+			reply.header.Flags = SMB2HeaderFlag.SMB2_FLAGS_SERVER_TO_REDIR
+			reply.header.SessionId = self.SessionId
+			reply.header.TreeId = msg.header.TreeId
+			reply.header.CreditCharge = 1
+			reply.header.CreditReq = msg.header.CreditReq if msg.header.CreditReq else 1
+			
+			# Check if we have no data to return (either no buffer or all entries consumed)
+			if len(buffer) == 0 or (emitted == 0 and state.index >= len(state.entries)):
+				# No entries matched, nothing fits, or enumeration is complete
+				reply.header.Status = NTStatus.NO_MORE_FILES
+				reply.command = ERROR_REPLY()
+				await self.sendSMB2(msg, SMB2Command.QUERY_DIRECTORY, reply.command, NTStatus.NO_MORE_FILES)
+			else:
+				reply.header.Status = NTStatus.SUCCESS
+				reply.command = QUERY_DIRECTORY_REPLY()
+				reply.command.Data = buffer
+				await self.sendSMB2(msg, SMB2Command.QUERY_DIRECTORY, reply.command, NTStatus.SUCCESS)
+			#await self.sendSMB(reply)
+			
 		except Exception as e:
 			traceback.print_exc()
 
 	async def close(self, msg:SMB2Message):
 		try:
 			command = typing.cast(CLOSE_REQ, msg.command)
-			# find handle treeid->fileid->handle
-			# close the handle
-			# remove the file entry
+			reply = SMB2Message()
+			reply.header = SMB2Header_SYNC()
+			reply.header.Command = SMB2Command.CLOSE
+			reply.header.Flags = SMB2HeaderFlag.SMB2_FLAGS_SERVER_TO_REDIR
+			reply.header.SessionId = self.SessionId
+			reply.header.TreeId = msg.header.TreeId
+			reply.header.CreditCharge = 1
+			reply.header.CreditReq = msg.header.CreditReq
+			reply.header.Status = NTStatus.SUCCESS
+			reply.command = CLOSE_REPLY()
+			reply.command.Flags = CloseFlag.NONE
+			reply.command.Reserved = 0
+			# Try to find the file entry by TreeId and FileId
+			fe = None
+			if msg.header.TreeId in self.__treeid_to_entry:
+				te = self.__treeid_to_entry[msg.header.TreeId]
+				if command.FileId in te.file_entries:
+					fe = te.file_entries.pop(command.FileId)
+			if fe and fe.handle:
+				try:
+					fe.handle.close()
+				except Exception:
+					pass
+			# Fill attributes if requested
+			if CloseFlag.SMB2_CLOSE_FLAG_POSTQUERY_ATTRIB in command.Flags and fe is not None:
+				st = fe.path.stat()
+				reply.command.CreationTime = convert_to_ft(int(st.st_ctime))
+				reply.command.LastAccessTime = convert_to_ft(int(st.st_atime))
+				reply.command.LastWriteTime = convert_to_ft(int(st.st_mtime))
+				reply.command.ChangeTime = convert_to_ft(int(st.st_mtime))
+				reply.command.AllocationSize = 0 if fe.path.is_dir() else st.st_size
+				reply.command.EndofFile = 0 if fe.path.is_dir() else st.st_size
+				reply.command.FileAttributes = (FileAttributes.FILE_ATTRIBUTE_DIRECTORY if fe.path.is_dir() else FileAttributes.FILE_ATTRIBUTE_NORMAL).value
+				reply.command.Flags = CloseFlag.SMB2_CLOSE_FLAG_POSTQUERY_ATTRIB
+			await self.sendSMB(reply)
 		except Exception as e:
 			traceback.print_exc()
 	
@@ -550,11 +775,26 @@ class SMBServerConnection:
 			reply.header.Command = SMB2Command.ECHO
 			reply.header.Flags = SMB2HeaderFlag.SMB2_FLAGS_SERVER_TO_REDIR
 			reply.header.SessionId = self.SessionId
-			reply.header.CreditCharge = 1
-			reply.header.CreditReq = msg.header.CreditReq
+			reply.header.CreditCharge = msg.header.CreditCharge if msg.header.CreditCharge else 1
+			reply.header.CreditReq = msg.header.CreditReq if msg.header.CreditReq else 1
 			reply.header.Status = NTStatus.SUCCESS
 			reply.command = ECHO_REPLY()
 			await self.sendSMB(reply)
 		except Exception as e:
 			traceback.print_exc()
 	
+	async def sendSMB2(self, orgiginator:SMB2Message, command:SMB2Command, reply, status = NTStatus.SUCCESS):
+		print(f"[DEBUG] sending SMB2 message with MessageId {orgiginator.header.MessageId}")
+		replymsg = SMB2Message()
+		replymsg.header = SMB2Header_SYNC()
+		replymsg.header.MessageId = orgiginator.header.MessageId
+		replymsg.header.Command = command
+		replymsg.header.Flags = SMB2HeaderFlag.SMB2_FLAGS_SERVER_TO_REDIR
+		replymsg.header.SessionId = self.SessionId
+		# Fix: CreditCharge should match the request's CreditCharge (credits consumed)
+		replymsg.header.CreditCharge = orgiginator.header.CreditCharge
+		# Fix: CreditReq should be the credits we're granting back to the client
+		replymsg.header.CreditReq = orgiginator.header.CreditReq if orgiginator.header.CreditReq else 1
+		replymsg.header.Status = status
+		replymsg.command = reply
+		await self.sendSMB(replymsg)

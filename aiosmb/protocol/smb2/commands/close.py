@@ -50,13 +50,13 @@ class CLOSE_REPLY:
 		self.StructureSize = 60
 		self.Flags = None
 		self.Reserved = 0
-		self.CreationTime = None
-		self.LastAccessTime = None
-		self.LastWriteTime = None
-		self.ChangeTime = None
-		self.AllocationSize = None
-		self.EndofFile = None
-		self.FileAttributes = None
+		self.CreationTime = 0
+		self.LastAccessTime = 0
+		self.LastWriteTime = 0
+		self.ChangeTime = 0
+		self.AllocationSize = 0
+		self.EndofFile = 0
+		self.FileAttributes = 0
 		
 	def to_bytes(self):
 		t  = self.StructureSize.to_bytes(2, byteorder='little', signed = False)

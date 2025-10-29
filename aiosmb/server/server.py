@@ -111,7 +111,9 @@ async def amain():
 		settings.MaxWriteSize = 0x100000
 		settings.ServerGuid = GUID.random()
 		settings.RequireSigning = False
-		settings.shares = {} #share_name -> path on disk
+		settings.shares = {
+			'test': '/tmp/smbshare',
+		} #share_name -> path on disk
 
 		server = SMBServer(target, settings)
 		server_task, err = await server.run()

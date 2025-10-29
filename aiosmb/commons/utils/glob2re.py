@@ -38,4 +38,5 @@ def glob2re(pat):
                 res = '%s[%s]' % (res, stuff)
         else:
             res = res + re.escape(c)
-    return res + '\Z(?ms)'
+    # Anchor to end of string; no inline flags
+    return res + r'\Z'

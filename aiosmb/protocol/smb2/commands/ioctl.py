@@ -285,6 +285,11 @@ class IOCTL_REPLY:
 					break
 				data = data[info.Next:]
 			return msg
+		elif msg.CtlCode == CtlCode.FSCTL_SRV_ENUMERATE_SNAPSHOTS:
+			buff.seek(msg.OutputOffset)
+			data = buff.read(msg.OutputCount)
+			msg.Buffer = SRV_SNAPSHOT_ARRAY.from_bytes(data)
+			return msg
 		else:
 			raise NotImplementedError()
 
@@ -352,7 +357,7 @@ class SRV_SNAPSHOT_ARRAY:
 	def __init__(self):
 		self.NumberOfSnapShots = None
 		self.NumberOfSnapShotsReturned = None
-		self.SnapShotArraySize = None
+		self.SnapShotArraySize = None #If the output buffer is too small to accommodate the entire array, SnapShotArraySize will be the amount of space that the array would have occupied.
 		self.SnapShots = []
 
 	@staticmethod
@@ -365,5 +370,8 @@ class SRV_SNAPSHOT_ARRAY:
 		msg.NumberOfSnapShots = int.from_bytes(buff.read(4), byteorder='little')
 		msg.NumberOfSnapShotsReturned = int.from_bytes(buff.read(4), byteorder='little')
 		msg.SnapShotArraySize = int.from_bytes(buff.read(4), byteorder='little')
-		msg.SnapShots = int.from_bytes(buff.read(4), byteorder='little')
+		if msg.SnapShotArraySize > 0:
+			for _ in range(msg.NumberOfSnapShotsReturned):
+				msg.SnapShots.append(buff.read(48).decode('utf-16-le')) #"@GMT-YYYY.MM.DD-HH.MM.SS"
+				buff.read(1) # zero bytes
 		return msg

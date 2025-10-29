@@ -49,6 +49,27 @@ class SMBShare:
 		except Exception as e:
 			return None, e
 
+	async def snapshots(self, connection, path = '\\'):
+		"""
+		Lists all snapshots of the share
+		"""
+		try:
+			if self.tree_id is None:
+				_, err = await self.connect(connection)
+				if err is not None:
+					raise err
+				tree_id = self.tree_id
+			if tree_id is not None:
+				file_id, err = await connection.create(tree_id, path, FileAccessMask.READ_CONTROL, ShareAccess.FILE_SHARE_READ, CreateOptions.FILE_DIRECTORY_FILE | CreateOptions.FILE_SYNCHRONOUS_IO_NONALERT, CreateDisposition.FILE_OPEN, 0)
+				if err is not None:
+					raise err
+				snapshots, err = await connection.ioctl(tree_id, file_id, CtlCode.FSCTL_SRV_ENUMERATE_SNAPSHOTS)
+			if err is not None:
+				return None, err
+			return snapshots, None
+		except Exception as e:
+			return None, e
+
 	async def get_security_descriptor(self, connection) -> Awaitable[Tuple[SECURITY_DESCRIPTOR, Union[Exception, None]]]:
 		if self.security_descriptor is None:
 			file_id = None
