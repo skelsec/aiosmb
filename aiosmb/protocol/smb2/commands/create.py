@@ -1,6 +1,6 @@
 import io
 import enum
-
+import datetime
 from aiosmb.wintypes.fscc.FileAttributes import FileAttributes
 from aiosmb.wintypes.access_mask import FileAccessMask
 
@@ -83,30 +83,32 @@ class CREATE_REQ:
 		
 		#high-level
 		self.Name = None
-		self.CreateContext = None
+		self.CreateContext = []
 
 	def to_bytes(self):
+		self.Buffer = io.BytesIO()
 		if self.Name is not None:
+
 			t_name = self.Name.encode('utf-16-le')
-			self.Buffer = t_name
-			self.NameOffset = 64 + 2 + 1 + 1 + 4 + 8 + 8 + 4 + 4 + 4 + 4 + 4 + 2 + 2 + 4 + 4
+			self.Buffer.write(t_name)
+			self.NameOffset = 120
 			self.NameLength = len(t_name)
 			
-		if self.CreateContext:
-			t_ctx = self.CreateContext.to_bytes()
-			self.CreateContextsLength = len(t_ctx)
+		if self.CreateContext is not None and len(self.CreateContext) > 0:
+			# 8 byte aligned buffer
+			if self.NameLength % 8 != 0:
+				pad = b'\x00' * (8 - self.NameLength % 8)
+				self.Buffer.write(pad)
 			
-			pos = self.NameOffset + self.NameLength
-			t_m = pos % 8
-			if t_m != 0:
-				pad = b'\x00' * (8 - t_m)
-				self.Buffer += pad
-				self.Buffer +=t_ctx
-				self.CreateContextsOffset = pos + len(pad)
-			else:
-				self.Buffer += t_ctx
-				self.CreateContextsOffset = pos
+			ctx_start = self.Buffer.tell()
+			for i, ctx in enumerate(self.CreateContext):
+				is_last = i == len(self.CreateContext) - 1
+				ctx.to_buffer(self.Buffer, is_last=is_last)
+			ctx_end = self.Buffer.tell()
+
 			
+			self.CreateContextsLength = ctx_end - ctx_start
+			self.CreateContextsOffset = ctx_start + 120
 		
 		t  = self.StructureSize.to_bytes(2, byteorder='little', signed = False)
 		t += self.SecurityFlags.to_bytes(1, byteorder='little', signed = False)
@@ -123,8 +125,9 @@ class CREATE_REQ:
 		t += self.NameLength.to_bytes(2, byteorder='little', signed = False)
 		t += self.CreateContextsOffset.to_bytes(4, byteorder='little', signed = False)
 		t += self.CreateContextsLength.to_bytes(4, byteorder='little', signed = False)
-		t += self.Buffer
-		t += b'\x00'
+		t += self.Buffer.getvalue()
+		if self.CreateContextsLength == 0:
+			t += b'\x00' # not sure if this is needed
 		return t
 
 	@staticmethod
@@ -274,3 +277,77 @@ class CREATE_REPLY:
 		t += 'CreateContextsOffset: %s\r\n' % self.CreateContextsOffset
 		t += 'CreateContextsLength: %s\r\n' % self.CreateContextsLength
 		return t
+
+class CREATE_CONTEXT:
+	def __init__(self, name: str, data: bytes):
+		self.Name = name.encode()
+		self.Data = data
+		
+		self.Next: int = 0
+		self.NameOffset: int = 16
+		self.NameLength: int = len(self.Name)
+		self.Reserved: bytes = b'\x00' * 2
+		self.DataOffset: int = self.NameOffset + self.NameLength
+		self.DataLength: int = len(self.Data)
+		self.Buffer: bytes = b''
+
+		self.Buffer = self.Name
+		
+		if (len(self.Buffer) + 16) % 8 != 0:
+			# data must be 8-byte aligned after the name???
+			# why does Microsoft do this?
+			pad = (8 - (len(self.Buffer) + 16) % 8)
+			self.Buffer += b'\x00' * pad
+			self.DataOffset += pad
+		
+		self.Buffer += self.Data
+
+	
+	def to_bytes(self):
+		buff = io.BytesIO()
+		self.to_buffer(buff)
+		return buff.getvalue()
+	
+	def to_buffer(self, buff: io.BytesIO, is_last: bool = False):
+		if is_last is False:
+			self.Next = 14 + len(self.Buffer)
+		else:
+			self.Next = 0
+		
+		start_pos = buff.tell()
+		
+		buff.write(self.Next.to_bytes(4, byteorder='little', signed = False))
+		buff.write(self.NameOffset.to_bytes(2, byteorder='little', signed = False))
+		buff.write(self.NameLength.to_bytes(2, byteorder='little', signed = False))
+		buff.write(self.Reserved)
+		buff.write(self.DataOffset.to_bytes(2, byteorder='little', signed = False))
+		buff.write(self.DataLength.to_bytes(4, byteorder='little', signed = False))
+		buff.write(self.Buffer)
+
+		if is_last is True:
+			buff_end = buff.tell()
+			buff.seek(start_pos, io.SEEK_SET)
+			buff.write(b'\x00'*4) # next is zero
+		
+		else:
+			if buff.tell() % 8 != 0:
+				pad = (8 - buff.tell() % 8)
+				buff.write(b'\x00' * pad)
+			buff_end = buff.tell()
+			
+			buff.seek(start_pos, io.SEEK_SET)
+			buff.write(buff_end.to_bytes(4, byteorder='little', signed = False)) # 
+
+		buff.seek(buff_end, io.SEEK_SET)
+
+
+class CREATE_TIMEWARP_TOKEN(CREATE_CONTEXT):
+	def __init__(self, token: bytes):
+		super().__init__('TWrp', token)
+
+	@staticmethod
+	def from_timestamp(timestamp: str):
+		fTime = int((datetime.datetime.strptime(timestamp, '@GMT-%Y.%m.%d-%H.%M.%S') - datetime.datetime(1970,1,1)).total_seconds())
+		fTime *= 10000000
+		fTime += 116444736000000000
+		return CREATE_TIMEWARP_TOKEN(fTime.to_bytes(8, byteorder='little', signed = False))

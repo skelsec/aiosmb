@@ -8,18 +8,21 @@ import traceback
 import asyncio
 
 class SMBRegSessionRes:
-	def __init__(self, usersid):
+	def __init__(self, usersid, username = None):
 		self.usersid = str(usersid)
+		self.username = username
 
 	def get_header(self):
 		return ['USERSID']
 
 	def to_line(self, separator = '\t'):
-		return separator.join([str(self.usersid)])
+		username = self.username if self.username is not None else ''
+		return f'{self.usersid}{separator}{username}'
 	
 	def to_dict(self):
 		return {
-			'USERSID' : self.usersid
+			'SID' : self.usersid,
+			'USERNAME' : self.username
 		}
 
 class SMBRegSessionScanner:
@@ -48,7 +51,10 @@ class SMBRegSessionScanner:
 							continue
 						if len(user) < 10:
 							continue
-						await out_queue.put(ScannerData(target, SMBRegSessionRes(user)))
+						
+						username, err = await machine.resolve_sid(user)
+						# not all SIDs can be resolved
+						await out_queue.put(ScannerData(target, SMBRegSessionRes(user, username)))
 				
 		except Exception as e:
 			tb = traceback.format_exc().replace('\n', ' ').replace('\r', '')

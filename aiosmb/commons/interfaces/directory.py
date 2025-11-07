@@ -14,6 +14,7 @@ from aiosmb.protocol.smb2.commands import *
 
 from aiosmb.connection import SMBConnection
 from aiosmb.commons.connection.target import SMBTarget
+from aiosmb.commons.utils.tschecker import tssplit
 
 class SMBDirectory:
 	def __init__(self):
@@ -31,9 +32,15 @@ class SMBDirectory:
 		self.attributes:FileAttributes = None
 		self.file_id:int = None
 		self.security_descriptor = None
+		self.vstimestamp:str = None
 		
 		self.files:Dict[str, SMBFile] = {}
 		self.subdirs:Dict[str, SMBDirectory] = {}
+
+	def get_vscopy(self, vstimestamp:str = None):
+		if vstimestamp is None:
+			return SMBDirectory.from_uncpath(self.unc_path)
+		return SMBDirectory.from_uncpath(self.unc_path + vstimestamp)
 
 	@staticmethod
 	def from_uncpath(unc_path:str):
@@ -44,7 +51,8 @@ class SMBDirectory:
 		unc = PureWindowsPath(unc_path)
 		f = SMBDirectory()
 		f.share_path = unc.drive
-		f.fullpath = '\\'.join(unc.parts[1:])
+		f.name, f.vstimestamp = tssplit(unc.name)
+		f.fullpath = '\\'.join(list(unc.parts[1:-1])+[f.name])
 		f.unc_path = unc_path
 		
 		return f
@@ -519,7 +527,7 @@ class SMBDirectory:
 		finally:
 			if file_id is not None:
 				await connection.close(self.tree_id, file_id)
-		
+
 	def __str__(self):
 		t = '===== DIRECTORY ===== \r\n'
 		for k in self.__dict__:
@@ -535,6 +543,17 @@ class SMBDirectory:
 				t += '%s : %s\r\n' % (k, self.__dict__[k])
 		
 		return t
+
+	def __floordiv__(self, other:str):
+		return self.join(other)
+
+	def __truediv__(self, other:str):
+		return self.join(other)
+
+	def join(self, other:str):
+		if other.startswith('\\') is False:
+			other = '\\' + other
+		return self.unc_path + other
 
 async def smb_mkdir(path:str, connection = None):
 	"""

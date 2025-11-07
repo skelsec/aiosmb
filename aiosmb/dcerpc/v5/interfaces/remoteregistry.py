@@ -1,7 +1,7 @@
 
 import enum
 import ntpath
-import functools
+import asyncio
 import copy
 
 from aiosmb.dcerpc.v5.common.connection.smbdcefactory import SMBDCEFactory
@@ -14,7 +14,8 @@ from aiosmb.wintypes.dtyp.structures.filetime import FILETIME
 from winacl.dtyp.security_descriptor import SECURITY_DESCRIPTOR
 from winacl.dtyp.ace import ACCESS_ALLOWED_ACE, AceFlags
 from winacl.dtyp.sid import SID
-
+from aiosmb.commons.exceptions import SMBException
+from aiosmb.wintypes.ntstatus import NTStatus
 from aiosmb.wintypes.dtyp.constrcuted_security.security_information import SECURITY_INFORMATION
 from aiosmb.dcerpc.v5.rpcrt import RPC_C_AUTHN_LEVEL_NONE,\
 	RPC_C_AUTHN_LEVEL_CONNECT,\
@@ -149,14 +150,28 @@ class RRPRPC:
 			
 			_, err = await service.dce.connect()
 			if err is not None:
-				raise err
+				if isinstance(err, SMBException):
+					if err.ntstatus == NTStatus.PIPE_NOT_AVAILABLE:
+						# this is a common problem for this specific pipe only.
+						# usually this pipe is not aviailable on the first try, but after a few seconds windows automatically creates it after someone tries to connect to it.
+						# so we will wait for a few seconds and try again.
+						await asyncio.sleep(2)
+						_, err = await service.dce.connect()
+						if err is not None:
+							raise err
+					else:
+						raise err
+				else:
+					raise err
 			
 			_, err = await service.dce.bind(service.service_uuid)
 			if err is not None:
 				raise err
-				
+			
 			return service, None
 		except Exception as e:
+			import traceback
+			traceback.print_exc()
 			return False, e
 	
 	@staticmethod
@@ -492,7 +507,86 @@ class RRPRPC:
 		except Exception as e:
 			return None, e
 
+	async def get_system_drive_letter(self):
+		try:
+			regpath = r'HKEY_LOCAL_MACHINE\SYSTEM\Setup'
+			key_handle, err = await self.OpenRegPath(regpath, access = REG_ACCESS_MASK.GENERIC_READ)
+			if err is not None:
+				return None, err
+			if key_handle is None:
+				return None, OSError(err.errno, system_errors.ERROR_MESSAGES[err.errno][1])
+			
+			value_name = 'SystemDrive'
+			val_type, val_data, err = await self.QueryValue(key_handle, value_name, unpack_vals=True)
+			if err is not None:
+				winpath, err = await self.get_windows_directory_path()
+				if err is not None:
+					return None, err
+				return winpath[0], None
+			return val_data.replace('\x00', ''), None
+		except Exception as e:
+			return None, e
+	
+	async def get_system_drive_path(self):
+		try:
+			drive_letter, err = await self.get_system_drive_letter()
+			if err is not None:
+				return None, err
+			return f'{drive_letter}:\\', None
+		except Exception as e:
+			return None, e
+	
+	async def get_user_home_directory_base_path(self):
+		try:
+			regpath = f'HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\ProfileList'
+			key_handle, err = await self.OpenRegPath(regpath, access = REG_ACCESS_MASK.GENERIC_READ)
+			if err is not None:
+				raise err
+			
+			value_name = 'ProfilesDirectory'
+			val_type, val_data, err = await self.QueryValue(key_handle, value_name, unpack_vals=True)
+			if err is not None:
+				raise err
+			basepath = val_data.replace('\x00', '')
+			if basepath.find('%SystemDrive%') != -1:
+				drive_letter, err = await self.get_system_drive_letter()
+				if err is not None:
+					return None, err
+				basepath = basepath.replace('%SystemDrive%', '%s:' % drive_letter)
+			return basepath, None
+		except Exception as e:
+			return None, e
 
+	async def get_ntds_file_path(self):
+		try:
+			# HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\NTDS\Parameters
+			regpath = r'HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\NTDS\Parameters'
+			key_handle, err = await self.OpenRegPath(regpath, access = REG_ACCESS_MASK.GENERIC_READ)
+			if err is not None:
+				return None, err
+			value_name = 'DSA Database file'
+			val_type, val_data, err = await self.QueryValue(key_handle, value_name, unpack_vals=True)
+			if err is not None:
+				raise err
+			return val_data.replace('\x00', ''), None
+		except Exception as e:
+			return None, e
+	
+	async def get_windows_directory_path(self):
+		try:
+			regpath = r'HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion'
+			key_handle, err = await self.OpenRegPath(regpath, access = REG_ACCESS_MASK.GENERIC_READ)
+			if err is not None:
+				return None, err
+			
+			value_name = 'SystemRoot'
+			val_type, val_data, err = await self.QueryValue(key_handle, value_name, unpack_vals=True)
+			if err is not None:
+				raise err
+			return val_data.replace('\x00', ''), None
+
+		except Exception as e:
+			return None, e
 
 class SMBWinRegHive:
 	"""
@@ -703,7 +797,9 @@ class SMBWinRegHive:
 	async def search(self, pattern, in_keys = True, in_valuenames = True, in_values = True):
 		"""Search the registry tree for a pattern"""
 		raise NotImplementedError()
-
+	
+	
+	
 ################## CUT HERE
 class PERF_OBJECT_TYPE:
 	def __init__(self):

@@ -189,6 +189,25 @@ class SAMRRPC:
 				status = NTStatus(resp['ErrorCode'])
 		except Exception as e:
 			yield None, e
+
+	async def list_domains_raw(self):
+		try:
+			status = NTStatus.MORE_ENTRIES
+			enumerationContext = 0
+			while status == NTStatus.MORE_ENTRIES:
+				resp, err = await samr.hSamrEnumerateDomainsInSamServer(self.dce, self.handle, enumerationContext = enumerationContext)
+				if err is not None:
+					if err.error_code != NTStatus.MORE_ENTRIES.value:
+						raise err
+					resp = err.get_packet()
+				
+				for domain in resp['Buffer']['Buffer']:
+					yield domain, None
+				
+				enumerationContext = resp['EnumerationContext']
+				status = NTStatus(resp['ErrorCode'])
+		except Exception as e:
+			yield None, e
 	
 	async def get_domain_sid(self, domain_name):
 		try:
@@ -200,9 +219,26 @@ class SAMRRPC:
 			return resp['DomainId'].formatCanonical(), None
 		except Exception as e:
 			return None, e
+
+	async def refresh_domains(self):
+		try:
+			async for domain, err in self.list_domains():
+				if err is not None:
+					continue
+				await self.get_domain_sid(domain)
+				return True, None
+		except Exception as e:
+			return None, e
+
 	
 	async def open_domain(self, domain_sid, access_level = samr.MAXIMUM_ALLOWED):
 		try:
+			if len(self.domain_ids) == 0:
+				await self.refresh_domains()
+			
+			if domain_sid not in self.domain_ids:
+				raise Exception('Unknown domain "%s"' % domain_sid)
+			
 			resp, err = await samr.hSamrOpenDomain(self.dce, self.handle, domainId = self.domain_ids[domain_sid], desiredAccess = access_level)
 			if err is not None:
 				raise err
@@ -314,6 +350,7 @@ class SAMRRPC:
 
 	async def open_user(self, domain_handle, user_id, access_level = samr.MAXIMUM_ALLOWED):
 		try:
+			user_id = int(user_id)
 			resp, err = await samr.hSamrOpenUser(self.dce, domain_handle, userId=user_id, desiredAccess = access_level)
 			if err is not None:
 				raise err
@@ -325,10 +362,38 @@ class SAMRRPC:
 	async def get_user_info(self, user_handle, userInformationClass = samr.USER_INFORMATION_CLASS.UserGeneralInformation):
 		try:
 			resp, err = await samr.hSamrQueryInformationUser(self.dce, user_handle, userInformationClass = userInformationClass)
+			if err is not None:
+				raise err
+			
+
+			print(resp.dump())
+			return resp, None
+		except Exception as e:
+			return None, e
+	
+	async def get_user_info_all(self, user_handle:int):
+		try:
+			user_handle = int(user_handle)
+			resp, err = await samr.hSamrQueryInformationUser(self.dce, user_handle, userInformationClass = samr.USER_INFORMATION_CLASS.UserGeneralInformation)
+			if err is not None:
+				raise err
+			
+
+			print(resp.dump())
 			return resp, None
 		except Exception as e:
 			return None, e
 
+	async def get_user_username(self, user_handle:int):
+		try:
+			resp, err = await samr.hSamrQueryInformationUser(self.dce, user_handle, userInformationClass = samr.USER_INFORMATION_CLASS.UserGeneralInformation)
+			if err is not None:
+				raise err
+			
+			username = resp['Buffer']['General']['UserName']
+			return username, None
+		except Exception as e:
+			return None, e
 	
 	async def get_user_group_memberships(self, user_handle):
 		try:

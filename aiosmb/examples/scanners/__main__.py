@@ -12,6 +12,7 @@ from aiosmb.examples.scanners.smbsession import SMBSessionScanner
 from aiosmb.examples.scanners.smbprintnightmare import SMBPrintnightmareScanner
 from aiosmb.examples.scanners.smbfile import SMBFileScanner
 from aiosmb.examples.scanners.smbbrute import SMBBruteForceScanner
+from aiosmb.examples.scanners.smbregsession import SMBRegSessionScanner
 
 smbscan_options = {
 	'finger'    : (SMBFingerScanner, "SMB Finger grabs OS info. Only works with NTLM auth"),
@@ -21,7 +22,8 @@ smbscan_options = {
 	'session'   : (SMBSessionScanner, "Lists SMB sessions"),
 	'printnightmare': (SMBPrintnightmareScanner, "Checks hosts for printnightmare vulnerability"),
 	'file' : (SMBFileScanner, 'Enumerates files and shares'),
-	'brute'	 : (SMBBruteForceScanner, "Brute forces SMB logins")
+	'brute'	 : (SMBBruteForceScanner, "Brute forces SMB logins"),
+	'regsession': (SMBRegSessionScanner, "SMB Registry sessions")
 }
 
 async def amain():
@@ -77,6 +79,10 @@ async def amain():
 	brutescan.add_argument('-s', '--sleep-time', default=5, type=int, help = 'Sleep time between attempts per user')
 	brutescan.add_argument('-a', '--max-attempts', default=3, type=int, help = 'Max unsuccessful attempts per user')
 	brutescan.add_argument('target', help = 'IP/hostname of target')
+
+	regsessionscan = subparsers.add_parser('regsession', help='List SMB sessions via registry')
+	regsessionscan.add_argument('url', help = 'Connection string in URL format')
+	regsessionscan.add_argument('targets', nargs='*', help = 'Hostname or IP address or file with a list of targets')
 	
 	args = parser.parse_args()
 	
@@ -118,7 +124,7 @@ async def amain():
 		await scanner.scan_and_process(progress=not args.no_progress, out_file=args.out_file, include_errors=args.errors)
 		return
 	
-	if args.scantype == 'session':
+	if args.scantype in ['session','regsession']:
 		connectionfactory = SMBConnectionFactory.from_url(args.url)
 		executor = smbscan_options[args.scantype][0](connectionfactory)
 		tgen = UniTargetGen.from_list(args.targets)

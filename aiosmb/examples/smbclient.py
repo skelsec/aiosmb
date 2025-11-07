@@ -27,7 +27,7 @@ from aiosmb.dcerpc.v5.rpcrt import DCERPCException
 from aiosmb.commons.utils.fmtsize import sizeof_fmt, size_to_bytes
 from asysocks import logger as sockslogger
 from aiosmb.commons.utils.faccess import faccess_basic_check, faccess_mask_to_unix, faccess_mask_to_tsv, faccess_match
-
+from aiosmb.commons.utils.tschecker import tssplit
 
 from aiosmb.wintypes.access_mask import *
 from aiosmb.protocol.smb2.commands import *
@@ -757,6 +757,7 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 		"""Download a file from the remote share to the current folder"""
 		try:
 			matched = []
+			file_name, vstimestamp = tssplit(file_name)
 			if file_name not in self.__current_directory.files:
 				
 				for fn in fnmatch.filter(list(self.__current_directory.files.keys()), file_name):
@@ -769,6 +770,8 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			
 			for file_name in matched:
 				file_obj = self.__current_directory.files[file_name]
+				file_obj = file_obj.get_vscopy(vstimestamp)
+				
 				with tqdm.tqdm(desc = 'Downloading %s' % file_name, total=file_obj.size, unit='B', unit_scale=True, unit_divisor=1024) as pbar:
 					with open(file_name, 'wb') as outfile:
 						async for data, err in self.machine.get_file_data(file_obj):
@@ -1392,7 +1395,58 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			return True, None
 		except Exception as e:
 			return self.handle_exception(e)
+	
+	async def do_systemdrive(self):
+		try:
+			drive, err = await self.machine.reg_get_system_drive_letter()
+			if err is not None:
+				raise err
+			print(drive)
+			return True, None
+		except Exception as e:
+			return self.handle_exception(e)
+	
+	async def do_userhomebasepath(self):
+		try:
+			user_home_directory_base_path, err = await self.machine.reg_get_user_home_directory_base_path()
+			if err is not None:
+				raise err
+			print(user_home_directory_base_path)
+			return True, None
+		except Exception as e:
+			return self.handle_exception(e)
+	
+	async def do_ntdsfilepath(self):
+		try:
+			ntds_file_path, err = await self.machine.reg_get_ntds_file_path()
+			if err is not None:
+				raise err
+			print(ntds_file_path)
+			return True, None
+		except Exception as e:
+			return self.handle_exception(e)
 
+	async def do_windowsdirectorypath(self):
+
+		try:
+			windows_directory_path, err = await self.machine.reg_get_windows_directory_path()
+			if err is not None:
+				raise err
+			print(windows_directory_path)
+			return True, None
+		except Exception as e:
+			return self.handle_exception(e)
+
+	#async def do_userhomes(self):
+	#	try:
+	#		async for user_home, err in self.machine.iter_user_homes():
+	#			if err is not None:
+	#				raise err
+	#			print(user_home)
+	#			print(user_home / 'test.txt')
+	#		return True, None
+	#	except Exception as e:
+	#		return self.handle_exception(e)
 
 	async def do_pipetest(self, data = 'HELLO!'):
 		""" pipetest """

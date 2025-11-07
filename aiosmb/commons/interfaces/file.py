@@ -11,6 +11,8 @@ import asyncio
 from contextlib import asynccontextmanager
 from aiosmb.connection import SMBConnection
 from winacl.dtyp.security_descriptor import SECURITY_DESCRIPTOR
+from aiosmb.commons.utils.tschecker import tssplit
+from aiosmb.protocol.smb2.commands.create import CREATE_TIMEWARP_TOKEN
 
 class SMBFile:
 	def __init__(self):
@@ -29,7 +31,7 @@ class SMBFile:
 		self.attributes:FileAttributes = None
 		self.file_id:int = None
 		self.security_descriptor:SECURITY_DESCRIPTOR = None
-
+		self.vstimestamp:str = None
 		#internal
 		self.__connection = None
 		self.__position = 0
@@ -42,6 +44,11 @@ class SMBFile:
 	
 	async def __aexit__(self, exc_type, exc_val, exc_tb):
 		await self.close()
+
+	def get_vscopy(self, vstimestamp:str = None):
+		if vstimestamp is None:
+			return SMBFile.from_uncpath(self.unc_path)
+		return SMBFile.from_uncpath(self.unc_path + vstimestamp)
 
 	@staticmethod
 	def prepare_mirror_path(basedir:str, unc_path:str, path_with_file = True):
@@ -67,9 +74,10 @@ class SMBFile:
 		unc = PureWindowsPath(unc_path)
 		f = SMBFile()
 		f.share_path = unc.drive
-		f.name = unc.name
-		f.fullpath = '\\'.join(unc.parts[1:])
-		
+		f.name, f.vstimestamp = tssplit(unc.name)
+		f.fullpath = '\\'.join(list(unc.parts[1:-1])+[f.name])
+		f.unc_path = unc_path
+
 		return f
 
 	@staticmethod
@@ -212,7 +220,12 @@ class SMBFile:
 				create_options = CreateOptions.FILE_NON_DIRECTORY_FILE | CreateOptions.FILE_SYNCHRONOUS_IO_NONALERT 
 				file_attrs = 0
 				create_disposition = CreateDisposition.FILE_OPEN
-				file_id, err = await connection.create(tree_id, self.fullpath, desired_access, share_mode, create_options, create_disposition, file_attrs)
+
+				if self.vstimestamp is not None:
+					create_context = [CREATE_TIMEWARP_TOKEN.from_timestamp(self.vstimestamp)]
+				else:
+					create_context = []
+				file_id, err = await connection.create(tree_id, self.fullpath, desired_access, share_mode, create_options, create_disposition, file_attrs, create_contexts=create_context)
 				if err is not None:
 					raise err
 
@@ -314,13 +327,21 @@ class SMBFile:
 				create_options = CreateOptions.FILE_NON_DIRECTORY_FILE | CreateOptions.FILE_SYNCHRONOUS_IO_NONALERT 
 				file_attrs = 0
 				create_disposition = CreateDisposition.FILE_OPEN
+
+				if self.vstimestamp is not None:
+					create_context = [CREATE_TIMEWARP_TOKEN.from_timestamp(self.vstimestamp)]
+				else:
+					create_context = []
 				
-				self.file_id, smb_reply, err = await connection.create(self.tree_id, self.fullpath, desired_access, share_mode, create_options, create_disposition, file_attrs, return_reply = True)
+				self.file_id, smb_reply, err = await connection.create(self.tree_id, self.fullpath, desired_access, share_mode, create_options, create_disposition, file_attrs, create_contexts=create_context, return_reply = True)
 				if err is not None:
 					raise err
 				self.size = smb_reply.EndofFile
 				
 			elif 'w' in mode:
+				if self.vstimestamp is not None:
+					raise Exception('Cannot write to a file with a timestamp!')
+
 				desired_access = FileAccessMask.GENERIC_READ | FileAccessMask.GENERIC_WRITE
 				share_mode = ShareAccess.FILE_SHARE_READ | ShareAccess.FILE_SHARE_WRITE if share_mode is None else share_mode
 				create_options = CreateOptions.FILE_NON_DIRECTORY_FILE | CreateOptions.FILE_SYNCHRONOUS_IO_NONALERT 

@@ -453,10 +453,10 @@ class SMBMachine:
 		return await parent_directory_obj.create_subdir(directory_name, self.connection)
 		
 
-	async def list_services(self) -> AsyncGenerator[Tuple[SMBService, Union[Exception, None]], None]:
+	async def list_services(self, with_config:bool = False) -> AsyncGenerator[Tuple[SMBService, Union[Exception, None]], None]:
 		try:
 			async with remsvcrpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as rpc:	
-				async for service, err in rpc.list():
+				async for service, err in rpc.list(with_config=with_config):
 					if err is not None:
 						raise err
 					yield service, None
@@ -1150,6 +1150,39 @@ class SMBMachine:
 		except Exception as e:
 			yield None, None, e
 	
+	async def resolve_sid(self, sid:str):
+		try:
+			sid = str(sid)
+			sidsplit = sid.split('-')
+			dsid = '-'.join(sidsplit[:-1])
+			urid = sidsplit[-1]
+
+			async with samrrpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as samrpc:
+				dhandle, err = await samrpc.open_domain(dsid)
+				if err is not None:
+					raise err
+				
+				uhandle, err = await samrpc.open_user(dhandle, urid)
+				if err is not None:
+					if str(err).find('NO_SUCH_USER') != -1:
+						dhandle, err = await samrpc.openBuiltinDomain()
+						if err is not None:
+							raise err
+						uhandle, err = await samrpc.open_user(dhandle, urid)
+
+					if err is not None:
+						print('User open failed! %s' % err)
+						raise err
+				
+				username, err = await samrpc.get_user_username(uhandle)
+				if err is not None:
+					raise err
+
+				return username, None
+
+		except Exception as e:
+			return None, e
+	
 	async def whoami(self) -> Awaitable[Tuple[str, Union[Exception, None]]]:
 		try:
 			groups = []
@@ -1169,7 +1202,7 @@ class SMBMachine:
 					usersid, domainname, userrid, err = await lsadrpc.get_sid_for_user(policy_handle, username)
 					if err is not None:
 						raise err
-				
+
 					sdsid, err = await samrpc.get_domain_sid(domainname)
 					if err is not None:
 						raise err
@@ -1190,3 +1223,77 @@ class SMBMachine:
 				return username, domainname, usersid, groups, None
 		except Exception as e:
 			return None, None, None, None, e
+	
+	async def reg_get_system_drive_letter(self):
+		try:
+			async with rrprpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as rpc:
+				drive, err = await rpc.get_system_drive_letter()
+				if err is not None:
+					raise err
+				return drive, None
+		except Exception as e:
+			return None, e
+
+	async def reg_get_user_home_directory_base_path(self):
+		try:
+			async with rrprpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as rpc:
+				user_home_directory_base_path, err = await rpc.get_user_home_directory_base_path()
+				if err is not None:
+					raise err
+				return user_home_directory_base_path, None
+		except Exception as e:
+			return None, e
+
+	async def reg_get_ntds_file_path(self):
+		try:
+			async with rrprpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as rpc:
+				ntds_file_path, err = await rpc.get_ntds_file_path()
+				if err is not None:
+					raise err
+				return ntds_file_path, None
+		except Exception as e:
+			return None, e
+
+	
+	async def reg_get_windows_directory_path(self):
+		try:
+			async with rrprpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as rpc:
+				windows_directory_path, err = await rpc.get_windows_directory_path()
+				if err is not None:
+					raise err
+				return windows_directory_path, None
+		except Exception as e:
+			return None, e
+	
+	async def iter_user_homes(self, include_system_accounts:bool = False):
+		try:
+			user_base_win, err = await self.reg_get_user_home_directory_base_path()
+			if err is not None:
+				raise err
+			user_base_unc = user_base_win.replace(':\\', '$\\')
+			user_base_unc = '\\%s' % user_base_unc
+
+			# \\C$\\temp\\test.exe
+			smbdir = SMBDirectory.from_remotepath(self.connection, user_base_unc)
+			async for entry, entrytype, err in smbdir.list_r(self.connection, depth = 1, maxentries = -1):
+				if err is not None:
+					continue
+				if entrytype == 'dir':
+					yield entry, None
+			
+			if True: #if include_system_accounts is True:
+				systemroot_win, err = await self.reg_get_windows_directory_path()
+				if err is not None:
+					raise err
+				systemroot_unc = systemroot_win.replace(':\\', '$\\')
+				user_base_paths_system = [
+					'\\%s\\ServiceProfiles\\LocalService' % systemroot_unc,
+					'\\%s\\ServiceProfiles\\NetworkService' % systemroot_unc,
+					'\\%s\\system32\\config\\systemprofile' % systemroot_unc,
+				]
+				for path in user_base_paths_system:
+					smbdir = SMBDirectory.from_remotepath(self.connection, path)
+					yield smbdir, None
+					
+		except Exception as e:
+			yield None, e

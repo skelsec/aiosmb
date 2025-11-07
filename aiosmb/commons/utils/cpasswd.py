@@ -54,7 +54,7 @@ async def find_cpasswd(connection:SMBConnection, depth = 5, print_cb = dummy_pri
 						await print_cb('[-] Error parsing xml file: %s' % e)
 						continue
 					for result in results:
-						if result.get('cpassword', '') != "":
+						if result.get('cpassword', '') == "":
 							continue
 						yield result['filename'], result['username'], result['cpassword'], result['xmltype'], None
 

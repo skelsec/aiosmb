@@ -126,7 +126,7 @@ class REMSVCRPC:
 		except Exception as e:
 			return None, e
 
-	async def list(self):
+	async def list(self, with_config:bool = False):
 		try:
 			resp, err = await scmr.hREnumServicesStatusW(self.dce, self.handle)
 			if err is not None:
@@ -136,12 +136,17 @@ class REMSVCRPC:
 				service_status = None
 				state = resp[i]['ServiceStatus']['dwCurrentState']
 				try:
-					service_status = ServiceStatus(resp[i]['ServiceStatus']['dwCurrentState'])
+					service_status = ServiceStatus(state)
 				except:
 					service_status = ServiceStatus.UNKNOWN
-
-				service = SMBService(resp[i]['lpServiceName'][:-1], resp[i]['lpDisplayName'][:-1], service_status)
-				yield service, None
+				
+				if with_config:
+					ans, err = await self.get_config(resp[i]['lpServiceName'][:-1], status=service_status)
+					if err is not None:
+						raise err
+					yield ans, None
+				else:
+					yield SMBService(resp[i]['lpServiceName'][:-1], resp[i]['lpDisplayName'][:-1], service_status), None
 		except Exception as e:
 			yield None, e
 	
@@ -327,7 +332,7 @@ class REMSVCRPC:
 		except Exception as e:
 			return None, e
 
-	async def get_config(self, service_name):
+	async def get_config(self, service_name, status:ServiceStatus = ServiceStatus.UNKNOWN):
 		try:
 			if not self.handle:
 				_, err = await self.open()
@@ -335,7 +340,7 @@ class REMSVCRPC:
 					raise err
 
 			if service_name not in self.service_handles:
-				_, err = await self.open_service(service_name)
+				_, err = await self.open_service(service_name, desired_access=scmr.SERVICE_QUERY_CONFIG)
 				if err is not None:
 					raise err
 
@@ -343,7 +348,7 @@ class REMSVCRPC:
 			if err is not None:
 				raise err
 			
-			service = SMBService.from_query_result(ans, name=service_name)
+			service = SMBService.from_query_result(ans, name=service_name, status=status)
 			return service, None
 		except Exception as e:
 			return None, e

@@ -57,7 +57,7 @@ class SMBService:
 		self.dependencies:str = None
 	
 	@staticmethod
-	def from_query_result(ans:QUERY_SERVICE_CONFIGW, name:str = None):
+	def from_query_result(ans:QUERY_SERVICE_CONFIGW, name:str = None, status:ServiceStatus = ServiceStatus.UNKNOWN):
 		service = SMBService()
 		tname = ans['lpServiceConfig']['lpServiceStartName'][:-1]
 		if tname is None or tname == '':
@@ -65,6 +65,7 @@ class SMBService:
 				tname = name
 		service.name = tname
 		service.display_name = ans['lpServiceConfig']['lpDisplayName'][:-1]
+		service.status = status
 		try:
 			# there are other undocumented types... thx microsoft!
 			if ans['lpServiceConfig']['dwServiceType'] is not None:
@@ -80,6 +81,20 @@ class SMBService:
 		service.tagid = ans['lpServiceConfig']['dwTagId']
 		service.dependencies = ans['lpServiceConfig']['lpDependencies'][:-1]
 		return service
+	
+	def to_dict(self):
+		return {
+			'name': self.name,
+			'displayname': self.display_name,
+			'status': self.status.name,
+			'type': self.type.name,
+			'starttype': self.starttype.name if self.starttype is not None else None,
+			'errorcontrol': self.errorcontrol.name if self.errorcontrol is not None else None,
+			'binarypath': self.binarypath,
+			'loadordergroup': self.loadordergroup,
+			'tagid': self.tagid,
+			'dependencies': self.dependencies,
+		}
 	
 	def get_stauts_line(self):
 		return '%s - %s - %s' % (self.name, self.display_name, self.status.name)
