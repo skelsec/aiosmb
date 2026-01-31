@@ -443,10 +443,12 @@ class DRSUAPIRPC:
 						encoded_pw = bytes.fromhex(userProperty['PropertyValue'].decode('ascii'))
 						try:
 							answer = encoded_pw.decode('utf-16le')
-						except UnicodeDecodeError:
+						except Exception:
 							# This could be because we're decoding a machine password. Printing it hex
-							answer = encoded_pw.decode('utf-8')
-
+							try:
+								answer = encoded_pw.decode('utf-8')
+							except Exception:
+								answer = encoded_pw.hex() # we give up, latin-1 just messes up everything
 						us.cleartext_pwds.append(answer)
 				
 		

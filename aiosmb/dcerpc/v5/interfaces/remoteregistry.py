@@ -170,8 +170,6 @@ class RRPRPC:
 			
 			return service, None
 		except Exception as e:
-			import traceback
-			traceback.print_exc()
 			return False, e
 	
 	@staticmethod

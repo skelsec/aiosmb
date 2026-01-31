@@ -16,6 +16,7 @@ from asysocks.unicomm.common.target import UniTarget
 from asyauth.common.credentials.spnego import SPNEGOCredential
 from asyauth.common.credentials.ntlm import NTLMCredential
 from asyauth.common.credentials.kerberos import KerberosCredential
+from aiosmb.dcerpc.v5.uuid import string_to_uuidtup, uuidtup_to_bin
 
 """
 EPM is a bit special interface, as it seems it doesn't require authentication?
@@ -272,8 +273,13 @@ class EPM:
 				tmpEntry = {}
 				entry = resp['entries'][i]
 				tmpEntry['object'] = entry['object'] 
-				tmpEntry['annotation'] = b''.join(entry['annotation'])
+				tmpEntry['annotation'] = b''.join(entry['annotation']).decode('utf-8').replace('\x00', '')
 				tmpEntry['tower'] = EPMTower(b''.join(entry['tower']['tower_octet_string']))
+				tmp_uuid = str(tmpEntry['tower']['Floors'][0])
+				tmpEntry["UUID"] = tmp_uuid
+				tmpEntry["Protocol"] = KNOWN_PROTOCOLS.get(tmp_uuid[:36], "N/A")
+				tmpEntry["EXE"] = KNOWN_UUIDS.get(uuidtup_to_bin(string_to_uuidtup(tmp_uuid))[:18], "N/A")
+				#tmpEntry["Binding"] = PrintStringBinding(tmpEntry['tower']['Floors'][3].getData())
 				entries.append(tmpEntry)
 
 			return entries, None
@@ -283,7 +289,7 @@ class EPM:
 async def amain():
 	try:
 		from aiosmb.dcerpc.v5 import nrpc
-		epm = EPM.from_address('10.10.10.2')
+		epm = EPM.from_address('192.168.56.11')
 		_, err = await epm.connect()
 		if err is not None:
 			raise err
