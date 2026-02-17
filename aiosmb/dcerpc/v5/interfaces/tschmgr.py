@@ -87,7 +87,7 @@ class TSCHRPC:
 		"""
 		try:
 			if auth_level is None:
-				auth_level = RPC_C_AUTHN_LEVEL_CONNECT
+				auth_level = RPC_C_AUTHN_LEVEL_PKT_PRIVACY # mandatory for Task Scheduler
 			rpctransport = SMBDCEFactory(connection, filename=TSCHRPC().service_pipename)		
 			service, err = await TSCHRPC.from_rpcconnection(rpctransport.get_dce_rpc(), auth_level=auth_level, open=open, perform_dummy = perform_dummy)	
 			if err is not None:
@@ -319,3 +319,126 @@ class TSCHRPC:
 			 "<": "&lt;",
 			 }
 		return ''.join(replace_table.get(c, c) for c in data)
+	
+	async def run_command_as(self, run_as_sid:str, command:str, arguments:str = '', cleanup:bool = True):
+		try:
+			if run_as_sid is None or run_as_sid.startswith('S-1-') is False:
+				raise ValueError('run_as_sid must be a valid SID')
+			template = generate_task_xml(command = command, arguments=arguments, run_as_sid=run_as_sid)
+			task_name, err = await self.register_task(template)
+			if err is not None:
+				return None, err
+
+			_, err = await self.run_task(task_name)
+			if err is not None:
+				return None, err
+			
+			if cleanup:
+				_, err = await self.delete_task(task_name)
+				if err is not None:
+					return None, err
+
+			return True, None
+		except Exception as e:
+			return None, e
+	
+def generate_task_xml(command: str, arguments: str = '', run_as_sid: str = None) -> str:
+    """
+    Generate XML task definition for Windows Task Scheduler.
+    
+    Args:
+        command: Executable to run
+        arguments: Command arguments
+        run_as_sid: If specified, task runs as this user on logon.
+                    If None, runs as SYSTEM immediately.
+    """
+    if run_as_sid:
+        # LogonTrigger - runs when the specified user logs in
+        # Task runs in the user's interactive session context
+        xml = f'''<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <Triggers>
+    <LogonTrigger>
+      <Enabled>true</Enabled>
+      <UserId>{run_as_sid}</UserId>
+    </LogonTrigger>
+  </Triggers>
+  <Principals>
+    <Principal id="Author">
+      <UserId>{run_as_sid}</UserId>
+      <LogonType>InteractiveToken</LogonType>
+      <RunLevel>HighestAvailable</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <AllowHardTerminate>true</AllowHardTerminate>
+    <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
+    <IdleSettings>
+      <StopOnIdleEnd>false</StopOnIdleEnd>
+      <RestartOnIdle>false</RestartOnIdle>
+    </IdleSettings>
+    <AllowStartOnDemand>true</AllowStartOnDemand>
+    <Enabled>true</Enabled>
+    <Hidden>true</Hidden>
+    <RunOnlyIfIdle>false</RunOnlyIfIdle>
+    <WakeToRun>false</WakeToRun>
+    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+    <Priority>7</Priority>
+  </Settings>
+  <Actions Context="Author">
+    <Exec>
+      <Command>{command}</Command>
+      <Arguments>{arguments}</Arguments>
+    </Exec>
+  </Actions>
+</Task>'''
+    else:
+        # CalendarTrigger with SYSTEM - we run it manually
+        xml = f'''<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <Triggers>
+    <CalendarTrigger>
+      <StartBoundary>2015-07-15T20:35:13.2757294</StartBoundary>
+      <Enabled>true</Enabled>
+      <ScheduleByDay>
+        <DaysInterval>1</DaysInterval>
+      </ScheduleByDay>
+    </CalendarTrigger>
+  </Triggers>
+  <Principals>
+    <Principal id="LocalSystem">
+      <UserId>S-1-5-18</UserId>
+      <RunLevel>HighestAvailable</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <AllowHardTerminate>true</AllowHardTerminate>
+    <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
+    <IdleSettings>
+      <StopOnIdleEnd>true</StopOnIdleEnd>
+      <RestartOnIdle>false</RestartOnIdle>
+    </IdleSettings>
+    <AllowStartOnDemand>true</AllowStartOnDemand>
+    <Enabled>true</Enabled>
+    <Hidden>true</Hidden>
+    <RunOnlyIfIdle>false</RunOnlyIfIdle>
+    <WakeToRun>false</WakeToRun>
+    <ExecutionTimeLimit>P3D</ExecutionTimeLimit>
+    <Priority>7</Priority>
+  </Settings>
+  <Actions Context="LocalSystem">
+    <Exec>
+      <Command>{command}</Command>
+      <Arguments>{arguments}</Arguments>
+    </Exec>
+  </Actions>
+</Task>'''
+    return xml
+
+

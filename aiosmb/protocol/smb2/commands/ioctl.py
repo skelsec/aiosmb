@@ -373,5 +373,5 @@ class SRV_SNAPSHOT_ARRAY:
 		if msg.SnapShotArraySize > 0:
 			for _ in range(msg.NumberOfSnapShotsReturned):
 				msg.SnapShots.append(buff.read(48).decode('utf-16-le')) #"@GMT-YYYY.MM.DD-HH.MM.SS"
-				buff.read(1) # zero bytes
+				buff.read(2) # null terminator (UTF-16-LE is 2 bytes)
 		return msg

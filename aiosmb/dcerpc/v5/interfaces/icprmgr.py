@@ -96,41 +96,92 @@ class ICPRRPC:
 			if epm is not None:
 				await epm.disconnect()
 	
-	async def request_certificate(self, service, csr, attributes = {}, flags = 0, requestid = 1):
+	async def request_certificate(self, ca_name: str, csr: bytes, attributes: list = None, flags: int = 0):
+		"""
+		Submit a certificate request to the CA via RPC (MS-ICPR).
+		
+		Args:
+			ca_name: CA name (e.g., "MyCA" or "DC01\\MyCA")
+			csr: DER-encoded certificate signing request
+			attributes: List of request attributes (e.g., ['CertificateTemplate:User'])
+			flags: Request flags
+		
+		Returns:
+			(result_dict, None) on success where result_dict contains:
+				- 'request_id': The assigned request ID
+				- 'disposition': Disposition code
+				- 'certificate': DER-encoded certificate (if issued)
+				- 'certificate_chain': Certificate chain data (if issued)
+				- 'disposition_message': Error/status message
+			(None, Exception) on failure
+		"""
 		try:
 			flattrib = ""
-			if len(attributes) > 0:
-				flattrib = "\n".join(
-					["{}:{}".format(k, attributes[k]) for k in attributes]
-				)
+			if attributes and len(attributes) > 0:
+				flattrib = "\n".join(attributes)
 			
 			data, err = await icpr.hCertServerRequest(
 				self.dce,
-				service, 
+				ca_name, 
 				csr,
 				dwFlags = flags, 
 				pctbAttribs = flattrib, 
-				pdwRequestId = requestid
+				pdwRequestId = 0  # 0 for new requests
 			)
 			if err is not None:
 				raise err
 			
-			requestid = data['pdwRequestId']
-			disposition = data['pdwDisposition']
-			cert = b''.join(data['pctbCert']['pbData'])
-			encodedcert = b''.join(data['pctbEncodedCert']['pbData'])
-			disposition_message = b''.join(data['pctbDispositionMessage']['pbData']).decode('utf-16-le').replace('\x00', '')
-
-			res = {
-				'requestid' : requestid,
-				'disposition' : disposition,
-				'cert' : cert,
-				'encodedcert' : encodedcert,
-				'disposition_message' : disposition_message
-			}
-			
-			return res, None
+			return self._parse_response(data), None
 		
 		except Exception as e:
 			return None, e
+
+	async def retrieve_certificate(self, ca_name: str, request_id: int, flags: int = 0):
+		"""
+		Retrieve a pending certificate by request ID via RPC (MS-ICPR).
+		
+		Args:
+			ca_name: CA name (e.g., "MyCA" or "DC01\\MyCA")
+			request_id: The request ID from a previous submission
+			flags: Request flags
+		
+		Returns:
+			(result_dict, None) on success where result_dict contains:
+				- 'request_id': The request ID
+				- 'disposition': Disposition code
+				- 'certificate': DER-encoded certificate (if issued)
+				- 'certificate_chain': Certificate chain data (if issued)
+				- 'disposition_message': Error/status message
+			(None, Exception) on failure
+		"""
+		try:
+			data, err = await icpr.hCertServerRequest(
+				self.dce,
+				ca_name, 
+				b'',  # Empty CSR for retrieval
+				dwFlags = flags, 
+				pctbAttribs = "", 
+				pdwRequestId = request_id
+			)
+			if err is not None:
+				raise err
+			
+			return self._parse_response(data), None
+		
+		except Exception as e:
+			return None, e
+
+	def _parse_response(self, data) -> dict:
+		"""Parse certificate server response into a consistent dict format."""
+		cert_chain = b''.join(data['pctbCert']['pbData'])
+		certificate = b''.join(data['pctbEncodedCert']['pbData'])
+		disposition_message = b''.join(data['pctbDispositionMessage']['pbData']).decode('utf-16-le').replace('\x00', '')
+
+		return {
+			'request_id': data['pdwRequestId'],
+			'disposition': data['pdwDisposition'],
+			'certificate': certificate if len(certificate) > 0 else None,
+			'certificate_chain': cert_chain if len(cert_chain) > 0 else None,
+			'disposition_message': disposition_message if disposition_message else None,
+		}
 

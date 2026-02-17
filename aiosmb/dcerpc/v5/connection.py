@@ -30,6 +30,7 @@ class DCERPC5Connection:
 		self.auth_level = RPC_C_AUTHN_LEVEL_NONE
 		self.ctx = 0
 		self.callid = 1
+		self.__auth_ctx_id = None  # Set during initial bind, reused for alter context
 
 		self.NDRSyntax   = uuidtup_to_bin(('8a885d04-1ceb-11c9-9fe8-08002b104860', '2.0'))
 		self.NDR64Syntax = uuidtup_to_bin(('71710533-BEBA-4937-8319-B5DBEF9CCC36', '1.0'))
@@ -95,6 +96,11 @@ class DCERPC5Connection:
 		try:
 			bind = MSRPCBind()
 			#item['TransferSyntax']['Version'] = 1
+			
+			# For alter context, increment to get a new context ID
+			if alter:
+				self.ctx += 1
+			
 			ctx = self.ctx
 			for _ in range(bogus_binds):
 				item = CtxItem()
@@ -123,8 +129,24 @@ class DCERPC5Connection:
 			
 			if alter:
 				packet['type'] = MSRPC_ALTERCTX
+				# For alter context with authentication, include sec_trailer to reference existing security context
+				if self.auth_level != RPC_C_AUTHN_LEVEL_NONE:
+					sec_trailer = SEC_TRAILER()
+					sec_trailer['auth_type'] = self.auth_type
+					sec_trailer['auth_level'] = self.auth_level
+					# Use the SAME auth_ctx_id as the original bind to reference the same security context
+					sec_trailer['auth_ctx_id'] = self.__auth_ctx_id
+					
+					pad = (4 - (len(packet.get_packet()) % 4)) % 4
+					if pad != 0:
+						packet['pduData'] += b'\xFF' * pad
+						sec_trailer['auth_pad_len'] = pad
+					
+					packet['sec_trailer'] = sec_trailer
+					# No auth_data for alter context - we're reusing existing security context
 
-			if self.auth_level != RPC_C_AUTHN_LEVEL_NONE:
+			# For initial bind, we need full authentication
+			if self.auth_level != RPC_C_AUTHN_LEVEL_NONE and not alter:
 				#authentication required
 				if self.auth_type == RPC_C_AUTHN_WINNT:
 					
@@ -166,7 +188,9 @@ class DCERPC5Connection:
 				sec_trailer = SEC_TRAILER()
 				sec_trailer['auth_type']   = self.auth_type
 				sec_trailer['auth_level']  = self.auth_level
-				sec_trailer['auth_ctx_id'] = self.ctx + 79231 
+				# Store the auth_ctx_id for use in alter context
+				self.__auth_ctx_id = self.ctx + 79231
+				sec_trailer['auth_ctx_id'] = self.__auth_ctx_id
 
 				pad = (4 - (len(packet.get_packet()) % 4)) % 4
 				if pad != 0:
@@ -223,7 +247,8 @@ class DCERPC5Connection:
 			# The received transmit size becomes the client's receive size, and the received receive size becomes the client's transmit size.
 			self.__max_xmit_size = bindResp['max_rfrag']
 
-			if self.auth_level != RPC_C_AUTHN_LEVEL_NONE:
+			# For alter context, skip authentication - the security context is already established
+			if self.auth_level != RPC_C_AUTHN_LEVEL_NONE and not alter:
 				if self.auth_type == RPC_C_AUTHN_WINNT:
 					response, res, err = await self.gssapi.ntlm.authenticate(
 						bindResp['auth_data'], 
@@ -289,7 +314,7 @@ class DCERPC5Connection:
 				sec_trailer = SEC_TRAILER()
 				sec_trailer['auth_type'] = self.auth_type
 				sec_trailer['auth_level'] = self.auth_level
-				sec_trailer['auth_ctx_id'] = self.ctx + 79231 
+				sec_trailer['auth_ctx_id'] = self.__auth_ctx_id
 
 				if response is not None:
 					if self.auth_type == RPC_C_AUTHN_GSS_NEGOTIATE:
@@ -644,7 +669,7 @@ class DCERPC5Connection:
 				sec_trailer['auth_type'] = self.auth_type
 				sec_trailer['auth_level'] = self.auth_level
 				sec_trailer['auth_pad_len'] = 0
-				sec_trailer['auth_ctx_id'] = self.ctx + 79231 
+				sec_trailer['auth_ctx_id'] = self.__auth_ctx_id if self.__auth_ctx_id is not None else self.ctx + 79231
 
 				pad = (4 - (len(rpc_packet.get_packet()) % 4)) % 4
 				if pad != 0:

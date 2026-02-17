@@ -1061,6 +1061,38 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 		except Exception as e:
 			return self.handle_exception(e)	
 
+	async def do_taskcmdexecas(self, run_as_sid:str, command:str, arguments:str = '', cleanup:bool = True):
+		""" Executes a shell command using the scheduled tasks service as a specific user"""
+		try:
+			res, err = await self.machine.tasks_execute_command_as(run_as_sid, command, arguments=arguments, cleanup=cleanup)
+			if err is not None:
+				raise err
+			return True, None
+		except Exception as e:
+			return self.handle_exception(e)
+
+	async def do_resolveusertosid(self, username:str):
+		""" Resolves a username to a SID"""
+		try:
+			usersid, domain, err = await self.machine.resolve_username_to_sid(username)
+			if err is not None:
+				raise err
+			print(usersid)
+			return True, None
+		except Exception as e:
+			return self.handle_exception(e)
+
+	async def do_resolveusersidtoname(self, usersid:str):
+		""" Resolves a SID to a username"""
+		try:
+			username, domain, err = await self.machine.resolve_sid_to_username(usersid)
+			if err is not None:
+				raise err
+			print(f'{username}@{domain}')
+			return True, None
+		except Exception as e:
+			return self.handle_exception(e)
+	
 	async def do_interfaces(self):
 		""" Lists all network interfaces of the remote machine """
 		try:
@@ -1433,6 +1465,119 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			if err is not None:
 				raise err
 			print(windows_directory_path)
+			return True, None
+		except Exception as e:
+			return self.handle_exception(e)
+	
+	async def do_wmiquery(self, query:str):
+		"""Executes a WMI query"""
+		try:
+			async for item, err in self.machine.wmi_query(query):
+				if err is not None:
+					raise err
+				print(item)
+			return True, None
+		except Exception as e:
+			return self.handle_exception(e)
+	
+	async def do_wmishadowcopylist(self):
+		"""Lists all shadow copies"""
+		try:
+			shadow_copies, err = await self.machine.wmi_shadowcopy_list()
+			if err is not None:
+				raise err
+			if len(shadow_copies) == 0:
+				print('No shadow copies found')
+				return False, None
+			for i, sc in enumerate(shadow_copies):
+				print(f"  Shadow Copy #{i+1}")
+				print(f"    ID:           {sc['ID']}")
+				print(f"    DeviceObject: {sc['DeviceObject']}")
+				print(f"    VolumeName:   {sc['VolumeName']}")
+				print(f"    InstallDate:  {sc['InstallDate']}")
+				print(f"    GMTLabel:     {sc['GMTLabel']}")
+				print(f"    State:        {sc['State']}")
+				print()
+			return True, None
+		except Exception as e:
+			return self.handle_exception(e)
+
+	async def do_wmishadowcopycreate(self, volume: str):
+		"""Creates a shadow copy by volume"""
+		try:
+			shadow_id, device_object, err = await self.machine.wmi_shadowcopy_create(volume)
+			if err is not None:
+				raise err
+			print(shadow_id)
+			print(device_object)
+			return True, None
+		except Exception as e:
+			return self.handle_exception(e)
+
+	async def do_wmishadowcopydelete(self, shadow_id: str):
+		"""Deletes a shadow copy by ID"""
+		try:
+			deleted, err = await self.machine.wmi_delete_shadowcopy(shadow_id)
+			if err is not None:
+				raise err
+			print('Shadow copy deleted' if deleted else 'Failed to delete shadow copy')
+			return deleted, None
+		except Exception as e:
+			return self.handle_exception(e)
+
+	async def do_wmicmdexec(self, command:str):
+		"""Executes a command using WMI"""
+		try:
+			return_value, process_id, err = await self.machine.wmi_cmd_exec(command)
+			if err is not None:
+				raise err
+			print(f'Return value: {return_value}')
+			print(f'Process ID: {process_id}')
+			return True, None
+
+		except Exception as e:
+			return self.handle_exception(e)
+
+	async def do_mmc20cmdexec(self, command:str):
+		"""Executes a command using MMC20"""
+		try:
+			return_value, err = await self.machine.mmc20_cmd_exec(command)
+			if err is not None:
+				raise err
+			print(f'Return value: {return_value}')
+			return True, None
+		except Exception as e:
+			return self.handle_exception(e)
+
+	async def do_shellwindowscmdexec(self, command:str):
+		"""Executes a command using ShellWindows"""
+		try:
+			return_value, err = await self.machine.shellwindows_cmd_exec(command)
+			if err is not None:
+				raise err
+			print(f'Return value: {return_value}')
+			return True, None
+		except Exception as e:
+			return self.handle_exception(e)
+
+	async def do_shellbrowserwindowscmdexec(self, command:str):
+		"""Executes a command using ShellBrowserWindow"""
+		try:
+			return_value, err = await self.machine.shellbrowserwindow_cmd_exec(command)
+			if err is not None:
+				raise err
+			print(f'Return value: {return_value}')
+			return True, None
+		except Exception as e:
+			return self.handle_exception(e)
+	
+	async def do_getcacertdcom(self, ca_name:str):
+		"""Gets a CA certificate using DCOM"""
+		try:
+			cert, err = await self.machine.get_ca_cert_dcom(ca_name)
+			if err is not None:
+				raise err
+			print(cert)
 			return True, None
 		except Exception as e:
 			return self.handle_exception(e)

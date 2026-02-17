@@ -2,6 +2,7 @@
 import asyncio
 import ntpath
 import os
+from datetime import datetime, timezone, timedelta
 from typing import Callable, Awaitable, List, Dict, AsyncGenerator, Tuple, Union
 
 from aiosmb import logger
@@ -26,7 +27,15 @@ from aiosmb.dcerpc.v5.dtypes import RPC_SID
 from aiosmb.dcerpc.v5.common.secrets import SMBUserSecrets
 from aiosmb.dcerpc.v5.common.service import SMBService, ServiceStatus
 from aiosmb.connection import SMBConnection
-
+from aiosmb.dcerpc.v5.dcom.wmi import IWbemServices, CLSID_WbemLevel1Login, IID_IWbemLevel1Login, IWbemLevel1Login
+from aiosmb.dcerpc.v5.dtypes import NULL
+from aiosmb.dcerpc.v5.dcom.connection import DCOMConnection
+from aiosmb.dcerpc.v5.dcom.wmiutils.shadowcopy import wmi_create_shadow_copy, wmi_delete_shadow_copy
+from aiosmb.dcerpc.v5.dcom.wmiutils.cmdexec import wmi_cmd_exec
+from aiosmb.dcerpc.v5.dcom.mmc import MMC20Application, CLSID_MMC20, IID_IDispatch
+from aiosmb.dcerpc.v5.dcom.shellwindows import ShellWindows, CLSID_ShellWindows, ShellBrowserWindow, CLSID_ShellBrowserWindow, CLSID_ShellWindows
+from aiosmb.dcerpc.v5.dcom.certreq import ICertRequestD, CLSID_ICertRequest, IID_ICertRequestD
+from aiosmb.dcerpc.v5.interfaces.icprmgr import ICPRRPC
 
 from aiosmb.dcerpc.v5 import tsch, scmr
 
@@ -1265,6 +1274,400 @@ class SMBMachine:
 		except Exception as e:
 			return None, e
 	
+	async def wmi_query(self, query:str, as_dict:bool = True):
+		try:
+			async with DCOMConnection.from_smbconnection(self.connection) as dcom:
+				iInterface, err = await dcom.CoCreateInstanceEx(CLSID_WbemLevel1Login, IID_IWbemLevel1Login)
+				if err is not None:
+					raise err
+				async with IWbemLevel1Login(iInterface) as iWbemLevel1Login:
+					iWbemServices, err = await iWbemLevel1Login.NTLMLogin('//./root/cimv2', NULL, NULL)
+					if err is not None:
+						raise err
+					async with iWbemServices:
+						iEnum, err = await iWbemServices.ExecQuery(query)
+						if err is not None:
+							raise err
+						async with iEnum:
+							async for item in iEnum:
+								if as_dict:
+									yield item.to_dict(), None
+								else:
+									yield item, None
+		except Exception as e:
+			yield None, e
+
+	async def wmi_shadowcopy_list(self):
+		try:
+			shadow_copies = []
+			async for item, err in self.wmi_query('SELECT * FROM Win32_ShadowCopy', as_dict=False):
+				if err is not None:
+					raise err
+				props = item.getProperties()
+				install_date = props.get('InstallDate', {}).get('value', 'N/A')
+				
+				# Convert CIM_DATETIME to @GMT-YYYY.MM.DD-HH.MM.SS format
+				gmt_label = None
+				if install_date and install_date != 'N/A':
+					try:
+						# CIM_DATETIME format: yyyymmddHHMMSS.mmmmmm+UUU or yyyymmddHHMMSS.mmmmmm-UUU
+						# Example: 20260201043823.374315-480
+						dt_part = install_date[:14]  # yyyymmddHHMMSS
+						tz_part = install_date[21:]   # +UUU or -UUU (offset in minutes)
+						
+						# Parse the datetime part
+						dt = datetime.strptime(dt_part, '%Y%m%d%H%M%S')
+						
+						# Parse timezone offset and convert to UTC
+						tz_offset_minutes = int(tz_part)
+						dt_utc = dt - timedelta(minutes=tz_offset_minutes)
+						
+						# Format as @GMT-YYYY.MM.DD-HH.MM.SS
+						gmt_label = dt_utc.strftime('@GMT-%Y.%m.%d-%H.%M.%S')
+					except Exception:
+						gmt_label = None
+				
+				shadow_copy = {
+					'ID': props.get('ID', {}).get('value', 'N/A'),
+					'DeviceObject': props.get('DeviceObject', {}).get('value', 'N/A'),
+					'VolumeName': props.get('VolumeName', {}).get('value', 'N/A'),
+					'InstallDate': install_date,
+					'GMTLabel': gmt_label,
+					'State': props.get('State', {}).get('value', 'N/A'),
+				}
+				shadow_copies.append(shadow_copy)
+			return shadow_copies, None
+		except Exception as e:
+			return None, e
+	
+	async def wmi_shadowcopy_create(self, volume: str):
+		try:
+			async with DCOMConnection.from_smbconnection(self.connection) as dcom:
+				iInterface, err = await dcom.CoCreateInstanceEx(CLSID_WbemLevel1Login, IID_IWbemLevel1Login)
+				if err is not None:
+					raise err
+				async with IWbemLevel1Login(iInterface) as iWbemLevel1Login:
+					iWbemServices, err = await iWbemLevel1Login.NTLMLogin('//./root/cimv2', NULL, NULL)
+					if err is not None:
+						raise err
+					async with iWbemServices:
+						shadow_id, device_object, err = await wmi_create_shadow_copy(iWbemServices, volume)
+						if err is not None:
+							raise err
+						return shadow_id, device_object, None
+		except Exception as e:
+			return None, None, e
+
+	async def wmi_shadowcopy_delete(self, shadow_id: str):
+		try:
+			async with DCOMConnection.from_smbconnection(self.connection) as dcom:
+				iInterface, err = await dcom.CoCreateInstanceEx(CLSID_WbemLevel1Login, IID_IWbemLevel1Login)
+				if err is not None:
+					raise err
+				async with IWbemLevel1Login(iInterface) as iWbemLevel1Login:
+					iWbemServices, err = await iWbemLevel1Login.NTLMLogin('//./root/cimv2', NULL, NULL)
+					if err is not None:
+						raise err
+					async with iWbemServices:
+						deleted, err = await wmi_delete_shadow_copy(iWbemServices, shadow_id)
+						if err is not None:
+							raise err
+						return deleted, None
+		except Exception as e:
+			return None, e
+
+	
+	async def wmi_cmd_exec(self, command:str) -> Awaitable[Tuple[int, int, Union[Exception, None]]]:
+		try:
+			async with DCOMConnection.from_smbconnection(self.connection) as dcom:
+				iInterface, err = await dcom.CoCreateInstanceEx(CLSID_WbemLevel1Login, IID_IWbemLevel1Login)
+				if err is not None:
+					raise err
+				async with IWbemLevel1Login(iInterface) as iWbemLevel1Login:
+					iWbemServices, err = await iWbemLevel1Login.NTLMLogin('//./root/cimv2', NULL, NULL)
+					if err is not None:
+						raise err
+					async with iWbemServices:
+						return_value, process_id, err = await wmi_cmd_exec(iWbemServices, command)
+						if err is not None:
+							raise err
+						return return_value, process_id, None
+		except Exception as e:
+			return None, None, e
+
+	async def mmc20_cmd_exec(self, command:str) -> Awaitable[Tuple[bool, Union[Exception, None]]]:
+		try:
+			parts = command.split(' ', 1)
+			exe = parts[0]
+			args = parts[1] if len(parts) > 1 else ''
+			async with DCOMConnection.from_smbconnection(self.connection) as dcom:
+				iInterface, err = await dcom.CoCreateInstanceEx(CLSID_MMC20, IID_IDispatch)
+				if err is not None:
+					raise err
+				async with MMC20Application(iInterface) as mmc:
+					return_value, err = await mmc.ExecuteShellCommand(
+						command=exe, 
+						directory='C:\\Windows\\System32',
+						parameters=args,
+						windowState='0'
+					)
+					if err is not None:
+						raise err
+					return return_value, None
+		except Exception as e:
+			return None, e
+	
+	async def shellwindows_cmd_exec(self, command:str) -> Awaitable[Tuple[bool, Union[Exception, None]]]:
+		try:
+			async with DCOMConnection.from_smbconnection(self.connection) as dcom:
+				iInterface, err = await dcom.CoCreateInstanceEx(CLSID_ShellWindows, IID_IDispatch)
+				if err is not None:
+					raise err
+				async with ShellWindows(iInterface) as shell:
+					return await shell.ShellExecute(command)
+		except Exception as e:
+			return None, e
+	
+	async def shellbrowserwindow_cmd_exec(self, command:str) -> Awaitable[Tuple[bool, Union[Exception, None]]]:
+		try:
+			async with DCOMConnection.from_smbconnection(self.connection) as dcom:
+				iInterface, err = await dcom.CoCreateInstanceEx(CLSID_ShellBrowserWindow, IID_IDispatch)
+				if err is not None:
+					raise err
+				async with ShellBrowserWindow(iInterface) as shell:
+					return await shell.ShellExecute(command)
+		except Exception as e:
+			return None, e
+	
+	async def tasks_execute_command_as(self, run_as_sid:str, command:str, arguments:str = '', cleanup:bool = True) -> Awaitable[Tuple[bool, Union[Exception, None]]]:
+		try:
+			if run_as_sid.startswith('S-1-') is False:
+				run_as_sid, domain_name, err = await self.resolve_username_to_sid(run_as_sid)
+				if err is not None:
+					raise err
+				run_as_sid = str(run_as_sid)
+
+			async with tschrpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as rpc:
+				return await rpc.run_command_as(run_as_sid, command, arguments=arguments, cleanup=cleanup)
+		except Exception as e:
+			return None, e
+	
+	async def resolve_username_to_sid(self, username:str) -> Awaitable[Tuple[str, str, Union[Exception, None]]]:
+		"""
+		Resolves a username to a SID using LSA LookupNames.
+		This works for both local and domain users.
+		
+		The username can be in any of the following formats:
+		- Just the username (e.g., "Administrator")
+		- DOMAIN\\username (e.g., "MYDOMAIN\\Administrator")
+		- username@domain (e.g., "Administrator@mydomain.local")
+		
+		Returns:
+			Tuple of (sid, domain_name, error):
+			- sid: The full SID string (e.g., "S-1-5-21-...")
+			- domain_name: The domain or machine name the user belongs to
+			- error: None on success, or an Exception on failure
+		"""
+		try:
+			async with lsadrpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as lsadrpc:
+				policy_handle, err = await lsadrpc.open_policy2()
+				if err is not None:
+					raise err
+				
+				usersid, domain_name, user_rid, err = await lsadrpc.get_sid_for_user(policy_handle, username)
+				if err is not None:
+					raise err
+				
+				return usersid, domain_name, None
+		except Exception as e:
+			return None, None, e
+
+	async def resolve_sid_to_username(self, sid:str) -> Awaitable[Tuple[str, str, Union[Exception, None]]]:
+		"""
+		Resolves a SID to a username using LSA LookupSids.
+		This works for both local and domain users/groups.
+		
+		Args:
+			sid: The SID string (e.g., "S-1-5-21-...")
+		
+		Returns:
+			Tuple of (username, domain_name, error):
+			- username: The account name
+			- domain_name: The domain or machine name the account belongs to
+			- error: None on success, or an Exception on failure
+		"""
+		try:
+			async with lsadrpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as lsadrpc:
+				policy_handle, err = await lsadrpc.open_policy2()
+				if err is not None:
+					raise err
+				
+				async for domain_name, username, err in lsadrpc.lookup_sids(policy_handle, [sid]):
+					if err is not None:
+						raise err
+					return username, domain_name, None
+				
+				# If we get here, no results were returned
+				raise Exception('SID not found: %s' % sid)
+		except Exception as e:
+			return None, None, e
+
+	async def get_ca_cert_dcom(self, ca_name: str, get_chain: bool = False) -> Tuple[bytes, Union[Exception, None]]:
+		"""
+		Retrieve a CA certificate via DCOM (ICertRequestD interface).
+		
+		Args:
+			ca_name: CA name in format "hostname\\CA-Name" (e.g., "DC01\\MyCA")
+			get_chain: If True, retrieve the full certificate chain (PKCS#7)
+		
+		Returns:
+			(cert_bytes, None) on success - DER-encoded certificate
+			(None, Exception) on failure
+		"""
+		try:
+			async with DCOMConnection.from_smbconnection(self.connection) as dcom:
+				iInterface, err = await dcom.CoCreateInstanceEx(CLSID_ICertRequest, IID_ICertRequestD)
+				if err is not None:
+					raise err
+				async with ICertRequestD(iInterface) as cert_request:
+					return await cert_request.get_ca_cert(ca_name, get_chain=get_chain)
+		except Exception as e:
+			return None, e
+
+	async def request_certificate_dcom(
+		self,
+		ca_name: str,
+		csr_der: bytes,
+		attributes: List[str] = None
+	) -> Tuple[Dict, Union[Exception, None]]:
+		"""
+		Submit a certificate request to a CA via DCOM (ICertRequestD interface).
+		
+		Args:
+			ca_name: CA name in format "hostname\\CA-Name" (e.g., "DC01\\MyCA")
+			csr_der: DER-encoded certificate signing request (CSR)
+			attributes: List of request attributes (e.g., ['CertificateTemplate:User'])
+		
+		Returns:
+			(result_dict, None) on success where result_dict contains:
+				- 'request_id': The assigned request ID
+				- 'disposition': Disposition code (CR_DISP_*)
+				- 'disposition_name': Human-readable disposition
+				- 'certificate': DER-encoded certificate (if issued)
+				- 'certificate_chain': PKCS#7 certificate chain (if issued)
+				- 'disposition_message': Error/status message
+			(None, Exception) on failure
+		"""
+		try:
+			async with DCOMConnection.from_smbconnection(self.connection) as dcom:
+				iInterface, err = await dcom.CoCreateInstanceEx(CLSID_ICertRequest, IID_ICertRequestD)
+				if err is not None:
+					raise err
+				async with ICertRequestD(iInterface) as cert_request:
+					return await cert_request.request(ca_name, csr_der, attributes=attributes)
+		except Exception as e:
+			return None, e
+
+	async def retrieve_certificate_dcom(
+		self,
+		ca_name: str,
+		request_id: int
+	) -> Tuple[Dict, Union[Exception, None]]:
+		"""
+		Retrieve a pending certificate by request ID via DCOM (ICertRequestD interface).
+		
+		Args:
+			ca_name: CA name in format "hostname\\CA-Name" (e.g., "DC01\\MyCA")
+			request_id: The request ID from a previous certificate submission
+		
+		Returns:
+			(result_dict, None) on success where result_dict contains:
+				- 'request_id': The request ID
+				- 'disposition': Disposition code (CR_DISP_*)
+				- 'disposition_name': Human-readable disposition
+				- 'certificate': DER-encoded certificate (if issued)
+				- 'certificate_chain': PKCS#7 certificate chain (if issued)
+				- 'disposition_message': Error/status message
+			(None, Exception) on failure
+		"""
+		try:
+			async with DCOMConnection.from_smbconnection(self.connection) as dcom:
+				iInterface, err = await dcom.CoCreateInstanceEx(CLSID_ICertRequest, IID_ICertRequestD)
+				if err is not None:
+					raise err
+				async with ICertRequestD(iInterface) as cert_request:
+					return await cert_request.retrieve(ca_name, request_id)
+		except Exception as e:
+			return None, e
+
+	async def request_certificate_rpc(
+		self,
+		ca_name: str,
+		csr_der: bytes,
+		attributes: List[str] = None
+	) -> Tuple[Dict, Union[Exception, None]]:
+		"""
+		Submit a certificate request to a CA via RPC (MS-ICPR).
+		
+		Note: This uses TCP/RPC directly to the CA, not SMB. The SMB connection
+		is used to resolve the endpoint via the endpoint mapper.
+		
+		Args:
+			ca_name: CA name (e.g., "MyCA" or "DC01\\MyCA")
+			csr_der: DER-encoded certificate signing request (CSR)
+			attributes: List of request attributes (e.g., ['CertificateTemplate:User'])
+		
+		Returns:
+			(result_dict, None) on success where result_dict contains:
+				- 'request_id': The assigned request ID
+				- 'disposition': Disposition code
+				- 'certificate': DER-encoded certificate (if issued)
+				- 'certificate_chain': Certificate chain data (if issued)
+				- 'disposition_message': Error/status message
+			(None, Exception) on failure
+		"""
+		try:
+			icprrpc, err = await ICPRRPC.from_smbconnection(self.connection)
+			if err is not None:
+				raise err
+			async with icprrpc:
+				return await icprrpc.request_certificate(ca_name, csr_der, attributes=attributes)
+		except Exception as e:
+			return None, e
+
+	async def retrieve_certificate_rpc(
+		self,
+		ca_name: str,
+		request_id: int
+	) -> Tuple[Dict, Union[Exception, None]]:
+		"""
+		Retrieve a pending certificate by request ID via RPC (MS-ICPR).
+		
+		Note: This uses TCP/RPC directly to the CA, not SMB. The SMB connection
+		is used to resolve the endpoint via the endpoint mapper.
+		
+		Args:
+			ca_name: CA name (e.g., "MyCA" or "DC01\\MyCA")
+			request_id: The request ID from a previous certificate submission
+		
+		Returns:
+			(result_dict, None) on success where result_dict contains:
+				- 'request_id': The request ID
+				- 'disposition': Disposition code
+				- 'certificate': DER-encoded certificate (if issued)
+				- 'certificate_chain': Certificate chain data (if issued)
+				- 'disposition_message': Error/status message
+			(None, Exception) on failure
+		"""
+		try:
+			icprrpc, err = await ICPRRPC.from_smbconnection(self.connection)
+			if err is not None:
+				raise err
+			async with icprrpc:
+				return await icprrpc.retrieve_certificate(ca_name, request_id)
+		except Exception as e:
+			return None, e
+
 	async def iter_user_homes(self, include_system_accounts:bool = False):
 		try:
 			user_base_win, err = await self.reg_get_user_home_directory_base_path()
