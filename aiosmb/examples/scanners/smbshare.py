@@ -47,11 +47,11 @@ class SMBShareRes:
 				'description' : '',
 				'access' : '',
 				'sddl' : str(self.err),
-				'sddlhex' : ''
+				'sdhex' : ''
 			}
 		
 		security_descriptor_sddl = '' if self.share.security_descriptor is None else str(self.share.security_descriptor.to_sddl())
-		security_descriptor_sddl_hex = '' if self.share.security_descriptor is None else self.share.security_descriptor.to_bytes().hex()
+		security_descriptor_hex = '' if self.share.security_descriptor is None else self.share.security_descriptor.to_bytes().hex()
 
 		return {
 			'path' : str(self.share.unc_path),
@@ -59,7 +59,7 @@ class SMBShareRes:
 			'description' : str(self.share.remark) if self.share.remark is not None else '',
 			'access' : str(self.share.maximal_access),
 			'sddl' : security_descriptor_sddl,
-			'sddlhex' : security_descriptor_sddl_hex
+			'sdhex' : security_descriptor_hex
 		}
 
 class SMBShareScanner:
