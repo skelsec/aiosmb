@@ -36,7 +36,7 @@ class SMBShareRes:
 					str(self.writable),
 					str(self.share.remark) if self.share.remark is not None else '',
 					str(self.share.maximal_access),
-					security_descriptor_sddl
+					security_descriptor_sddl,
 				])
 	
 	def to_dict(self):
@@ -46,27 +46,32 @@ class SMBShareRes:
 				'writable' : '',
 				'description' : '',
 				'access' : '',
-				'sddl' : str(self.err)
+				'sddl' : str(self.err),
+				'sddlhex' : ''
 			}
 		
 		security_descriptor_sddl = '' if self.share.security_descriptor is None else str(self.share.security_descriptor.to_sddl())
-			
+		security_descriptor_sddl_hex = '' if self.share.security_descriptor is None else self.share.security_descriptor.to_bytes().hex()
+
 		return {
 			'path' : str(self.share.unc_path),
 			'writable' : str(self.writable),
 			'description' : str(self.share.remark) if self.share.remark is not None else '',
 			'access' : str(self.share.maximal_access),
-			'sddl' : security_descriptor_sddl
+			'sddl' : security_descriptor_sddl,
+			'sddlhex' : security_descriptor_sddl_hex
 		}
 
 class SMBShareScanner:
 	def __init__(self, 
 			factory:SMBConnectionFactory, 
-			test_write:bool = False
+			test_write:bool = False,
+			fetch_share_sd:bool = False
 			):
 		
 		self.factory = factory
-		self.test_write = test_write 
+		self.test_write = test_write
+		self.fetch_share_sd = fetch_share_sd
 
 	async def run(self, targetid, target, out_queue):
 		try:
@@ -78,10 +83,10 @@ class SMBShareScanner:
 
 				machine = SMBMachine(connection)
 				if self.test_write is False:
-					async for share, err in machine.list_shares():
+					async for share, err in machine.list_shares(fetch_share_sd = self.fetch_share_sd):
 						await out_queue.put(ScannerData(target, SMBShareRes(share, None, err)))
 				else:
-					async for share, writable, err in machine.share_write_test():
+					async for share, writable, err in machine.share_write_test(fetch_share_sd = self.fetch_share_sd):
 						await out_queue.put(ScannerData(target, SMBShareRes(share, writable, err)))
 
 		except Exception as e:

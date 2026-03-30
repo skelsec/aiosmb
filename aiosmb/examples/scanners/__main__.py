@@ -13,6 +13,7 @@ from aiosmb.examples.scanners.smbprintnightmare import SMBPrintnightmareScanner
 from aiosmb.examples.scanners.smbfile import SMBFileScanner
 from aiosmb.examples.scanners.smbbrute import SMBBruteForceScanner
 from aiosmb.examples.scanners.smbregsession import SMBRegSessionScanner
+from aiosmb.examples.scanners.smbshare import SMBShareScanner
 
 smbscan_options = {
 	'finger'    : (SMBFingerScanner, "SMB Finger grabs OS info. Only works with NTLM auth"),
@@ -23,7 +24,8 @@ smbscan_options = {
 	'printnightmare': (SMBPrintnightmareScanner, "Checks hosts for printnightmare vulnerability"),
 	'file' : (SMBFileScanner, 'Enumerates files and shares'),
 	'brute'	 : (SMBBruteForceScanner, "Brute forces SMB logins"),
-	'regsession': (SMBRegSessionScanner, "SMB Registry sessions")
+	'regsession': (SMBRegSessionScanner, "SMB Registry sessions"),
+	'share' : (SMBShareScanner, "SMB Share scanner")
 }
 
 async def amain():
@@ -83,6 +85,12 @@ async def amain():
 	regsessionscan = subparsers.add_parser('regsession', help='List SMB sessions via registry')
 	regsessionscan.add_argument('url', help = 'Connection string in URL format')
 	regsessionscan.add_argument('targets', nargs='*', help = 'Hostname or IP address or file with a list of targets')
+
+	sharescan = subparsers.add_parser('share', help='SMB Share scanner')
+	sharescan.add_argument('url', help = 'Connection string in URL format')
+	sharescan.add_argument('targets', nargs='*', help = 'Hostname or IP address or file with a list of targets')
+	sharescan.add_argument('-w', '--write-test', action='store_true', help='Test write access to shares')
+	sharescan.add_argument('-s', '--share-sd', action='store_true', help='Fetch share security descriptor')
 	
 	args = parser.parse_args()
 	
@@ -162,6 +170,14 @@ async def amain():
 		if not args.up:
 			cgen.add_passwords_file(args.passwords)
 		scanner = UniScanner('SMBScanner', executor, [cgen], worker_count=args.worker_count, host_timeout=None)
+		await scanner.scan_and_process(progress=not args.no_progress, out_file=args.out_file, include_errors=args.errors)
+		return
+	
+	if args.scantype == 'share':
+		connectionfactory = SMBConnectionFactory.from_url(args.url)
+		executor = smbscan_options[args.scantype][0](connectionfactory, test_write=args.write_test, fetch_share_sd=args.share_sd)
+		tgen = UniTargetGen.from_list(args.targets)
+		scanner = UniScanner('SMBScanner', [executor], [tgen], worker_count=args.worker_count, host_timeout=None)
 		await scanner.scan_and_process(progress=not args.no_progress, out_file=args.out_file, include_errors=args.errors)
 		return
 

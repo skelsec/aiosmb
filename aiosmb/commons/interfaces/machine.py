@@ -1054,7 +1054,7 @@ class SMBMachine:
 			interfaces = []
 			ipc_file = SMBFile.from_uncpath('\\\\%s\\IPC$' % self.connection.target.get_hostname_or_ip())
 			await ipc_file.open(self.connection, 'r')
-			ifaces_raw, err = await self.connection.ioctl(ipc_file.tree_id, b'\xFF'*16, CtlCode.FSCTL_QUERY_NETWORK_INTERFACE_INFO, data = None, flags = IOCTLREQFlags.IS_FSCTL)
+			ifaces_raw, err = await self.connection.ioctl(ipc_file.tree_id, int.from_bytes(b'\xFF'*16, byteorder='little'), CtlCode.FSCTL_QUERY_NETWORK_INTERFACE_INFO, data = None, flags = IOCTLREQFlags.IS_FSCTL)
 			if err is not None:
 				raise err
 
@@ -1129,9 +1129,9 @@ class SMBMachine:
 		except Exception as e:
 			return None, e
 	
-	async def share_write_test(self):
+	async def share_write_test(self, fetch_share_sd:bool = False):
 		try:
-			async for share, err in self.list_shares():
+			async for share, err in self.list_shares(fetch_share_sd = fetch_share_sd):
 				if err is not None:
 					continue
 				if share.name in ['IPC$', 'C$', 'ADMIN$', 'PRINT$', 'D$', 'E$', 'F$', 'G$', 'H$', 'I$', 'J$', 'K$', 'L$', 'M$', 'N$', 'O$', 'P$', 'Q$', 'R$', 'S$', 'T$', 'U$', 'V$', 'W$', 'X$', 'Y$', 'Z$']:
