@@ -9,8 +9,6 @@
 # Description:
 #   [MS-DTYP] Interface mini implementation
 #
-from __future__ import division
-from __future__ import print_function
 from struct import pack
 
 from aiosmb.dcerpc.v5.ndr import NDRULONG, NDRUHYPER, NDRSHORT, NDRLONG, NDRPOINTER, NDRUniConformantArray, \

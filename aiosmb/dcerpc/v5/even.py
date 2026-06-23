@@ -19,8 +19,6 @@
 #   Helper functions start with "h"<name of the call>.
 #   There are test cases for them too.
 #
-from __future__ import division
-from __future__ import print_function
 from aiosmb.dcerpc.v5.ndr import NDRCALL, NDRSTRUCT, NDR, NDRPOINTERNULL, NDRUniConformantArray
 from aiosmb.dcerpc.v5.dtypes import ULONG, LPWSTR, RPC_UNICODE_STRING, LPSTR, NTSTATUS, NULL, PRPC_UNICODE_STRING, PULONG, USHORT, PRPC_SID, LPBYTE
 from aiosmb.dcerpc.v5.lsad import PRPC_UNICODE_STRING_ARRAY

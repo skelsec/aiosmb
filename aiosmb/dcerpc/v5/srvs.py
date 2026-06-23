@@ -18,8 +18,6 @@
 #   Helper functions start with "h"<name of the call>.
 #   There are test cases for them too. 
 #
-from __future__ import division
-from __future__ import print_function
 from aiosmb.dcerpc.v5.rpcrt import DCERPCException
 from aiosmb.dcerpc.v5.ndr import NDRCALL, NDR, NDRSTRUCT, NDRUNION, NDRPOINTER, NDRUniConformantArray, \
     NDRUniFixedArray, NDRBOOLEAN, NDRUniConformantVaryingArray, PNDRUniConformantArray
