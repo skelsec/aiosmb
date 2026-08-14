@@ -18,7 +18,8 @@
 #   Helper functions start with "h"<name of the call>.
 #   There are test cases for them too. 
 #
-from struct import pack
+import time
+from struct import pack, unpack
 from six import b
 from aiosmb.dcerpc.v5.ndr import NDRCALL, NDRSTRUCT, NDRENUM, NDRUNION, NDRPOINTER, NDRUniConformantArray, \
 	NDRUniFixedArray, NDRUniConformantVaryingArray
@@ -1623,9 +1624,10 @@ class NL_AUTH_SHA2_SIGNATURE(Structure):
 		('Pad','<H=0xffff'),
 		('Flags','<H=0'),
 		('SequenceNumber','8s=""'),
-		('Checksum','32s=""'),
+		('Checksum','8s=""'),
 		('_Confounder','_-Confounder','8'),
 		('Confounder',':'),
+		('Reserved','24s=""'),
 	)
 	def __init__(self, data = None, alignment = 0):
 		Structure.__init__(self, data, alignment)
@@ -1645,11 +1647,10 @@ def ComputeNetlogonCredential(inputData, Sk):
 
 # Section 3.1.4.4.1
 def ComputeNetlogonCredentialAES(inputData, Sk):
-	raise Exception('TODO: needs more work...')
-	IV=b'\x00'*16
-	print(Sk)
-	print(len(inputData))
-	Crypt1 = AES(Sk, cipherMODE.CFB, IV = IV, segment_size = 1)
+	# AES-128 in 8-bit CFB mode (CFB8) with a 16-byte zero IV.
+	# segment_size is expressed in bits, so 8 == CFB8.
+	IV = b'\x00' * 16
+	Crypt1 = AES(Sk, MODE_CFB, IV = IV, segment_size = 8)
 	return Crypt1.encrypt(inputData)
 
 # Section 3.1.4.3.1
@@ -1689,6 +1690,30 @@ def ComputeSessionKeyStrongKey(sharedSecret, clientChallenge, serverChallenge, s
 	hm.update(finalMD5)
 	return hm.digest()
 
+def ComputeNetlogonAuthenticatorAES(clientStoredCredential, sessionKey):
+	# [MS-NRPC] Section 3.1.4.5
+	timestamp = int(time.time())
+	authenticator = NETLOGON_AUTHENTICATOR()
+	authenticator['Timestamp'] = timestamp
+	credential = unpack('<I', clientStoredCredential[:4])[0] + timestamp
+	if credential > 0xffffffff:
+		credential &= 0xffffffff
+	credential = pack('<I', credential)
+	authenticator['Credential'] = ComputeNetlogonCredentialAES(credential + clientStoredCredential[4:], sessionKey)
+	return authenticator
+
+def ComputeNetlogonAuthenticator(clientStoredCredential, sessionKey):
+	# [MS-NRPC] Section 3.1.4.5
+	timestamp = int(time.time())
+	authenticator = NETLOGON_AUTHENTICATOR()
+	authenticator['Timestamp'] = timestamp
+	credential = unpack('<I', clientStoredCredential[:4])[0] + timestamp
+	if credential > 0xffffffff:
+		credential &= 0xffffffff
+	credential = pack('<I', credential)
+	authenticator['Credential'] = ComputeNetlogonCredential(credential + clientStoredCredential[4:], sessionKey)
+	return authenticator
+
 def deriveSequenceNumber(sequenceNum):
 	sequenceLow = sequenceNum & 0xffffffff
 	sequenceHigh = (sequenceNum >> 32) & 0xffffffff
@@ -1702,10 +1727,10 @@ def ComputeNetlogonSignatureAES(authSignature, message, confounder, sessionKey):
 	# [MS-NRPC] Section 3.3.4.2.1, point 7
 	hm = hmac.new(key=sessionKey, digestmod=hashlib.sha256)
 	hm.update(authSignature.getData()[:8])
-	# If no confidentiality requested, it should be ''
+	# If no confidentiality requested, it should be b''
 	hm.update(confounder)
 	hm.update(bytes(message))
-	return hm.digest()[:8]+'\x00'*24
+	return hm.digest()[:8]
 
 def ComputeNetlogonSignatureMD5(authSignature, message, confounder, sessionKey):
 	# [MS-NRPC] Section 3.3.4.2.1, point 7
@@ -1740,20 +1765,21 @@ def decryptSequenceNumberRC4(sequenceNum, checkSum, sessionKey):
 def encryptSequenceNumberAES(sequenceNum, checkSum, sessionKey):
 	# [MS-NRPC] Section 3.3.4.2.1, point 9
 	IV = checkSum[:8] + checkSum[:8]
-	Cipher = AES(sessionKey, MODE_CFB, IV = IV, segment_size = 1)
+	Cipher = AES(sessionKey, MODE_CFB, IV = IV, segment_size = 8)
 	return Cipher.encrypt(sequenceNum)
 
 def decryptSequenceNumberAES(sequenceNum, checkSum, sessionKey):
 	# [MS-NRPC] Section 3.3.4.2.1, point 9
 	IV = checkSum[:8] + checkSum[:8]
-	Cipher = AES(sessionKey, MODE_CFB, IV = IV, segment_size = 1)
+	Cipher = AES(sessionKey, MODE_CFB, IV = IV, segment_size = 8)
 	return Cipher.decrypt(sequenceNum)
 
 def SIGN(data, confounder, sequenceNum, key, aes = False):
+	# confounder MUST be bytes: b'' for integrity-only (no sealing), 8 random bytes for sealing.
 	if aes is False:
 		signature = NL_AUTH_SIGNATURE()
 		signature['SignatureAlgorithm'] = NL_SIGNATURE_HMAC_MD5
-		if confounder == '':
+		if not confounder:
 			signature['SealAlgorithm'] = NL_SEAL_NOT_ENCRYPTED
 		else:
 			signature['SealAlgorithm'] = NL_SEAL_RC4
@@ -1761,14 +1787,16 @@ def SIGN(data, confounder, sequenceNum, key, aes = False):
 		signature['SequenceNumber'] = encryptSequenceNumberRC4(deriveSequenceNumber(sequenceNum), signature['Checksum'], key)
 		return signature
 	else:
-		signature = NL_AUTH_SIGNATURE()
+		signature = NL_AUTH_SHA2_SIGNATURE()
 		signature['SignatureAlgorithm'] = NL_SIGNATURE_HMAC_SHA256
-		if confounder == '':
+		if not confounder:
 			signature['SealAlgorithm'] = NL_SEAL_NOT_ENCRYPTED
 		else:
 			signature['SealAlgorithm'] = NL_SEAL_AES128
 		signature['Checksum'] = ComputeNetlogonSignatureAES(signature, data, confounder, key)
 		signature['SequenceNumber'] = encryptSequenceNumberAES(deriveSequenceNumber(sequenceNum), signature['Checksum'], key)
+		# 2.2.1.3.3: Reserved. Sender SHOULD set to zero; receiver MUST ignore.
+		signature['Reserved'] = b'\x00' * 24
 		return signature
 
 def SEAL(data, confounder, sequenceNum, key, aes = False):
@@ -1798,7 +1826,7 @@ def SEAL(data, confounder, sequenceNum, key, aes = False):
 		return encrypted, signature
 	else:
 		IV = sequenceNum + sequenceNum
-		cipher = AES(XorKey, MODE_CFB, IV = IV, segment_size = 1)
+		cipher = AES(XorKey, MODE_CFB, IV = IV, segment_size = 8)
 		cfounder = cipher.encrypt(confounder)
 		encrypted = cipher.encrypt(data)
 
@@ -1831,7 +1859,7 @@ def UNSEAL(data, auth_data, key, aes = False):
 	else:
 		sequenceNum = decryptSequenceNumberAES(auth_data['SequenceNumber'], auth_data['Checksum'],  key)
 		IV = sequenceNum + sequenceNum
-		cipher = AES(XorKey, MODE_CFB, IV = IV, segment_size = 1)
+		cipher = AES(XorKey, MODE_CFB, IV = IV, segment_size = 8)
 		cfounder = cipher.decrypt(auth_data['Confounder'])
 		plain = cipher.decrypt(data)
 		return plain, cfounder

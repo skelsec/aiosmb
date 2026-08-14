@@ -1,4 +1,5 @@
 import asyncio
+import os
 import traceback
 
 from aiosmb.dcerpc.v5.ndr import NDRCALL
@@ -49,8 +50,33 @@ class DCERPC5Connection:
 		self.__clientSealingHandle = None
 		self.__serverSealingHandle = None
 
+		# Netlogon (RPC_C_AUTHN_NETLOGON / schannel) parameters. Populated either via
+		# set_netlogon_session_key() or from a netlogon-enabled DCERPCAuth.
+		self.netlogon_aes = True
+		self.netlogon_computer = None
+		self.netlogon_domain = None
+		if gssapi is not None and getattr(gssapi, 'netlogon', None) is not None:
+			self.auth_type = RPC_C_AUTHN_NETLOGON
+			nl = gssapi.netlogon
+			self.__sessionKey = nl.session_key
+			self.netlogon_aes = nl.aes
+			self.netlogon_computer = nl.computer_name
+			self.netlogon_domain = nl.domain_name
+
 	def get_session_key(self):
 		return self.__sessionKey
+
+	def set_session_key(self, session_key):
+		self.__sessionKey = session_key
+
+	def set_netlogon_session_key(self, session_key, computer_name, domain_name, aes=True):
+		"""Configures schannel (RPC_C_AUTHN_NETLOGON) auth using a session key that
+		was derived during a Netlogon secure-channel handshake."""
+		self.auth_type = RPC_C_AUTHN_NETLOGON
+		self.__sessionKey = session_key
+		self.netlogon_computer = computer_name
+		self.netlogon_domain = domain_name
+		self.netlogon_aes = aes
 
 	def set_auth_level(self, auth_level):
 		self.auth_level = auth_level
@@ -166,7 +192,15 @@ class DCERPC5Connection:
 						return None, err
 
 				elif self.auth_type == RPC_C_AUTHN_NETLOGON:
-					return False, Exception('RPC_C_AUTHN_NETLOGON Not implemented!')
+					from aiosmb.dcerpc.v5 import nrpc
+					# The schannel bind carries an NL_AUTH_MESSAGE identifying the
+					# client (computer + domain). The session key was established
+					# out-of-band via the secure-channel handshake.
+					auth = nrpc.getSSPType1(
+						workstation = self.netlogon_computer or '',
+						domain = self.netlogon_domain or '',
+						signingRequired = True
+					).getData()
 
 				elif self.auth_type == RPC_C_AUTHN_GSS_NEGOTIATE:
 					auth, res, err  = await self.gssapi.gssapi.authenticate(
@@ -309,7 +343,10 @@ class DCERPC5Connection:
 							self.__serverSealingHandle = cipher.encrypt
 						
 					elif self.auth_type == RPC_C_AUTHN_NETLOGON:
-						raise Exception('RPC_C_AUTHN_NETLOGON is not implemented!')
+						# schannel signs/seals directly with the secure-channel session
+						# key; there are no derived signing/sealing subkeys and no
+						# second authentication leg (AUTH3/alter context).
+						pass
 
 				sec_trailer = SEC_TRAILER()
 				sec_trailer['auth_type'] = self.auth_type
@@ -359,7 +396,6 @@ class DCERPC5Connection:
 		except Exception as e:
 			return False, e
 
-	
 	async def request(self, request, uuid=None, checkError=True):
 		"""
 		Creates a requests then dispateches it to _transport.send for singing/encryption asn sending
@@ -553,13 +589,10 @@ class DCERPC5Connection:
 
 								self.__sequence += 1
 						elif self.auth_type == RPC_C_AUTHN_NETLOGON:
-							raise Exception('RPC_C_AUTHN_NETLOGON is not implemented!')
-							#from impacket.dcerpc.v5 import nrpc
-							#answer, cfounder = nrpc.UNSEAL(answer, 
-							#	   auth_data[len(sec_trailer):],
-							#	   self.__sessionKey, 
-							#	   False)
-							#self.__sequence += 1
+							from aiosmb.dcerpc.v5 import nrpc
+							# auth_data = SEC_TRAILER(8 bytes) + NL_AUTH_SIGNATURE
+							answer, cfounder = nrpc.UNSEAL(answer, auth_data[8:], self.__sessionKey, self.netlogon_aes)
+							self.__sequence += 1
 						elif self.auth_type == RPC_C_AUTHN_GSS_NEGOTIATE:
 							if self.__sequence > 0:
 								answer, cfounder = await self.gssapi.gssapi.decrypt(answer, self.__sequence, direction='init', auth_data=auth_data)
@@ -587,15 +620,9 @@ class DCERPC5Connection:
 								# the packet :P
 								self.__sequence += 1
 						elif self.auth_type == RPC_C_AUTHN_NETLOGON:
-							raise Exception('RPC_C_AUTHN_NETLOGON is not implemented!')
-							#from impacket.dcerpc.v5 import nrpc
-							#ntlmssp = auth_data[12:]
-							#signature = nrpc.SIGN(ntlmssp, 
-							#	   self.__confounder, 
-							#	   self.__sequence, 
-							#	   self.__sessionKey, 
-							#	   False)
-							#self.__sequence += 1
+							# Integrity-only: the stub is in the clear; signature
+							# verification could be added here if desired.
+							self.__sequence += 1
 						elif self.auth_type == RPC_C_AUTHN_GSS_NEGOTIATE:
 							# Do NOT increment the sequence number when Signing Kerberos
 							#self.__sequence += 1
@@ -702,9 +729,10 @@ class DCERPC5Connection:
 							)
 						
 					elif self.auth_type == RPC_C_AUTHN_NETLOGON:
-						raise Exception('RPC_C_AUTHN_NETLOGON is not implemented!')
-						#from impacket.dcerpc.v5 import nrpc
-						#sealedMessage, signature = nrpc.SEAL(plain_data, self.__confounder, self.__sequence, self.__sessionKey, False)
+						from aiosmb.dcerpc.v5 import nrpc
+						confounder = os.urandom(8)
+						sealedMessage, signature = nrpc.SEAL(plain_data, confounder, self.__sequence, self.__sessionKey, self.netlogon_aes)
+						signature = signature.getData()
 					elif self.auth_type == RPC_C_AUTHN_GSS_NEGOTIATE:
 						sealedMessage, signature = await self.gssapi.gssapi.encrypt(plain_data, self.__sequence)
 					rpc_packet['pduData'] = sealedMessage
@@ -724,13 +752,9 @@ class DCERPC5Connection:
 								self.__sequence, 
 								self.__clientSealingHandle)
 					elif self.auth_type == RPC_C_AUTHN_NETLOGON:
-						raise Exception('RPC_C_AUTHN_NETLOGON is not implemented!')
-						#from impacket.dcerpc.v5 import nrpc
-						#signature = nrpc.SIGN(plain_data, 
-						#	   self.__confounder, 
-						#	   self.__sequence, 
-						#	   self.__sessionKey, 
-						#	   False)
+						from aiosmb.dcerpc.v5 import nrpc
+						signature = nrpc.SIGN(plain_data, b'', self.__sequence, self.__sessionKey, self.netlogon_aes)
+						signature = signature.getData()
 					elif self.auth_type == RPC_C_AUTHN_GSS_NEGOTIATE:
 						signature = await self.gssapi.gssapi.sign(plain_data, self.__sequence)
 

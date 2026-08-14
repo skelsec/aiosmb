@@ -264,8 +264,7 @@ class LSADRPC:
 			usersid = '%s-%s' % (domain_sid, user_rid)
 			return usersid, domain_name, user_rid, None
 		except Exception as e:
-			print(err)
-			return None, e
+			return None, None, None, e
 
 
 async def amain(url):

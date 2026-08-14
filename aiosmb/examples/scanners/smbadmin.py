@@ -2,7 +2,7 @@
 from asysocks.unicomm.common.scanner.common import *
 from aiosmb.commons.connection.factory import SMBConnectionFactory
 from aiosmb.commons.interfaces.share import SMBShare
-from aiosmb.dcerpc.v5.interfaces.remoteregistry import RRPRPC
+from aiosmb.dcerpc.v5.interfaces.remoteregistry import RRPRPC, REG_ACCESS_MASK
 from aiosmb.dcerpc.v5.interfaces.servicemanager import REMSVCRPC
 import traceback
 
@@ -11,18 +11,20 @@ class SMBAdminRes:
 		self.share = share
 		self.servicemgr = servicemgr
 		self.registry = registry
+		self.admin = any([self.share, self.servicemgr])
 
 	def get_header(self):
-		return ['SHARE', 'SERVICE', 'REGISTRY']
+		return ['SHARE', 'SERVICE', 'REGISTRY', 'ADMIN']
 
 	def to_line(self, separator = '\t'):
-		return separator.join([str(self.share), str(self.servicemgr), str(self.registry)])
+		return separator.join([str(self.share), str(self.servicemgr), str(self.registry), str(self.admin)])
 	
 	def to_dict(self):
 		return {
 			'SHARE' : self.share,
 			'SERVICE' : self.servicemgr,
-			'REGISTRY' : self.registry
+			'REGISTRY' : self.registry,
+			'ADMIN' : self.admin
 		}
 
 class SMBAdminScanner:
@@ -58,8 +60,13 @@ class SMBAdminScanner:
 					share_access = True
 
 				rrp, err = await RRPRPC.from_smbconnection(connection)
-				#_, err = await rrp.connect()
-				registry_access = True if err is None else False
+				if err is None:
+					_, err = await rrp.OpenRegPath(
+						r'HKEY_LOCAL_MACHINE\SOFTWARE',
+						access = REG_ACCESS_MASK.KEY_CREATE_SUB_KEY | REG_ACCESS_MASK.KEY_SET_VALUE
+					)
+					registry_access = True if err is None else False
+					await rrp.close()
 
 
 				srvmgr, err = await REMSVCRPC.from_smbconnection(connection)

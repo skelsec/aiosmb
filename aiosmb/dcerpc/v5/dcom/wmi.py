@@ -3424,7 +3424,6 @@ class WMIConnection:
 	
 	async def __aexit__(self, exc_type, exc_val, exc_tb):
 		await self.disconnect()
-		return True, None
 	
 	async def login(self, namespace:str = '//./root/cimv2'):
 		try:

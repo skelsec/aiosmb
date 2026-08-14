@@ -1,6 +1,22 @@
 
+import asyncio
+import random
+
 from aiosmb.commons.interfaces.file import SMBFile
+from aiosmb.commons.exceptions import SMBException
+from aiosmb.wintypes.ntstatus import NTStatus
 from aiosmb.dcerpc.v5.rpcrt import MSRPCRespHeader
+
+# A server only offers a limited number of concurrent instances of a given
+# named pipe (e.g. \srvsvc). When more opens are attempted at once than there
+# are free instances the server refuses the extra ones *immediately* with
+# STATUS_PIPE_NOT_AVAILABLE. Instances become free as soon as another client
+# closes its handle, so a short bounded retry with jittered back-off lets
+# several RPC interfaces share a single SMB connection concurrently.
+PIPE_OPEN_MAX_RETRIES = 12
+PIPE_OPEN_BASE_DELAY  = 0.1   # seconds
+PIPE_OPEN_MAX_DELAY   = 1.0   # seconds (per-attempt cap)
+
 
 class DCERPCSMBTransport:
 	def __init__(self, target):
@@ -17,8 +33,20 @@ class DCERPCSMBTransport:
 		# TODO: if the smb connection is not set up, we need to set it up
 		try:
 			unc_path = '\\\\%s\\%s%s' % (self.target.smb_connection.target.get_hostname_or_ip(), 'IPC$', self.target.pipe)
-			self.smbfile = SMBFile.from_uncpath(unc_path)
-			_, err = await self.smbfile.open(self.target.smb_connection, 'wp')
+			err = None
+			for attempt in range(PIPE_OPEN_MAX_RETRIES + 1):
+				self.smbfile = SMBFile.from_uncpath(unc_path)
+				_, err = await self.smbfile.open(self.target.smb_connection, 'wp')
+				if err is None:
+					return True, None
+				# Only retry the transient "no free pipe instance" condition.
+				if not (isinstance(err, SMBException) and err.ntstatus == NTStatus.PIPE_NOT_AVAILABLE):
+					return True, err
+				if attempt == PIPE_OPEN_MAX_RETRIES:
+					break
+				# exponential back-off with full jitter to spread out competing opens
+				delay = min(PIPE_OPEN_MAX_DELAY, PIPE_OPEN_BASE_DELAY * (2 ** attempt))
+				await asyncio.sleep(random.uniform(0, delay))
 			return True, err
 		except Exception as e:
 			return None, e

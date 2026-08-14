@@ -64,7 +64,7 @@ hkey_abbrev = {
 
 class REG_ACCESS_MASK(enum.IntFlag):
 	GENERIC_READ            = 0x80000000
-	GENERIC_WRITE           = 0x4000000
+	GENERIC_WRITE           = 0x40000000
 	GENERIC_EXECUTE         = 0x20000000
 	GENERIC_ALL             = 0x10000000
 	MAXIMUM_ALLOWED         = 0x02000000
@@ -74,6 +74,18 @@ class REG_ACCESS_MASK(enum.IntFlag):
 	WRITE_DACL              = 0x00040000
 	READ_CONTROL            = 0x00020000
 	DELETE                  = 0x00010000
+	KEY_QUERY_VALUE         = 0x00000001
+	KEY_SET_VALUE           = 0x00000002
+	KEY_CREATE_SUB_KEY      = 0x00000004
+	KEY_ENUMERATE_SUB_KEYS  = 0x00000008
+	KEY_NOTIFY              = 0x00000010
+	KEY_CREATE_LINK         = 0x00000020
+	KEY_WOW64_64KEY         = 0x00000100
+	KEY_WOW64_32KEY         = 0x00000200
+	KEY_READ                = 0x00020019
+	KEY_WRITE               = 0x00020006
+	KEY_EXECUTE             = 0x00020019
+	KEY_ALL_ACCESS          = 0x000f003f
 
 class REG_VAL_TYPE(enum.Enum):
 	BINARY              = 3
@@ -444,8 +456,8 @@ class RRPRPC:
 			return True, None
 		except Exception as e:
 			if isinstance(e, rrp.DCERPCSessionError):
-				return None, None, OSError(e.get_error_code(), system_errors.ERROR_MESSAGES[e.get_error_code()][1])
-			return None, None, e
+				return None, OSError(e.get_error_code(), system_errors.ERROR_MESSAGES[e.get_error_code()][1])
+			return None, e
 
 	async def OpenPerformanceText(self):
 		try:
@@ -455,8 +467,8 @@ class RRPRPC:
 			return res['phKey'], None
 		except Exception as e:
 			if isinstance(e, rrp.DCERPCSessionError):
-				return None, None, OSError(e.get_error_code(), system_errors.ERROR_MESSAGES[e.get_error_code()][1])
-			return None, None, e
+				return None, OSError(e.get_error_code(), system_errors.ERROR_MESSAGES[e.get_error_code()][1])
+			return None, e
 
 	async def OpenPerformanceNlsText(self):
 		try:
@@ -466,8 +478,8 @@ class RRPRPC:
 			return res['phKey'], None
 		except Exception as e:
 			if isinstance(e, rrp.DCERPCSessionError):
-				return None, None, OSError(e.get_error_code(), system_errors.ERROR_MESSAGES[e.get_error_code()][1])
-			return None, None, e
+				return None, OSError(e.get_error_code(), system_errors.ERROR_MESSAGES[e.get_error_code()][1])
+			return None, e
 
 	async def OpenRegPath(self, fullpath, access = REG_ACCESS_MASK.MAXIMUM_ALLOWED):
 		try:

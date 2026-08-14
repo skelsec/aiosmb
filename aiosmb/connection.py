@@ -179,6 +179,12 @@ class SMBConnection:
 		self.OutstandingRequests = {}
 		self.OutstandingResponses = {}
 
+		# this is used to prevent overlapping send operations
+		# on the same connection
+		# we're also introducing a lock owner to prevent deadlocks
+		self.send_lock = asyncio.Lock()
+		self._send_lock_owner = None
+
 		self.pending_table = {}
 		self.messageIdToOplock = {} #dunno?
 		
@@ -775,6 +781,9 @@ class SMBConnection:
 		Returns an SMB message from the outstandingresponse dict, OR waits until the expected message_id appears.
 		"""
 		try:
+			if self._send_lock_owner is not None and self._send_lock_owner is asyncio.current_task():
+				raise RuntimeError('BUG: recvSMB entered while this task holds send_lock. Raising to prevent deadlocks.')
+			
 			if message_id not in self.OutstandingResponses:
 				#logger.log(1, 'Waiting on messageID : %s' % message_id)
 				await self.OutstandingResponsesEvent[message_id].wait() #TODO: add timeout here?
@@ -784,9 +793,11 @@ class SMBConnection:
 				# this indicates and exception, so the msg_data is the exception
 				raise msg_data
 			
-			if self.status != SMBConnectionStatus.NEGOTIATING:
-				if self.selected_dialect != NegotiateDialects.SMB202:
-					self.SequenceWindow += (msg.header.CreditCharge - 1)
+			# NOTE: The sequence window is advanced by the full CreditCharge at
+			# send time (see sendSMB). Do NOT adjust it here on receive: doing so
+			# only happens to work when sends and receives strictly alternate
+			# (sequential use), and corrupts the window when several multi-credit
+			# requests are in flight concurrently.
 
 			if msg.header.Status != NTStatus.PENDING:
 				if message_id in self.OutstandingResponsesEvent:
@@ -888,60 +899,71 @@ class SMBConnection:
 		Returns: MessageId integer
 		"""
 		try:
-			self.activity_at = datetime.datetime.utcnow()
-			if self.status == SMBConnectionStatus.NEGOTIATING:
-				if isinstance(msg, SMBMessage):
-					message_id = 0
-					self.SequenceWindow += 1
-				else:
-					msg.header.CreditCharge = 1
-					msg.header.CreditReq = 0
-					msg.header.MessageId = self.SequenceWindow
-					message_id = self.SequenceWindow
-					self.SequenceWindow += 1
-					self.update_integrity(msg.to_bytes())
+			async with self.send_lock:
+				self._send_lock_owner = asyncio.current_task()
+				self.activity_at = datetime.datetime.utcnow()
+				if self.status == SMBConnectionStatus.NEGOTIATING:
+					if isinstance(msg, SMBMessage):
+						message_id = 0
+						self.SequenceWindow += 1
+					else:
+						msg.header.CreditCharge = 1
+						msg.header.CreditReq = 0
+						msg.header.MessageId = self.SequenceWindow
+						message_id = self.SequenceWindow
+						self.SequenceWindow += 1
+						self.update_integrity(msg.to_bytes())
 
+					self.OutstandingResponsesEvent[message_id] = asyncio.Event()
+					
+					await self.network_connection.write(msg.to_bytes())
+					return message_id, None
+						
+
+				msg.header.SessionId = self.SessionId
+				
+				if not msg.header.CreditCharge:
+					msg.header.CreditCharge = 1
+
+				if self.status != SMBConnectionStatus.SESSIONSETUP:
+					msg.header.CreditReq = 127
+				
+				# A request consumes 'CreditCharge' sequence numbers from the window
+				# (MS-SMB2 3.2.4.1.5). The MessageId is the low end of that block and
+				# the window must advance by the FULL charge here, at send time, while
+				# the send_lock is held. This is required for correctness when several
+				# multi-credit requests (e.g. large reads/writes) are in flight on the
+				# same connection concurrently; advancing by only 1 makes their
+				# MessageId ranges overlap, which the server rejects by aborting the
+				# connection. CANCEL reuses the MessageId of the cancelled request and
+				# does not consume a new sequence number.
+				if msg.header.Command is not SMB2Command.CANCEL:
+					msg.header.MessageId = self.SequenceWindow
+					self.SequenceWindow += msg.header.CreditCharge
+				
+				message_id = msg.header.MessageId
+				if fh is not None:
+					self.messageIdToOplock[message_id] = fh.oplock
+
+				if self.CompressionId is not None and self.EncryptionKey is not None:
+					msg = self.compress_message(msg)
+				if self.signing_required is True:
+					self.sign_message(msg)
+				
+				if self.encryption_required is True and self.EncryptionKey is not None:
+					msg = self.encrypt_message(msg.to_bytes())
+
+				else:
+					self.update_integrity(msg.to_bytes())
+				
 				self.OutstandingResponsesEvent[message_id] = asyncio.Event()
 				
 				await self.network_connection.write(msg.to_bytes())
 				return message_id, None
-					
-
-			if msg.header.Command is not SMB2Command.CANCEL:
-				msg.header.MessageId = self.SequenceWindow
-				self.SequenceWindow += 1
-			
-			msg.header.SessionId = self.SessionId
-			
-			if not msg.header.CreditCharge:
-				msg.header.CreditCharge = 1
-
-			
-			
-			if self.status != SMBConnectionStatus.SESSIONSETUP:
-				msg.header.CreditReq = 127
-			
-			message_id = msg.header.MessageId
-			if fh is not None:
-				self.messageIdToOplock[message_id] = fh.oplock
-
-			if self.CompressionId is not None and self.EncryptionKey is not None:
-				msg = self.compress_message(msg)
-			if self.signing_required is True:
-				self.sign_message(msg)
-			
-			if self.encryption_required is True and self.EncryptionKey is not None:
-				msg = self.encrypt_message(msg.to_bytes())
-
-			else:
-				self.update_integrity(msg.to_bytes())
-			
-			self.OutstandingResponsesEvent[message_id] = asyncio.Event()
-			
-			await self.network_connection.write(msg.to_bytes())
-			return message_id, None
 		except Exception as e:
 			return None, e
+		finally:
+			self._send_lock_owner = None
 
 		
 	async def tree_connect(self, share_name:str):

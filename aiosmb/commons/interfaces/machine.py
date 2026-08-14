@@ -378,7 +378,7 @@ class SMBMachine:
 				yield entry
 				await asyncio.sleep(0)
 	
-	async def enum_files_with_filter(self, filter_cb:Callable[[str, str], Awaitable[bool]], depth:int = 1000) -> AsyncGenerator[Tuple[Union[SMBShare, SMBDirectory, SMBFile], str, Union[Exception, None]], None]:
+	async def enum_files_with_filter(self, filter_cb:Callable[[str, str], Awaitable[bool]], depth:int = 1000, maxentries:int = -1) -> AsyncGenerator[Tuple[Union[SMBShare, SMBDirectory, SMBFile], str, Union[Exception, None]], None]:
 		shares:Dict[str, SMBShare] = {}
 		async for share, err in self.list_shares():
 			if err is not None:
@@ -399,7 +399,7 @@ class SMBMachine:
 			if res is False:
 				continue
 
-			async for entry in shares[share_name].subdirs[''].list_r(self.connection, depth = depth, maxentries = -1, filter_cb = filter_cb):
+			async for entry in shares[share_name].subdirs[''].list_r(self.connection, depth = depth, maxentries = maxentries, filter_cb = filter_cb):
 				yield entry
 				await asyncio.sleep(0)
 
