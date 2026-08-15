@@ -51,6 +51,9 @@ setup(
 		'wcwidth',
         'cryptography',
 	],
+	extras_require={
+		'compression': ['aiosmb-compression'],
+	},
 	
 	classifiers=[
 		"Programming Language :: Python :: 3.7",

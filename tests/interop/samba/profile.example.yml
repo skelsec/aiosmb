@@ -1,0 +1,48 @@
+schema_version: 1
+name: samba-4.17-disposable
+
+target:
+  host: 127.0.0.1
+  port: 1445
+  workgroup: AIOSMB
+  share: interop
+  dialect: SMB311
+  dialects:
+    - SMB202
+    - SMB210
+    - SMB300
+    - SMB302
+    - SMB311
+
+authentication:
+  mechanism: ntlm-password
+  username_environment: AIOSMB_SAMBA_USERNAME
+  password_environment: AIOSMB_SAMBA_PASSWORD
+  # These values are intentionally public and valid only for this disposable lab.
+  test_only_default_username: aiosmbtest
+  test_only_default_password: Aiosmb-Test-Only-1!
+
+environment_overrides:
+  host: AIOSMB_SAMBA_HOST
+  port: AIOSMB_SAMBA_PORT
+  workgroup: AIOSMB_SAMBA_WORKGROUP
+  share: AIOSMB_SAMBA_SHARE
+
+safety:
+  disposable: true
+  allow_destructive: true
+
+capabilities:
+  - protocol_probe
+  - ntlm
+  - signing_observation
+  - srvsvc
+  - file_crud
+  - directory_crud
+  - large_transfer
+  - concurrency
+  - security_descriptor
+
+expected:
+  samba_package_version: "2:4.17.12+dfsg-0+deb12u2"
+  smbd_version: "Version 4.17.12-Debian"

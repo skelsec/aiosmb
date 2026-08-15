@@ -1,0 +1,40 @@
+[package]
+name = "aiosmb-compression-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+aiosmb-compression = { path = ".." }
+libfuzzer-sys = "0.4.13"
+
+[[bin]]
+name = "decode"
+path = "fuzz_targets/decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "round_trip"
+path = "fuzz_targets/round_trip.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "decode_all"
+path = "fuzz_targets/decode_all.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "round_trip_all"
+path = "fuzz_targets/round_trip_all.rs"
+test = false
+doc = false
+bench = false

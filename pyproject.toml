@@ -1,3 +1,49 @@
 [build-system]
 requires = ["setuptools>=61.0.0"]
 build-backend = "setuptools.build_meta"
+
+[tool.pytest.ini_options]
+minversion = "7.4"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = [
+    "-ra",
+    "--strict-config",
+    "--strict-markers",
+    "--randomly-seed=20240814",
+]
+asyncio_mode = "strict"
+timeout = 30
+timeout_method = "thread"
+xfail_strict = true
+markers = [
+    "unit: deterministic, offline unit tests",
+    "fake_peer: async tests using a scripted in-process SMB peer",
+    "component: tests spanning multiple in-repository components",
+    "samba: tests requiring an explicitly configured Samba target",
+    "windows: tests requiring an explicitly configured Windows target",
+    "slow: tests excluded from the default fast suite",
+    "destructive: tests that can modify or delete remote state",
+    "privileged: tests requiring elevated or administrative credentials",
+    "quarantine: unsafe, flaky, or not-yet-classified tests",
+    "capability(name): tests requiring one or more named target capabilities",
+]
+
+[tool.coverage.run]
+branch = true
+relative_files = true
+source = ["aiosmb"]
+omit = [
+    "aiosmb/external/*",
+    "aiosmb/tests/*",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+precision = 2
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+]

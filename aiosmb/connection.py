@@ -1,8 +1,12 @@
 import enum
 import asyncio
 import copy
+import concurrent.futures
 import traceback
 import datetime
+import functools
+import os
+import secrets
 from typing import Coroutine
 
 from aiosmb import logger
@@ -38,9 +42,13 @@ from unicrypto import hashlib
 from unicrypto.symmetric import AES, MODE_CCM, MODE_GCM
 from unicrypto.cmac import AES_CMAC
 from unicrypto.kdf import KDF_CounterMode
-from aiosmb.protocol.compression.lznt1 import compress as lznt1_compress
-from aiosmb.protocol.compression.lznt1 import decompress as lznt1_decompress
+from aiosmb.protocol.compression import backend as compression_backend
 from asysocks.unicomm.client import UniClient
+
+_COMPRESSION_EXECUTOR = concurrent.futures.ThreadPoolExecutor(
+	max_workers=max(1, min(4, os.cpu_count() or 1)),
+	thread_name_prefix='aiosmb-compression',
+)
 
 class SMBConnectionStatus(enum.Enum):
 	NEGOTIATING = 'NEGOTIATING'
@@ -58,6 +66,7 @@ class TreeEntry:
 		self.is_CA = None
 		self.is_scaleout = None
 		self.encrypt = None
+		self.compress = None
 		self.maximal_access = None
 		
 	@staticmethod
@@ -71,6 +80,7 @@ class TreeEntry:
 		te.is_CA = TreeCapabilities.SMB2_SHARE_CAP_CONTINUOUS_AVAILABILITY in reply.command.Capabilities
 		te.is_scaleout = TreeCapabilities.SMB2_SHARE_CAP_SCALEOUT in reply.command.Capabilities
 		te.encrypt = ShareFlags.SMB2_SHAREFLAG_ENCRYPT_DATA in reply.command.ShareFlags
+		te.compress = ShareFlags.SMB2_SHAREFLAG_COMPRESS_DATA in reply.command.ShareFlags
 		te.maximal_access = reply.command.MaximalAccess 
 		return te
 	
@@ -184,6 +194,7 @@ class SMBConnection:
 		# we're also introducing a lock owner to prevent deadlocks
 		self.send_lock = asyncio.Lock()
 		self._send_lock_owner = None
+		self._compression_semaphore = asyncio.Semaphore(1)
 
 		self.pending_table = {}
 		self.messageIdToOplock = {} #dunno?
@@ -228,7 +239,8 @@ class SMBConnection:
 
 		
 		### SMB311 global
-		self.CompressAllRequests = False
+		self.CompressAllRequests = bool(self.target.compression)
+		self.compression_min_size = self.target.compression_min_size
 
 		### SMB311 transport
 		self.PreauthIntegrityHashId = SMB2HashAlgorithm.SHA_512 #the type of the hash function was negotiated , now there is only one type
@@ -236,9 +248,29 @@ class SMBConnection:
 		self.CompressionId = None #the selected compression
 		self.CipherId = None #
 		self.CompressionIds = None
-		#if self.target.compression is True:
-		if True:
-			self.CompressionIds = [SMB2CompressionType.LZNT1]
+		if (
+			self.target.compression and
+			NegotiateDialects.SMB311 not in self.supported_dialects
+		):
+			raise ValueError('SMB compression requires the SMB 3.1.1 dialect')
+		if NegotiateDialects.SMB311 in self.supported_dialects:
+			available_compression_ids = compression_backend.supported_algorithms()
+			requested_compression_ids = self.target.compression_algorithms
+			if not available_compression_ids:
+				compression_backend.warn_if_unavailable()
+			elif requested_compression_ids is None:
+				self.CompressionIds = list(available_compression_ids)
+			else:
+				self.CompressionIds = [
+					algorithm
+					for algorithm in requested_compression_ids
+					if algorithm in available_compression_ids
+				]
+				if not self.CompressionIds:
+					logger.warning(
+						'None of the requested SMB compression algorithms are '
+						'available; continuing without SMB compression support'
+					)
 		self.SupportsChainedCompression = False
 		self.supported_encryptions = [SMB2Cipher.AES_128_CCM] #[SMB2Cipher.AES_128_GCM], SMB2Cipher.AES_128_GCM
 		self.supported_signatures = None #[SMB2SigningAlgorithm.AES_CMAC]
@@ -290,16 +322,20 @@ class SMBConnection:
 		"""
 		try:
 			async for msg_data in self.network_connection.read():
-				self.activity_at = datetime.datetime.utcnow()
+				self.activity_at = datetime.datetime.now(datetime.timezone.utc)
 
 				if msg_data is None:
 					raise SMBConnectionTerminated(self.target.get_hostname_or_ip() if self.target is not None else 'Unknown target')
+				if not msg_data:
+					raise ValueError('Received an empty SMB transport payload')
 
+				was_encrypted = False
 				if msg_data[0] < 252:
 					raise Exception('Unknown SMB packet type %s' % msg_data[0])
 
 				if msg_data[0] == 0xFD:
 					#encrypted transform
+					was_encrypted = True
 					msg = SMB2Transform.from_bytes(msg_data)
 					
 					if msg.header.EncryptionAlgorithm == SMB2Cipher.AES_128_CCM:
@@ -315,25 +351,29 @@ class SMBConnection:
 
 					else:
 						raise Exception('Common encryption algo is %s but it is not implemented!' % msg.header.EncryptionAlgorithm)
+					if len(msg_data) != msg.header.OriginalMessageSize:
+						raise ValueError('Decrypted SMB message size does not match its transform header')
 
 				if msg_data[0] == 0xFC:
 					#compressed transform
+					if self.selected_dialect != NegotiateDialects.SMB311:
+						raise ValueError('Received an SMB compression transform outside SMB 3.1.1')
+					if not self.CompressionIds:
+						raise ValueError('Received an SMB compression transform without negotiated compression')
 					msg = SMB2Compression.from_bytes(msg_data)
-					if msg.header.Flags == SMB2CompressionFlags.NONE:
-						if msg.header.CompressionAlgorithm != self.CompressionId:
-							logger.debug('Server is using a different compression algo than whats agreed upon...')
-						if msg.header.CompressionAlgorithm == SMB2CompressionType.LZNT1:
-							uncompressed_data = msg.data[:msg.header.Offset]
-							uncompressed_data += lznt1_decompress(msg.data[msg.header.Offset:])
-							msg_data = uncompressed_data
-						else:
-							raise Exception('Server used %s compression, but it is not implemented' % msg.header.CompressionAlgorithm.name)
-					else:
-						raise Exception('Server sent chained compression, but its not implemented here')
+					msg_data = await self._decompress_message(msg)
 					
 				if msg_data[0] == 0xFE:
 					#version2
 					msg = SMB2Message.from_bytes(msg_data)
+					if (
+						not was_encrypted and
+						msg.header.Flags & SMB2HeaderFlag.SMB2_FLAGS_SIGNED
+					):
+						if self._can_verify_message():
+							self.verify_message(msg, msg_data)
+						elif msg.header.Command != SMB2Command.SESSION_SETUP:
+							raise ValueError('Cannot verify signed SMB message before key derivation')
 
 				if msg_data[0] == 0xFF:
 					#version1
@@ -502,7 +542,7 @@ class SMBConnection:
 				sleep_time = max(self.target.timeout - 1, sleep_time)
 			while True:
 				await asyncio.sleep(sleep_time)
-				if (datetime.datetime.utcnow() - self.activity_at).seconds > sleep_time and self.supress_keepalive is False: 
+				if (datetime.datetime.now(datetime.timezone.utc) - self.activity_at).seconds > sleep_time and self.supress_keepalive is False: 
 					await asyncio.wait_for(self.echo(), timeout = self.keepalive_timeout)
 				
 		except asyncio.CancelledError:
@@ -599,7 +639,7 @@ class SMBConnection:
 					)
 
 
-				if self.CompressionIds is not None:
+				if self.CompressionIds:
 					command.NegotiateContextList.append(
 						SMB2CompressionCapabilities.from_comp_list(
 							self.CompressionIds,
@@ -643,13 +683,42 @@ class SMBConnection:
 				self.encryption_required = True
 				self.CipherId = SMB2Cipher.AES_128_CCM
 
+			offered_compression_ids = tuple(self.CompressionIds or ())
+			negotiated_compression_ids = None
+			compression_context_seen = False
 			for negctx in rply.command.NegotiateContextList:
 				if negctx.ContextType == SMB2ContextType.ENCRYPTION_CAPABILITIES:
 					self.encryption_required = True
 					self.CipherId = negctx.Ciphers[0]
 						
 				if negctx.ContextType == SMB2ContextType.COMPRESSION_CAPABILITIES:
-					self.CompressionId = negctx.CompressionAlgorithms[0]
+					if compression_context_seen:
+						raise ValueError('Server returned multiple compression capability contexts')
+					compression_context_seen = True
+					if self.selected_dialect != NegotiateDialects.SMB311:
+						raise ValueError('Compression capabilities are only valid for SMB 3.1.1')
+					if not offered_compression_ids:
+						raise ValueError('Server returned compression capabilities that were not offered')
+					if negctx.CompressionAlgorithms == [SMB2CompressionType.NONE]:
+						negotiated_compression_ids = []
+						continue
+					if SMB2CompressionType.NONE in negctx.CompressionAlgorithms:
+						raise ValueError('NONE cannot be combined with SMB compression algorithms')
+					if any(algorithm not in offered_compression_ids for algorithm in negctx.CompressionAlgorithms):
+						raise ValueError('Server selected a compression algorithm that was not offered')
+					negotiated_compression_ids = list(negctx.CompressionAlgorithms)
+					self.SupportsChainedCompression = (
+						self.SupportsChainedCompression and
+						negctx.Flags == SMB2CompressionFlags.CHAINED
+					)
+
+			if self.selected_dialect == NegotiateDialects.SMB311 and negotiated_compression_ids:
+				self.CompressionIds = negotiated_compression_ids
+				self.CompressionId = self.CompressionIds[0]
+			else:
+				self.CompressionIds = None
+				self.CompressionId = None
+				self.SupportsChainedCompression = False
 				
 				#if negctx.ContextType == SMB2ContextType.SIGNING_CAPABILITIES:
 				#	#self.CompressionId = negctx.CompressionAlgorithms[0]
@@ -706,9 +775,7 @@ class SMBConnection:
 						#raise SMBKerberosPreauthFailed()
 				
 				command.Flags = 0
-				command.SecurityMode = NegotiateSecurityMode.SMB2_NEGOTIATE_SIGNING_ENABLED
-				if self.nosign is True:
-					command.SecurityMode = NegotiateSecurityMode.NONE
+				command.SecurityMode = self.ClientSecurityMode
 				command.Capabilities = 0 #self.ClientCapabilities
 				command.Channel      = 0
 				command.PreviousSessionId    = 0
@@ -762,6 +829,8 @@ class SMBConnection:
 						self.ApplicationKey  = KDF_CounterMode(self.SessionKey, b"SMB2APP\x00", b"SmbRpc\x00", 128)
 						self.EncryptionKey   = KDF_CounterMode(self.SessionKey, b"SMB2AESCCM\x00", b"ServerIn \x00", 128)
 						self.DecryptionKey   = KDF_CounterMode(self.SessionKey, b"SMB2AESCCM\x00", b"ServerOut\x00", 128)
+				if rply.header.Flags & SMB2HeaderFlag.SMB2_FLAGS_SIGNED:
+					self.verify_message(rply, rply_data)
 				
 				self.status = SMBConnectionStatus.RUNNING
 			
@@ -812,11 +881,14 @@ class SMBConnection:
 	def sign_message(self, msg:SMB2Message):
 		if self.selected_dialect in [NegotiateDialects.SMB202, NegotiateDialects.SMB210]:
 			if self.SessionKey:
-				msg.header.Flags = msg.header.Flags ^ SMB2HeaderFlag.SMB2_FLAGS_SIGNED ##maybe move this flag settings to sendsmb since singing is determined there?
+				msg.header.Flags |= SMB2HeaderFlag.SMB2_FLAGS_SIGNED
+				msg.header.Signature = b'\x00' * 16
 				digest = hmac.new(self.SessionKey, msg.to_bytes(), hashlib.sha256).digest()
 				msg.header.Signature = digest[:16]
 		else:
 			if self.SigningKey:
+				msg.header.Flags |= SMB2HeaderFlag.SMB2_FLAGS_SIGNED
+				msg.header.Signature = b'\x00' * 16
 				msg_data = msg.to_bytes()
 				signature = AES_CMAC(self.SigningKey, msg_data, len(msg_data))
 				msg.header.Signature = signature
@@ -828,7 +900,37 @@ class SMBConnection:
 				#print(signature)
 				#msg.header.Signature = signature
 
-	
+	def _can_verify_message(self):
+		if self.selected_dialect in [NegotiateDialects.SMB202, NegotiateDialects.SMB210]:
+			return self.SessionKey is not None
+		return self.SigningKey is not None
+
+	def verify_message(self, msg:SMB2Message, msg_data:bytes):
+		signature = msg.header.Signature
+		unsigned_data = bytearray(msg_data)
+		if len(unsigned_data) < 64:
+			raise ValueError('Signed SMB2 message is shorter than its fixed header')
+		unsigned_data[48:64] = b'\x00' * 16
+		if self.selected_dialect in [NegotiateDialects.SMB202, NegotiateDialects.SMB210]:
+			if not self.SessionKey:
+				raise ValueError('Cannot verify SMB2 signature without a session key')
+			expected = hmac.new(
+				self.SessionKey,
+				bytes(unsigned_data),
+				hashlib.sha256,
+			).digest()[:16]
+		else:
+			if not self.SigningKey:
+				raise ValueError('Cannot verify SMB3 signature without a signing key')
+			expected = AES_CMAC(
+				self.SigningKey,
+				bytes(unsigned_data),
+				len(unsigned_data),
+			)
+		if not secrets.compare_digest(signature, expected):
+			raise ValueError('SMB message signature verification failed')
+		return True
+
 	def encrypt_message(self, msg_data:bytes) -> SMB2Transform:
 		if self.CipherId == SMB2Cipher.AES_128_CCM:
 			nonce = os.urandom(11)
@@ -871,28 +973,105 @@ class SMBConnection:
 		return SMB2Transform(hdr, enc_data)
 
 
-	def compress_message(self, msg) -> SMB2Compression:
-		msg_data = msg.to_bytes()
-		
-		if self.SupportsChainedCompression is False:
-			if self.CompressionId == SMB2CompressionType.NONE:
-				compressed_data = msg_data
-			elif self.CompressionId == SMB2CompressionType.LZNT1:
-				compressed_data = lznt1_compress(msg_data)
-			else:
-				raise Exception('Common compression type is %s but its not implemented!' % self.CompressionId)
-			
-			comp_hdr = SMB2Header_COMPRESSION_TRANSFORM()
-			comp_hdr.OriginalCompressedSegmentSize = len(msg_data)
-			comp_hdr.CompressionAlgorithm = self.CompressionId
-			comp_hdr.Flags = SMB2CompressionFlags.NONE
-			comp_hdr.Offset = 0 #it'z zero because we compress the full message
+	def _compression_output_limit(self):
+		return max(self.MaxTransactSize, self.MaxReadSize, self.MaxWriteSize) + 256 + 16
 
-			return SMB2Compression(comp_hdr, compressed_data)
-		else:
-			raise Exception('Chained compression not implemented!')
+	async def _run_compression_codec(self, func, *args):
+		async with self._compression_semaphore:
+			loop = asyncio.get_running_loop()
+			future = loop.run_in_executor(
+				_COMPRESSION_EXECUTOR,
+				functools.partial(func, *args),
+			)
+			cancelled = False
+			while True:
+				try:
+					result = await asyncio.shield(future)
+				except asyncio.CancelledError:
+					cancelled = True
+					continue
+				except BaseException:
+					if cancelled:
+						raise asyncio.CancelledError()
+					raise
+				if cancelled:
+					raise asyncio.CancelledError()
+				return result
+
+	def _compress_message_sync(self, msg, compression_offset = None):
+		msg_data = msg.to_bytes()
+		if self.SupportsChainedCompression is True:
+			raise ValueError('Chained SMB compression is not supported')
+		if self.CompressionId not in tuple(self.CompressionIds or ()):
+			raise ValueError('No negotiated SMB compression algorithm is available')
+		if compression_offset is None:
+			compression_offset = getattr(msg.command, 'DataOffset', 0) or 0
+		if compression_offset < 0 or compression_offset > len(msg_data):
+			raise ValueError('SMB compression offset is outside the message')
+		uncompressed_prefix = msg_data[:compression_offset]
+		uncompressed_segment = msg_data[compression_offset:]
+		if len(uncompressed_segment) < self.compression_min_size:
+			return None
+		compressed_data = compression_backend.compress(
+			self.CompressionId,
+			uncompressed_segment,
+		)
+		if len(compressed_data) >= len(uncompressed_segment):
+			return None
+
+		comp_hdr = SMB2Header_COMPRESSION_TRANSFORM()
+		comp_hdr.OriginalCompressedSegmentSize = len(uncompressed_segment)
+		comp_hdr.CompressionAlgorithm = self.CompressionId
+		comp_hdr.Flags = SMB2CompressionFlags.NONE
+		comp_hdr.Offset = len(uncompressed_prefix)
+		return SMB2Compression(comp_hdr, uncompressed_prefix + compressed_data)
+
+	async def compress_message(self, msg, compression_offset = None):
+		return await self._run_compression_codec(
+			self._compress_message_sync,
+			msg,
+			compression_offset,
+		)
+
+	async def _decompress_message(self, msg):
+		allowed_algorithms = tuple(self.CompressionIds or ())
+		total_output_size = msg.header.validate(
+			payload_length = len(msg.data),
+			max_output_size = self._compression_output_limit(),
+			allowed_algorithms = allowed_algorithms,
+			allow_chained = False,
+		)
+		prefix = msg.data[:msg.header.Offset]
+		compressed_segment = msg.data[msg.header.Offset:]
+		decompressed_segment = await self._run_compression_codec(
+			compression_backend.decompress,
+			msg.header.CompressionAlgorithm,
+			compressed_segment,
+			msg.header.OriginalCompressedSegmentSize,
+			self._compression_output_limit() - len(prefix),
+		)
+		if len(decompressed_segment) != msg.header.OriginalCompressedSegmentSize:
+			raise ValueError('SMB compression output length does not match the transform header')
+		decompressed = prefix + decompressed_segment
+		if len(decompressed) != total_output_size:
+			raise ValueError('SMB compression transform produced an invalid message length')
+		if not decompressed.startswith(b'\xFESMB'):
+			raise ValueError('Decompressed transport payload is not an SMB2 message')
+		return decompressed
+
+	def _should_compress_io(self, tree_id, override):
+		tree = self.TreeConnectTable_id.get(tree_id)
+		requested = bool(self.CompressAllRequests or (tree is not None and tree.compress))
+		if override is not None:
+			requested = bool(override)
+		return bool(
+			requested and
+			self.selected_dialect == NegotiateDialects.SMB311 and
+			self.CompressionId is not None and
+			self.CompressionIds
+		)
 		
-	async def sendSMB(self, msg:SMB2Message, fh = None):
+	async def sendSMB(self, msg:SMB2Message, fh = None, compress = False, compression_offset = None):
 		"""
 		Sends an SMB message to teh remote endpoint.
 		msg: SMB2Message or SMBMessage
@@ -901,7 +1080,7 @@ class SMBConnection:
 		try:
 			async with self.send_lock:
 				self._send_lock_owner = asyncio.current_task()
-				self.activity_at = datetime.datetime.utcnow()
+				self.activity_at = datetime.datetime.now(datetime.timezone.utc)
 				if self.status == SMBConnectionStatus.NEGOTIATING:
 					if isinstance(msg, SMBMessage):
 						message_id = 0
@@ -945,12 +1124,16 @@ class SMBConnection:
 				if fh is not None:
 					self.messageIdToOplock[message_id] = fh.oplock
 
-				if self.CompressionId is not None and self.EncryptionKey is not None:
-					msg = self.compress_message(msg)
-				if self.signing_required is True:
+				should_encrypt = self.encryption_required is True and self.EncryptionKey is not None
+				if self.signing_required is True and not should_encrypt:
 					self.sign_message(msg)
-				
-				if self.encryption_required is True and self.EncryptionKey is not None:
+
+				if compress is True and self.CompressionId is not None:
+					compressed_msg = await self.compress_message(msg, compression_offset)
+					if compressed_msg is not None:
+						msg = compressed_msg
+
+				if should_encrypt:
 					msg = self.encrypt_message(msg.to_bytes())
 
 				else:
@@ -995,6 +1178,11 @@ class SMBConnection:
 			
 			if rply.header.Status == NTStatus.SUCCESS:
 				te = TreeEntry.from_tree_reply(rply, share_name)
+				te.compress = bool(
+					te.compress and
+					self.selected_dialect == NegotiateDialects.SMB311 and
+					self.CompressionIds
+				)
 				self.TreeConnectTable_id[rply.header.TreeId] = te
 				self.TreeConnectTable_share[share_name] = te
 				return te, None
@@ -1065,7 +1253,7 @@ class SMBConnection:
 				return None, None, e
 			return None, e
 	
-	async def read(self, tree_id, file_id, offset = 0, length = 0):
+	async def read(self, tree_id, file_id, offset = 0, length = 0, compress = None):
 		"""
 		Will issue one read command only then waits for reply. To read a whole file you must use a filereader logic! 
 		returns the data bytes and the remaining data length
@@ -1103,6 +1291,8 @@ class SMBConnection:
 				command.FileId = file_id
 				command.MinimumCount = 0
 				command.RemainingBytes = 0
+				if self._should_compress_io(tree_id, compress):
+					command.Flags |= ReadFlag.SMB2_READFLAG_REQUEST_COMPRESSED
 				
 				msg = SMBMessage(header, command)
 				message_id, err = await self.sendSMB(msg, fh = self.FileHandleTable[file_id])
@@ -1130,7 +1320,7 @@ class SMBConnection:
 			return None, None, e
 			
 			
-	async def write(self, tree_id, file_id, data, offset = 0):
+	async def write(self, tree_id, file_id, data, offset = 0, compress = None):
 		"""
 		This function will send one packet only! The data size can be larger than what one packet allows, but it will be truncated
 		to the maximum. 
@@ -1167,7 +1357,11 @@ class SMBConnection:
 				command.Data = data
 				
 				msg = SMBMessage(header, command)
-				message_id, err = await self.sendSMB(msg, fh = self.FileHandleTable[file_id])
+				message_id, err = await self.sendSMB(
+					msg,
+					fh = self.FileHandleTable[file_id],
+					compress = self._should_compress_io(tree_id, compress),
+				)
 				if err is not None:
 					raise err
 				

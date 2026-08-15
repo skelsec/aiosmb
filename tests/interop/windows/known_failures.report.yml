@@ -1,0 +1,10 @@
+schema_version: 1
+profile: goad-standard-five-host
+reserved_id_range: KF-0800..KF-0899
+generated_on: "2026-08-14"
+notes:
+  - Only confirmed aiosmb production defects reproduced against GOAD belong here.
+  - Lab reachability, credentials, policy, and missing capabilities are skips.
+  - GOAD is vulnerable integration coverage, not a conformance target.
+  - Every listed defect must have a strict-xfail reproducer in this directory.
+known_failures: []

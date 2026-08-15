@@ -18,6 +18,7 @@ from asysocks.unicomm.common.target import UniTarget, UniProto
 from asysocks.unicomm.common.proxy import UniProxyProto, UniProxyTarget
 
 from aiosmb.protocol.common import NegotiateDialects, SMB2_NEGOTIATE_DIALTECTS_2, SMB2_NEGOTIATE_DIALTECTS_3, SMB2_NEGOTIATE_DIALTECTS
+from aiosmb.protocol.smb2.commands.negotiate import SMB2CompressionType
 
 class SMBConnectionDialect(enum.Enum):
 	SMB = 'SMB' #any, will us a wildcard because SMB1 is not implremented
@@ -52,7 +53,35 @@ smburlconnection_param2var = {
 smbtarget_url_params = {
 	'fragment' : int_one,
 	'compress' : int_one,
+	'compress_min' : int_one,
+	'compress_algorithms' : str_one,
 }
+
+_compression_algorithm_names = {
+	'lznt1': SMB2CompressionType.LZNT1,
+	'lz77': SMB2CompressionType.LZ77,
+	'lz77_huffman': SMB2CompressionType.LZ77_Huffman,
+	'lz4': SMB2CompressionType.LZ4,
+}
+
+
+def _parse_compression_algorithms(value):
+	if value in (None, ''):
+		return None
+	algorithms = []
+	for name in value.split(','):
+		key = name.strip().lower().replace('-', '_')
+		try:
+			algorithm = _compression_algorithm_names[key]
+		except KeyError:
+			raise ValueError('Unsupported unchained SMB compression algorithm: %s' % name)
+		if algorithm in algorithms:
+			raise ValueError('SMB compression algorithms must be unique')
+		algorithms.append(algorithm)
+	if not algorithms:
+		raise ValueError('At least one SMB compression algorithm must be selected')
+	return tuple(algorithms)
+
 
 class SMBTarget(UniTarget):
 	"""
@@ -68,13 +97,31 @@ class SMBTarget(UniTarget):
 						dns:str = None,
 						path:str = None,
 						compression:bool = False,
-						fragment:int = None):
+						fragment:int = None,
+						compression_min_size:int = 4096,
+						compression_algorithms = None):
 		UniTarget.__init__(self, ip, port, protocol, timeout, hostname = hostname, proxies = proxies, domain = domain, dc_ip = dc_ip, dns=dns)
 		
 		self.path:str = path #for holding remote file path
 		self.preferred_dialects:SMBConnectionDialect = SMB2_NEGOTIATE_DIALTECTS_2
 		self.fragment = fragment
+		if compression_algorithms is not None:
+			compression_algorithms = tuple(compression_algorithms)
+			if not compression_algorithms:
+				raise ValueError('At least one SMB compression algorithm must be selected')
+			if any(
+				not isinstance(algorithm, SMB2CompressionType) or
+				algorithm in (SMB2CompressionType.NONE, SMB2CompressionType.Pattern_V1)
+				for algorithm in compression_algorithms
+			):
+				raise ValueError('Only unchained SMB compression algorithms may be selected')
+			if len(set(compression_algorithms)) != len(compression_algorithms):
+				raise ValueError('SMB compression algorithms must be unique')
 		self.compression:bool = compression
+		self.compression_min_size:int = compression_min_size
+		self.compression_algorithms = compression_algorithms
+		if self.compression_min_size < 1:
+			raise ValueError('compression_min_size must be positive')
 		
 		#this is mostly for advanced users
 		self.MaxTransactSize:int = 0x100000
@@ -134,7 +181,11 @@ class SMBTarget(UniTarget):
 			dc_ip= self.dc_ip, 
 			domain = self.domain, 
 			proxies = copy.deepcopy(self.proxies),
-			protocol = self.protocol
+			protocol = self.protocol,
+			compression = self.compression,
+			fragment = self.fragment,
+			compression_min_size = self.compression_min_size,
+			compression_algorithms = self.compression_algorithms,
 		)
 
 		t.MaxTransactSize = self.MaxTransactSize
@@ -182,6 +233,12 @@ class SMBTarget(UniTarget):
 		
 		unitarget, extraparams = UniTarget.from_url(connection_url, protocol, port, smbtarget_url_params)
 		compression = extraparams.get('compress', False)
+		compression_min_size = extraparams.get('compress_min')
+		if compression_min_size is None:
+			compression_min_size = 4096
+		compression_algorithms = _parse_compression_algorithms(
+			extraparams.get('compress_algorithms')
+		)
 		fragment = extraparams.get('fragment')
 
 		target = SMBTarget(
@@ -196,7 +253,9 @@ class SMBTarget(UniTarget):
 			dns = unitarget.dns,
 			path = path,
 			compression=compression,
-			fragment = fragment
+			fragment = fragment,
+			compression_min_size = compression_min_size,
+			compression_algorithms = compression_algorithms,
 		)
 		target.update_dialect(dialect)
 		return target

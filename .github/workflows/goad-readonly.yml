@@ -1,0 +1,241 @@
+name: Interop - GOAD read-only
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_privileged:
+        description: Run separately gated privileged read-only tests
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: goad-readonly-controller
+  cancel-in-progress: false
+
+jobs:
+  normal-user:
+    name: GOAD normal-user read-only
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: [self-hosted, linux, x64, aiosmb-goad, isolated]
+    environment: aiosmb-goad-readonly
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out trusted default branch
+        uses: actions/checkout@v4
+
+      - name: Set up current Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install package and test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .
+          python -m pip install -r requirements-test.txt
+
+      - name: Validate normal-user secret injection
+        env:
+          AIOSMB_WINDOWS_USER_USERNAME: ${{ secrets.AIOSMB_WINDOWS_USER_USERNAME }}
+          AIOSMB_WINDOWS_USER_PASSWORD: ${{ secrets.AIOSMB_WINDOWS_USER_PASSWORD }}
+        run: |
+          if [ -z "${AIOSMB_WINDOWS_USER_USERNAME}" ] ||
+             [ -z "${AIOSMB_WINDOWS_USER_PASSWORD}" ]
+          then
+            echo "::error::Required normal-user secret environments are unavailable"
+            exit 1
+          fi
+
+      - name: Create secret-free active profile
+        env:
+          ACTIVE_PROFILE: ${{ runner.temp }}/aiosmb-goad-profile.yml
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          import yaml
+
+          source = Path("tests/interop/windows/goad.example.yml")
+          target = Path(os.environ["ACTIVE_PROFILE"])
+          document = yaml.safe_load(source.read_text(encoding="utf-8"))
+          document["active"] = True
+          document["safety"]["allow_destructive"] = False
+          document["safety"]["destructive_allowlist"] = []
+          target.write_text(
+              yaml.safe_dump(document, sort_keys=False),
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Discover GOAD capabilities without credentials
+        run: |
+          python tests/interop/windows/run.py discover \
+            --profile "${RUNNER_TEMP}/aiosmb-goad-profile.yml" \
+            --artifact-dir "${RUNNER_TEMP}/aiosmb-goad-normal/discovery"
+
+      - name: Run normal-user SMB tests
+        env:
+          AIOSMB_WINDOWS_USER_USERNAME: ${{ secrets.AIOSMB_WINDOWS_USER_USERNAME }}
+          AIOSMB_WINDOWS_USER_PASSWORD: ${{ secrets.AIOSMB_WINDOWS_USER_PASSWORD }}
+        run: |
+          python tests/interop/windows/run.py test \
+            --profile "${RUNNER_TEMP}/aiosmb-goad-profile.yml" \
+            --group user \
+            --artifact-dir "${RUNNER_TEMP}/aiosmb-goad-normal/user"
+
+      - name: Run normal-user RPC tests
+        if: always()
+        env:
+          AIOSMB_WINDOWS_USER_USERNAME: ${{ secrets.AIOSMB_WINDOWS_USER_USERNAME }}
+          AIOSMB_WINDOWS_USER_PASSWORD: ${{ secrets.AIOSMB_WINDOWS_USER_PASSWORD }}
+        run: |
+          python tests/interop/windows/run.py test \
+            --profile "${RUNNER_TEMP}/aiosmb-goad-profile.yml" \
+            --group rpc \
+            --artifact-dir "${RUNNER_TEMP}/aiosmb-goad-normal/rpc"
+
+      - name: Build sanitized normal-user report
+        if: always()
+        run: |
+          junit_args=()
+          for report in \
+            "${RUNNER_TEMP}/aiosmb-goad-normal/user/junit.xml" \
+            "${RUNNER_TEMP}/aiosmb-goad-normal/rpc/junit.xml"
+          do
+            if [ -f "${report}" ]; then
+              junit_args+=(--junit "${report}")
+            fi
+          done
+          if [ "${#junit_args[@]}" -eq 0 ]; then
+            exit 1
+          fi
+          python tests/support/reporting.py \
+            "${junit_args[@]}" \
+            --registry tests/known_failures.yml \
+            --json-output "${RUNNER_TEMP}/aiosmb-goad-normal/summary.json" \
+            --markdown-output "${RUNNER_TEMP}/aiosmb-goad-normal/summary.md"
+          cat "${RUNNER_TEMP}/aiosmb-goad-normal/summary.md" \
+            >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload sanitized normal-user artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: goad-normal-user-readonly
+          path: ${{ runner.temp }}/aiosmb-goad-normal
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Remove controller artifacts
+        if: always()
+        run: |
+          rm -rf "${RUNNER_TEMP}/aiosmb-goad-normal"
+          rm -f "${RUNNER_TEMP}/aiosmb-goad-profile.yml"
+
+  privileged:
+    name: GOAD privileged read-only
+    if: inputs.run_privileged == true && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: [self-hosted, linux, x64, aiosmb-goad, isolated]
+    environment: aiosmb-goad-readonly
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out trusted default branch
+        uses: actions/checkout@v4
+
+      - name: Set up current Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install package and test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .
+          python -m pip install -r requirements-test.txt
+
+      - name: Validate privileged secret injection
+        env:
+          AIOSMB_WINDOWS_ADMIN_USERNAME: ${{ secrets.AIOSMB_WINDOWS_ADMIN_USERNAME }}
+          AIOSMB_WINDOWS_ADMIN_PASSWORD: ${{ secrets.AIOSMB_WINDOWS_ADMIN_PASSWORD }}
+          AIOSMB_WINDOWS_DOMAIN_ADMIN_USERNAME: ${{ secrets.AIOSMB_WINDOWS_DOMAIN_ADMIN_USERNAME }}
+          AIOSMB_WINDOWS_DOMAIN_ADMIN_PASSWORD: ${{ secrets.AIOSMB_WINDOWS_DOMAIN_ADMIN_PASSWORD }}
+        run: |
+          if [ -z "${AIOSMB_WINDOWS_ADMIN_USERNAME}" ] ||
+             [ -z "${AIOSMB_WINDOWS_ADMIN_PASSWORD}" ] ||
+             [ -z "${AIOSMB_WINDOWS_DOMAIN_ADMIN_USERNAME}" ] ||
+             [ -z "${AIOSMB_WINDOWS_DOMAIN_ADMIN_PASSWORD}" ]
+          then
+            echo "::error::Required privileged secret environments are unavailable"
+            exit 1
+          fi
+
+      - name: Create secret-free active profile
+        env:
+          ACTIVE_PROFILE: ${{ runner.temp }}/aiosmb-goad-profile.yml
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          import yaml
+
+          source = Path("tests/interop/windows/goad.example.yml")
+          target = Path(os.environ["ACTIVE_PROFILE"])
+          document = yaml.safe_load(source.read_text(encoding="utf-8"))
+          document["active"] = True
+          document["safety"]["allow_destructive"] = False
+          document["safety"]["destructive_allowlist"] = []
+          target.write_text(
+              yaml.safe_dump(document, sort_keys=False),
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Run privileged read-only tests
+        env:
+          AIOSMB_WINDOWS_ADMIN_USERNAME: ${{ secrets.AIOSMB_WINDOWS_ADMIN_USERNAME }}
+          AIOSMB_WINDOWS_ADMIN_PASSWORD: ${{ secrets.AIOSMB_WINDOWS_ADMIN_PASSWORD }}
+          AIOSMB_WINDOWS_DOMAIN_ADMIN_USERNAME: ${{ secrets.AIOSMB_WINDOWS_DOMAIN_ADMIN_USERNAME }}
+          AIOSMB_WINDOWS_DOMAIN_ADMIN_PASSWORD: ${{ secrets.AIOSMB_WINDOWS_DOMAIN_ADMIN_PASSWORD }}
+          AIOSMB_WINDOWS_MACHINE_USERNAME: ${{ secrets.AIOSMB_WINDOWS_MACHINE_USERNAME }}
+          AIOSMB_WINDOWS_MACHINE_PASSWORD: ${{ secrets.AIOSMB_WINDOWS_MACHINE_PASSWORD }}
+          AIOSMB_WINDOWS_CERT_PRINCIPAL: ${{ secrets.AIOSMB_WINDOWS_CERT_PRINCIPAL }}
+          AIOSMB_WINDOWS_CERT_PFX: ${{ secrets.AIOSMB_WINDOWS_CERT_PFX }}
+          AIOSMB_WINDOWS_CERT_PFX_PASSWORD: ${{ secrets.AIOSMB_WINDOWS_CERT_PFX_PASSWORD }}
+        run: |
+          python tests/interop/windows/run.py test \
+            --profile "${RUNNER_TEMP}/aiosmb-goad-profile.yml" \
+            --group privileged \
+            --privileged \
+            --artifact-dir "${RUNNER_TEMP}/aiosmb-goad-privileged"
+
+      - name: Build sanitized privileged report
+        if: always()
+        run: |
+          python tests/support/reporting.py \
+            --junit "${RUNNER_TEMP}/aiosmb-goad-privileged/junit.xml" \
+            --registry tests/known_failures.yml \
+            --json-output "${RUNNER_TEMP}/aiosmb-goad-privileged/summary.json" \
+            --markdown-output "${RUNNER_TEMP}/aiosmb-goad-privileged/summary.md"
+          cat "${RUNNER_TEMP}/aiosmb-goad-privileged/summary.md" \
+            >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload sanitized privileged artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: goad-privileged-readonly
+          path: ${{ runner.temp }}/aiosmb-goad-privileged
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Remove controller artifacts
+        if: always()
+        run: |
+          rm -rf "${RUNNER_TEMP}/aiosmb-goad-privileged"
+          rm -f "${RUNNER_TEMP}/aiosmb-goad-profile.yml"

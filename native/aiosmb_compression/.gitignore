@@ -1,0 +1,7 @@
+/target/
+/fuzz/target/
+/dist/
+/.python-test/
+/.venv/
+*.so
+*.pyd

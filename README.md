@@ -50,6 +50,56 @@ This library also supports QUIC connection to Azure hosts
 | TCP      | Y         |
 | QUIC     | Y         |
 
+### Optional SMB 3.1.1 compression
+
+Client-side SMB compression is an optional native feature. When the companion
+is installed, SMB 3.1.1 connections advertise its codecs automatically.
+Without it, the base installation remains pure Python, logs one warning, omits
+the compression capability, and continues normally:
+
+```bash
+python -m pip install "aiosmb[compression]"
+```
+
+The default preference is XPRESS/LZ77, XPRESS LZ77+Huffman, LZ4, then LZNT1.
+Negotiation alone does not compress every request: shares carrying
+`SMB2_SHAREFLAG_COMPRESS_DATA` activate compression automatically.
+`compress=1` requests compression for all eligible READ/WRITE traffic. Use an
+ordered allow-list to force or reprioritize codecs independently of that
+policy:
+
+```text
+smb311+ntlm-password://DOMAIN\user:password@server/share?compress_algorithms=lz4,lz77
+```
+
+Accepted names are `lz77`, `lz77_huffman`, `lz4`, and `lznt1`.
+`compress_min=4096` changes the minimum WRITE data segment considered for
+compression. Small messages and segments that do not become smaller are sent
+without a compression transform. READ requests carry the compressed-response
+flag only after SMB 3.1.1 compression has been negotiated. The server's
+`SMB2_SHAREFLAG_COMPRESS_DATA` is also retained as per-share policy, and
+trailing `compress=True`/`False` overrides are available on the low-level
+connection `read()` and `write()` methods.
+
+The native companion implements unchained LZNT1, LZ77, LZ77+Huffman, and raw
+LZ4 blocks. Windows Server 2022 supports the first three; SMB LZ4 requires
+Windows 11 or Windows Server 2025. The historical pure-Python LZNT1 module is
+retained only as a test/reference implementation and is never selected at
+runtime. Server/relay compression, chained transforms, Pattern_V1, and
+non-READ/WRITE request compression are not supported.
+
+Compression runs in a bounded worker offload, but it still exchanges CPU time
+for network bandwidth. Current optimized native benchmarks range from roughly
+41 to 599 MiB/s for compression and 220 MiB/s to 1.8 GiB/s for decompression
+on compressible workloads, depending on codec and data shape. Benchmark your
+payloads and link before enabling it broadly.
+
+The companion uses the CPython 3.9 stable ABI for Python 3.9 and newer. CI
+currently validates a Linux x86-64 wheel; use a source build with Rust and
+`maturin` where a release wheel is unavailable. If the companion is missing or
+unusable, even explicit compression requests degrade safely to uncompressed
+SMB after the one-time warning.
+
 ### Proxy
 Supports Socks4 and Socks5 natively. Socks5 currently not supporting authentication.  
 Bear in mind, that proxy support doesnt always play well with all auth methods, see this table below.

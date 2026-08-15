@@ -86,6 +86,7 @@ class ShareFlags(enum.IntFlag):
 	SMB2_SHAREFLAG_ENABLE_HASH_V2 = 0x00004000 # The share supports v2 hash generation for branch cache retrieval of data. For more information, see section 2.2.31.2. This flag is not valid for the SMB 2.0.2 and SMB 2.1 dialects.
 	SMB2_SHAREFLAG_ENCRYPT_DATA = 0x00008000 #The server requires encryption of remote file access messages on this share, per the conditions specified in section 3.3.5.2.11. This flag is only valid for the SMB 3.x dialect family.
 	SMB2_SHAREFLAG_IDENTITY_REMOTING = 0x00040000 # The share supports identity remoting. The client can request remoted identity access for the share via the SMB2_REMOTED_IDENTITY_TREE_CONNECT context as specified in section 2.2.9.2.1.
+	SMB2_SHAREFLAG_COMPRESS_DATA = 0x00100000 # The server requests compression of read/write messages on this SMB 3.1.1 share.
 
 class TreeCapabilities(enum.IntFlag):
 	SMB2_SHARE_CAP_NONE = 0x0

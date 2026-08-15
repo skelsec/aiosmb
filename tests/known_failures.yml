@@ -1,0 +1,1754 @@
+schema_version: 1
+
+schema:
+  entry_required:
+    - id
+    - title
+    - status
+    - classification
+    - canonical_test
+    - affected_profiles
+    - evidence
+    - blocked_by
+    - blocks
+  id_pattern: "^KF-[0-9]{4}$"
+  status_values:
+    - confirmed
+    - planned
+    - resolved
+  classification_values:
+    - production_defect
+    - planned_feature
+    - environment
+  notes:
+    canonical_test: "One strict-xfail node ID reproducing the root issue."
+    affected_profiles: "List dialects, operating systems, roles, and capabilities."
+    evidence: "Sanitized expected/actual behavior and non-secret references."
+    blocked_by: "Known-failure IDs that prevent this case from running."
+    blocks: "Downstream known-failure IDs sharing this root blocker."
+
+# This example documents the shape only; it is not an active known failure.
+example_entry:
+  id: KF-0000
+  title: Example short defect title
+  status: confirmed
+  classification: production_defect
+  canonical_test: tests/unit/test_example.py::test_minimal_reproducer
+  affected_profiles:
+    dialects:
+      - SMB311
+    operating_systems:
+      - example-only
+    roles:
+      - member_server
+    capabilities:
+      - example_capability
+  evidence:
+    observed_on: "YYYY-MM-DD"
+    expected: Sanitized expected behavior
+    actual: Sanitized observed behavior
+    references:
+      - example-only
+  blocked_by: []
+  blocks:
+    - KF-0001
+  notes: Do not copy credentials, hostnames, packet captures, or secrets here.
+
+known_failures:
+  - id: KF-0001
+    title: smbreg help text contains invalid escape sequences
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/unit/test_foundation_smoke.py::test_smbreg_source_compiles_without_escape_warnings
+    affected_profiles:
+      dialects: []
+      operating_systems:
+        - all
+      roles: []
+      capabilities:
+        - python_source_compile
+      python_versions:
+        - "3.8+"
+    evidence:
+      observed_on: "2026-08-14"
+      expected: Production modules compile without escape-sequence warnings.
+      actual: Python reports an invalid "\S" escape in the smbreg command help.
+      references:
+        - aiosmb/examples/smbreg.py:28
+    blocked_by: []
+    blocks: []
+    notes: Isolated as a strict xfail; production code was not changed.
+
+  - id: KF-0002
+    title: asmbcertreq imports an undeclared runtime dependency
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/unit/test_foundation_smoke.py::test_asmbcertreq_declares_msldap_runtime_dependency
+    affected_profiles:
+      dialects: []
+      operating_systems: [all]
+      roles: [client]
+      capabilities: [console_entry_points]
+      python_versions: ["3.8+"]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "Every installed console entry point loads after installing declared runtime dependencies."
+      actual: "Loading asmbcertreq raises ModuleNotFoundError because msldap is imported but not declared as a dependency."
+      references:
+        - aiosmb/examples/smbcertreq.py:19
+        - setup.py:41
+    blocked_by: []
+    blocks: []
+    notes: Isolated as a strict xfail; production packaging was not changed.
+
+  - id: KF-0100
+    title: Connection parameter configuration imports a missing module
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/unit/foundations/test_configuration.py::test_connection_parameter_configuration_is_importable
+    affected_profiles:
+      dialects: []
+      operating_systems: [all]
+      roles: []
+      capabilities: [connection_configuration]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "The connection parameter helper imports and exposes its parser hooks."
+      actual: "Importing the helper fails because it imports a module that is absent."
+      references:
+        - tests/unit/foundations/test_configuration.py:14
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0101
+    title: Legacy target parsing constructs an endpoint-less target
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/unit/foundations/test_target_parsing.py::test_legacy_target_string_parses_domain_address_and_dc
+    affected_profiles:
+      dialects: []
+      operating_systems: [all]
+      roles: [client]
+      capabilities: [legacy_target_parsing]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "Legacy connection strings produce a target with the parsed address, port, domain, and domain-controller address."
+      actual: "The parser attempts to construct a target without the required endpoint."
+      references:
+        - tests/unit/foundations/test_target_parsing.py:113
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0102
+    title: NetBIOS decoder stalls on short outbound frames
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/unit/foundations/test_netbios_packetizer.py::test_short_outbound_frame_round_trips_through_decoder
+    affected_profiles:
+      dialects: []
+      operating_systems: [all]
+      roles: [client]
+      capabilities: [netbios_framing]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "A complete short NetBIOS frame is decoded immediately and clears the input buffer."
+      actual: "The decoder retains a complete short frame instead of emitting its payload."
+      references:
+        - tests/unit/foundations/test_netbios_packetizer.py:78
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0103
+    title: DCE RPC packetizer crashes after yielding EOF
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/unit/foundations/test_dcerpc_tcp_packetizer.py::test_eof_notification_is_forwarded_without_type_error
+    affected_profiles:
+      dialects: []
+      operating_systems: [all]
+      roles: [client]
+      capabilities: [dcerpc_tcp_packetization]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "An EOF notification is yielded once and leaves the packetizer buffer empty."
+      actual: "Processing continues after yielding EOF and raises a type error."
+      references:
+        - tests/unit/foundations/test_dcerpc_tcp_packetizer.py:111
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0104
+    title: DCE RPC packetizer dispatches undersized response fragments
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/unit/foundations/test_dcerpc_tcp_packetizer.py::test_response_fragment_shorter_than_header_is_rejected
+    affected_profiles:
+      dialects: []
+      operating_systems: [all]
+      roles: [client]
+      capabilities: [dcerpc_tcp_packetization]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "A response fragment shorter than its fixed header is rejected."
+      actual: "The packetizer dispatches a fragment whose advertised length is below the response-header size."
+      references:
+        - tests/unit/foundations/test_dcerpc_tcp_packetizer.py:123
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0105
+    title: Terabyte size suffix uses the wrong replacement
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/unit/foundations/test_commons_utils.py::test_size_parser_supports_declared_terabyte_suffix
+    affected_profiles:
+      dialects: []
+      operating_systems: [all]
+      roles: []
+      capabilities: [size_parsing]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "The declared terabyte suffix is converted using 1024 to the fourth power."
+      actual: "The parser applies the wrong suffix replacement and does not return the declared terabyte value."
+      references:
+        - tests/unit/foundations/test_commons_utils.py:95
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0106
+    title: FILETIME conversion overflows at the datetime upper boundary
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/unit/foundations/test_commons_utils.py::test_windows_timestamp_round_trip_at_datetime_upper_boundary
+    affected_profiles:
+      dialects: []
+      operating_systems: [all]
+      roles: []
+      capabilities: [filetime_conversion]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "The maximum Python datetime round-trips through Windows FILETIME conversion."
+      actual: "Converting the boundary value back from FILETIME overflows the datetime range."
+      references:
+        - tests/unit/foundations/test_commons_utils.py:115
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0107
+    title: Timestamp utility evaluates Python 3.9-only annotations
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/unit/foundations/test_commons_utils.py::test_timestamp_utility_imports_on_python_38
+    affected_profiles:
+      dialects: []
+      operating_systems: [all]
+      roles: []
+      capabilities: [shadow_copy_timestamp_parsing]
+      python_versions:
+        - "<3.9"
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "The timestamp utility imports and parses shadow-copy timestamps on supported Python versions."
+      actual: "Runtime evaluation of built-in generic annotations prevents import on Python versions below 3.9."
+      references:
+        - tests/unit/foundations/test_commons_utils.py:132
+        - tests/unit/foundations/test_commons_utils.py:161
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0200
+    title: SMB1 header parser accepts a truncated MessageId
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/unit/smb_protocol/test_smb1_negotiate.py::test_smb1_header_rejects_truncated_fixed_header
+    affected_profiles:
+      dialects: [SMB1]
+      operating_systems: [all]
+      roles: [client]
+      capabilities: [smb1_header_parsing]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "An SMB1 header missing part of its fixed MessageId field is rejected."
+      actual: "The parser accepts the truncated fixed header."
+      references:
+        - tests/unit/smb_protocol/test_smb1_negotiate.py:149
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0201
+    title: SMB2 header parser accepts a 63-byte fixed header
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/unit/smb_protocol/test_headers_and_dispatch.py::test_sync_header_rejects_truncated_fixed_header
+    affected_profiles:
+      dialects: [SMB2, SMB3]
+      operating_systems: [all]
+      roles: [client]
+      capabilities: [smb2_header_parsing]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "A synchronous SMB2 header shorter than 64 bytes is rejected."
+      actual: "The fixed-header parser accepts a 63-byte header."
+      references:
+        - tests/unit/smb_protocol/test_headers_and_dispatch.py:256
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0202
+    title: Malformed SMB2 command dispatch masks parse errors
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/unit/smb_protocol/test_headers_and_dispatch.py::test_message_dispatch_rejects_malformed_command_body
+    affected_profiles:
+      dialects: [SMB2, SMB3]
+      operating_systems: [all]
+      roles: [client]
+      capabilities: [smb2_command_dispatch]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "Malformed command bodies are rejected with a parsing error."
+      actual: "Error dispatch references an undefined name and raises NameError instead."
+      references:
+        - tests/unit/smb_protocol/test_headers_and_dispatch.py:267
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0204
+    title: Chained CREATE context uses an absolute Next offset
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/unit/smb_protocol/test_contexts_and_alignment.py::test_each_create_context_next_offset_is_structure_relative
+    affected_profiles:
+      dialects: [SMB2, SMB3]
+      operating_systems: [all]
+      roles: [client]
+      capabilities: [create_context_encoding]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "Each non-final CREATE context stores the offset from its own structure start to the next context."
+      actual: "A non-first context stores the next context's absolute stream position."
+      references:
+        - tests/unit/smb_protocol/test_contexts_and_alignment.py:223
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0205
+    title: QUERY INFO truncates InputBufferLength to two bytes
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/unit/smb_protocol/test_command_codecs.py::test_query_info_preserves_four_byte_input_buffer_length
+    affected_profiles:
+      dialects: [SMB2, SMB3]
+      operating_systems: [all]
+      roles: [client]
+      capabilities: [query_info_decoding]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "QUERY_INFO preserves the complete four-byte InputBufferLength value."
+      actual: "The decoder reads only two bytes and truncates values larger than 65535."
+      references:
+        - tests/unit/smb_protocol/test_command_codecs.py:520
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0300
+    title: SID encoder emits variable-width subauthorities
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/unit/wintypes/test_primitives.py::test_sid_encoder_uses_four_bytes_per_subauthority
+    affected_profiles:
+      dialects: []
+      operating_systems: [all]
+      roles: []
+      capabilities: [sid_encoding]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "Every SID subauthority occupies exactly four bytes on the wire."
+      actual: "The encoder emits subauthorities using variable-width integer encodings."
+      references:
+        - tests/unit/wintypes/test_primitives.py:78
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0301
+    title: GUID encoder omits Windows mixed-endian conversion
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/unit/wintypes/test_primitives.py::test_guid_string_serializes_to_windows_wire_order
+    affected_profiles:
+      dialects: []
+      operating_systems: [all]
+      roles: []
+      capabilities: [guid_encoding]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "Canonical GUID text serializes using Windows mixed-endian wire order."
+      actual: "The encoder emits canonical field order without the required byte reversal."
+      references:
+        - tests/unit/wintypes/test_primitives.py:138
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0302
+    title: DTYP GENERIC WRITE uses the wrong access-mask bit
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/unit/wintypes/test_access_flags.py::test_dtyp_generic_write_uses_standard_high_bit
+    affected_profiles:
+      dialects: []
+      operating_systems: [all]
+      roles: []
+      capabilities: [access_mask_values]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "GENERIC_WRITE has the standard access-mask value 0x40000000."
+      actual: "The DTYP access-mask enum defines GENERIC_WRITE with a different bit value."
+      references:
+        - tests/unit/wintypes/test_access_flags.py:57
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0303
+    title: Object ACE parser references an undefined GUID symbol
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/unit/wintypes/test_security_structures.py::test_object_ace_with_guid_parses_canonical_identifier
+    affected_profiles:
+      dialects: []
+      operating_systems: [all]
+      roles: []
+      capabilities: [object_ace_parsing]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "An object ACE with a present object GUID parses the canonical identifier."
+      actual: "The optional-GUID parser path references a GUID symbol that is not defined."
+      references:
+        - tests/unit/wintypes/test_security_structures.py:160
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0304
+    title: SID parser accepts a truncated subauthority
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/unit/wintypes/test_primitives.py::test_sid_rejects_truncated_subauthority
+    affected_profiles:
+      dialects: []
+      operating_systems: [all]
+      roles: []
+      capabilities: [sid_parsing]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "A SID whose declared subauthority count exceeds the available wire data is rejected."
+      actual: "The parser accepts a truncated final subauthority."
+      references:
+        - tests/unit/wintypes/test_primitives.py:94
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0305
+    title: GUID parser accepts truncated wire data
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/unit/wintypes/test_primitives.py::test_guid_rejects_truncated_wire_data
+    affected_profiles:
+      dialects: []
+      operating_systems: [all]
+      roles: []
+      capabilities: [guid_parsing]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "A GUID shorter than its fixed 16-byte representation is rejected."
+      actual: "The parser accepts a 15-byte GUID."
+      references:
+        - tests/unit/wintypes/test_primitives.py:150
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0306
+    title: FILETIME parser accepts truncated wire data
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/unit/wintypes/test_primitives.py::test_filetime_rejects_truncated_wire_data
+    affected_profiles:
+      dialects: []
+      operating_systems: [all]
+      roles: []
+      capabilities: [filetime_parsing]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "A FILETIME shorter than its fixed eight-byte representation is rejected."
+      actual: "The parser accepts a seven-byte FILETIME."
+      references:
+        - tests/unit/wintypes/test_primitives.py:193
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0307
+    title: ACE reader accepts an empty buffer as an allowed ACE
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/unit/wintypes/test_security_structures.py::test_ace_reader_rejects_truncated_wire_data
+    affected_profiles:
+      dialects: []
+      operating_systems: [all]
+      roles: []
+      capabilities: [ace_parsing]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "An empty buffer is rejected before ACE type dispatch."
+      actual: "The reader interprets the empty input as an allowed ACE."
+      references:
+        - tests/unit/wintypes/test_security_structures.py:195
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0308
+    title: ACL parser accepts a truncated fixed header
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/unit/wintypes/test_security_structures.py::test_acl_rejects_truncated_wire_data
+    affected_profiles:
+      dialects: []
+      operating_systems: [all]
+      roles: []
+      capabilities: [acl_parsing]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "An ACL shorter than its fixed header is rejected."
+      actual: "The parser accepts a truncated ACL header."
+      references:
+        - tests/unit/wintypes/test_security_structures.py:241
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0309
+    title: Security descriptor parser accepts a truncated header
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/unit/wintypes/test_security_structures.py::test_security_descriptor_rejects_truncated_wire_data
+    affected_profiles:
+      dialects: []
+      operating_systems: [all]
+      roles: []
+      capabilities: [security_descriptor_parsing]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "A self-relative security descriptor shorter than its fixed header is rejected."
+      actual: "The parser accepts a two-byte descriptor header."
+      references:
+        - tests/unit/wintypes/test_security_structures.py:288
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0310
+    title: FSCC parser accepts a truncated declared file name
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/unit/wintypes/test_fscc_directory_information.py::test_directory_information_rejects_truncated_file_name
+    affected_profiles:
+      dialects: [SMB1, SMB2, SMB3]
+      operating_systems: [all]
+      roles: [client]
+      capabilities: [directory_information_parsing]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "A directory record is rejected when FileNameLength exceeds the available bytes."
+      actual: "The parser accepts a file name shorter than its declared length."
+      references:
+        - tests/unit/wintypes/test_fscc_directory_information.py:146
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0311
+    title: Network exception pretty printing crashes on its sentinel
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/unit/wintypes/test_ntstatus_exceptions.py::test_network_exception_pretty_print_is_safe
+    affected_profiles:
+      dialects: []
+      operating_systems: [all]
+      roles: [client]
+      capabilities: [exception_rendering]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "A network exception without an NTSTATUS renders a stable unavailable-status message."
+      actual: "Pretty printing treats the integer sentinel as an enum and crashes."
+      references:
+        - tests/unit/wintypes/test_ntstatus_exceptions.py:122
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0312
+    title: SACL defaulted duplicates the DACL defaulted bit
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/unit/wintypes/test_access_flags.py::test_sacl_defaulted_uses_its_distinct_control_bit
+    affected_profiles:
+      dialects: []
+      operating_systems: [all]
+      roles: []
+      capabilities: [security_descriptor_control_flags]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "SE_SACL_DEFAULTED uses its distinct control bit 0x0020."
+      actual: "The enum duplicates the DACL-defaulted bit."
+      references:
+        - tests/unit/wintypes/test_access_flags.py:126
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0313
+    title: Security descriptor offsets ignore the buffer start
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/unit/wintypes/test_security_structures.py::test_security_descriptor_offsets_are_relative_to_structure_start
+    affected_profiles:
+      dialects: []
+      operating_systems: [all]
+      roles: []
+      capabilities: [security_descriptor_parsing]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "Self-relative component offsets are resolved from the descriptor's initial buffer position."
+      actual: "The parser resolves offsets from the start of the containing buffer."
+      references:
+        - tests/unit/wintypes/test_security_structures.py:297
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0314
+    title: Directory list parser follows offsets beyond the buffer
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/unit/wintypes/test_fscc_directory_information.py::test_directory_information_list_rejects_out_of_bounds_next_offset
+    affected_profiles:
+      dialects: [SMB1, SMB2, SMB3]
+      operating_systems: [all]
+      roles: [client]
+      capabilities: [directory_information_parsing]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "A directory entry whose NextEntryOffset exceeds the available buffer is rejected."
+      actual: "The list parser follows the out-of-bounds offset."
+      references:
+        - tests/unit/wintypes/test_fscc_directory_information.py:157
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0400
+    title: CON PDU modules import a nonexistent package
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/unit/dcerpc/test_con_pdu.py::test_con_pdu_module_imports_without_test_aliases
+    affected_profiles:
+      dialects: []
+      operating_systems: [all]
+      roles: [client]
+      capabilities: [dcerpc_con_pdu_import]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "Connection-oriented PDU modules import through their canonical package paths."
+      actual: "The modules import the nonexistent protocol.con package."
+      references:
+        - tests/unit/dcerpc/test_con_pdu.py:54
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0401
+    title: Named-pipe target requires an existing SMB connection
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/unit/dcerpc/test_connection_and_uuid.py::test_named_pipe_target_can_be_created_without_existing_smb_connection
+    affected_profiles:
+      dialects: [SMB1, SMB2, SMB3]
+      operating_systems: [all]
+      roles: [client]
+      capabilities: [dcerpc_named_pipe_target]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "A named-pipe binding can construct its SMB target from the binding when no connection exists yet."
+      actual: "Target construction dereferences the absent SMB connection."
+      references:
+        - tests/unit/dcerpc/test_connection_and_uuid.py:139
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0402
+    title: NDR64 structures omit their required trailing gap
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/unit/dcerpc/test_structure_and_ndr.py::test_ndr64_structure_emits_required_trailing_gap
+    affected_profiles:
+      dialects: []
+      operating_systems: [all]
+      roles: [client]
+      capabilities: [ndr64_encoding]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "NDR64 structures include trailing padding needed to satisfy their alignment."
+      actual: "The encoder omits the trailing gap after the final short field."
+      references:
+        - tests/unit/dcerpc/test_structure_and_ndr.py:344
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0403
+    title: PORT ANY repr passes an extra argument
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/unit/dcerpc/test_con_pdu.py::test_port_any_repr_matches_string_representation
+    affected_profiles:
+      dialects: []
+      operating_systems: [all]
+      roles: [client]
+      capabilities: [dcerpc_bind_ack_rendering]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "PORT_ANY_T repr returns the same stable representation as str."
+      actual: "The repr implementation calls __str__ with an extra argument and raises TypeError."
+      references:
+        - tests/unit/dcerpc/test_con_pdu.py:169
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0404
+    title: EVENTLOGRECORD Strings consumes the trailing length
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/unit/dcerpc/test_dpapi_gkdi_event_blobs.py::test_legacy_event_record_fixture_round_trip
+    affected_profiles:
+      dialects: []
+      operating_systems: [all]
+      roles: [client]
+      capabilities: [eventlog_record_parsing]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "The variable Strings field stops before the trailing Length2 field."
+      actual: "The unbounded Strings field consumes Length2 during parsing."
+      references:
+        - tests/unit/dcerpc/test_dpapi_gkdi_event_blobs.py:365
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0405
+    title: EVEN6 context handles report field size as alignment
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/unit/dcerpc/test_dpapi_gkdi_event_blobs.py::test_even6_context_handle_uses_declared_byte_alignment
+    affected_profiles:
+      dialects: []
+      operating_systems: [all]
+      roles: [client]
+      capabilities: [even6_ndr_alignment]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "EVEN6 context handles report their declared one-byte alignment."
+      actual: "The structure reports the 20-byte field size as its alignment."
+      references:
+        - tests/unit/dcerpc/test_dpapi_gkdi_event_blobs.py:304
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0500
+    title: Pending messages ignore their configured timeout
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/fake_peer/test_pending_and_lifecycle.py::test_pending_message_honors_configured_timeout
+    affected_profiles:
+      dialects: [SMB2, SMB3]
+      operating_systems: [all]
+      roles: [client]
+      capabilities: [pending_response_lifecycle]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "A pending message expires after its configured timeout and wakes the waiting receiver with SMBPendingTimeout."
+      actual: "The pending-message lifecycle ignores the configured timeout."
+      references:
+        - tests/fake_peer/test_pending_and_lifecycle.py:85
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0501
+    title: Repeated pending responses replace lifecycle state
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/fake_peer/test_pending_and_lifecycle.py::test_repeated_pending_response_renews_existing_lifecycle
+    affected_profiles:
+      dialects: [SMB2, SMB3]
+      operating_systems: [all]
+      roles: [client]
+      capabilities: [pending_response_lifecycle]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "A repeated STATUS_PENDING response renews the existing pending-message lifecycle."
+      actual: "A repeated response replaces the pending-message state instead of renewing it."
+      references:
+        - tests/fake_peer/test_pending_and_lifecycle.py:137
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0502
+    title: SMB2 CANCEL waits for a forbidden response
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/fake_peer/test_pending_and_lifecycle.py::test_cancel_completes_after_sending_without_peer_response
+    affected_profiles:
+      dialects: [SMB2, SMB3]
+      operating_systems: [all]
+      roles: [client]
+      capabilities: [request_cancellation]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "An SMB2 CANCEL operation completes after sending because the protocol forbids a peer response."
+      actual: "The cancellation path waits for a peer response and does not complete."
+      references:
+        - tests/fake_peer/test_pending_and_lifecycle.py:263
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0504
+    title: Cancelled send waiter clears the active lock owner
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/fake_peer/test_dispatch_and_sequence.py::test_cancelled_send_waiter_does_not_clear_active_lock_owner
+    affected_profiles:
+      dialects: [SMB2, SMB3]
+      operating_systems: [all]
+      roles: [client]
+      capabilities: [concurrent_request_dispatch]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "Cancelling a task waiting for the send lock leaves the active lock owner's bookkeeping intact."
+      actual: "The cancelled waiter clears the bookkeeping for the task that still owns the send lock."
+      references:
+        - tests/fake_peer/test_dispatch_and_sequence.py:169
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0505
+    title: Receive-loop EOF leaves connection state open
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/fake_peer/test_pending_and_lifecycle.py::test_transport_eof_transitions_running_connection_to_closed
+    affected_profiles:
+      dialects: [SMB2, SMB3]
+      operating_systems: [all]
+      roles: [client]
+      capabilities: [connection_lifecycle]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "Transport EOF transitions a running connection to the closed state."
+      actual: "The receive loop exits after EOF while the connection remains marked as running."
+      references:
+        - tests/fake_peer/test_pending_and_lifecycle.py:202
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0506
+    title: AES-GCM encryption requests an invalid MAC length
+    status: confirmed
+    classification: production_defect
+    canonical_test: "tests/fake_peer/test_crypto_helpers.py::test_encryption_is_deterministic_with_fixed_key_and_nonce[SMB2Cipher.AES_128_GCM-222222222222]"
+    affected_profiles:
+      dialects: [SMB311]
+      operating_systems: [all]
+      roles: [client]
+      capabilities: [smb3_encryption]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "AES-GCM encryption uses a valid authentication-tag length and produces a deterministic transform for fixed test inputs."
+      actual: "The AES-GCM helper supplies an invalid MAC length and encryption fails."
+      references:
+        - tests/fake_peer/test_crypto_helpers.py:125
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0600
+    title: SMBFile close leaves the handle live
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/component/interfaces/test_file_directory_share.py::test_file_close_is_idempotent_and_clears_the_handle
+    affected_profiles:
+      dialects: [SMB1, SMB2, SMB3]
+      operating_systems: [all]
+      roles: [client]
+      capabilities: [file_handle_lifecycle]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "Closing a file clears its live handle and a repeated close is a no-op."
+      actual: "The close path leaves FileId set, so a repeated close sends a second CLOSE."
+      references:
+        - tests/component/interfaces/test_file_directory_share.py:170
+        - aiosmb/commons/interfaces/file.py:595
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0601
+    title: Invalid file mode leaks a tree connection
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/component/interfaces/test_file_directory_share.py::test_invalid_file_mode_releases_tree_acquired_during_open
+    affected_profiles:
+      dialects: [SMB1, SMB2, SMB3]
+      operating_systems: [all]
+      roles: [client]
+      capabilities: [file_open_lifecycle]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "Mode validation occurs before tree acquisition or releases a tree acquired by the failed open."
+      actual: "The open path connects the tree before rejecting an invalid mode and does not disconnect it."
+      references:
+        - tests/component/interfaces/test_file_directory_share.py:190
+        - aiosmb/commons/interfaces/file.py:304
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0602
+    title: Chunked file EOF raises RuntimeError
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/component/interfaces/test_file_directory_share.py::test_file_chunk_iterator_terminates_cleanly_after_eof
+    affected_profiles:
+      dialects: [SMB1, SMB2, SMB3]
+      operating_systems: [all]
+      roles: [client]
+      capabilities: [streaming_file_reads]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "After yielding the EOF sentinel, the asynchronous iterator terminates normally."
+      actual: "The asynchronous generator raises StopIteration explicitly, which is converted to RuntimeError."
+      references:
+        - tests/component/interfaces/test_file_directory_share.py:211
+        - aiosmb/commons/interfaces/file.py:507
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0603
+    title: Chunked file reads repeat errors forever
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/component/interfaces/test_file_directory_share.py::test_file_chunk_iterator_yields_a_read_error_once_then_stops
+    affected_profiles:
+      dialects: [SMB1, SMB2, SMB3]
+      operating_systems: [all]
+      roles: [client]
+      capabilities: [streaming_file_reads]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "A failed chunk read yields its error once and then ends the iterator."
+      actual: "The unbounded read loop yields the same error without advancing or terminating."
+      references:
+        - tests/component/interfaces/test_file_directory_share.py:235
+        - aiosmb/commons/interfaces/file.py:507
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0604
+    title: Connected share snapshots use an unbound tree ID
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/component/interfaces/test_file_directory_share.py::test_connected_share_snapshots_reuses_existing_tree
+    affected_profiles:
+      dialects: [SMB2, SMB3]
+      operating_systems: [all]
+      roles: [client]
+      capabilities: [shadow_copy_enumeration]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "Snapshot enumeration reuses the share's existing tree identifier."
+      actual: "The local tree identifier is assigned only while connecting a previously disconnected share."
+      references:
+        - tests/component/interfaces/test_file_directory_share.py:325
+        - aiosmb/commons/interfaces/share.py:52
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0605
+    title: Share snapshots leak their directory handle
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/component/interfaces/test_file_directory_share.py::test_share_snapshots_closes_temporary_directory_handle
+    affected_profiles:
+      dialects: [SMB2, SMB3]
+      operating_systems: [all]
+      roles: [client]
+      capabilities: [shadow_copy_enumeration]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "Snapshot enumeration closes the temporary directory handle on every exit path."
+      actual: "The share snapshot path opens a directory handle and returns without closing it."
+      references:
+        - tests/component/interfaces/test_file_directory_share.py:348
+        - aiosmb/commons/interfaces/share.py:52
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0606
+    title: Directory snapshot cleanup masks connect errors
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/component/interfaces/test_file_directory_share.py::test_directory_snapshot_connect_error_is_returned_unchanged
+    affected_profiles:
+      dialects: [SMB2, SMB3]
+      operating_systems: [all]
+      roles: [client]
+      capabilities: [shadow_copy_enumeration]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "A tree-connect error is returned unchanged and cleanup only touches initialized resources."
+      actual: "The finally block reads an uninitialized file identifier and masks the original connect error."
+      references:
+        - tests/component/interfaces/test_file_directory_share.py:369
+        - aiosmb/commons/interfaces/directory.py:327
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0607
+    title: Blocking file accepts a stale reply ID
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/component/interfaces/test_blocking_file.py::test_blocking_file_rejects_mismatched_reply_identifier
+    affected_profiles:
+      dialects: [SMB1, SMB2, SMB3]
+      operating_systems: [all]
+      roles: [client]
+      capabilities: [blocking_file_protocol]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "A blocking request accepts only a reply with the same command type and correlation identifier."
+      actual: "The bridge checks only command type and accepts a stale reply with a different identifier."
+      references:
+        - tests/component/interfaces/test_blocking_file.py:211
+        - aiosmb/commons/interfaces/blocking/file/blockingfile.py:31
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0608
+    title: Blocking file writes do not advance position
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/component/interfaces/test_blocking_file.py::test_blocking_file_write_advances_position_by_reply_count
+    affected_profiles:
+      dialects: [SMB1, SMB2, SMB3]
+      operating_systems: [all]
+      roles: [client]
+      capabilities: [blocking_file_writes]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "A successful write advances the local position by the acknowledged byte count."
+      actual: "The write path updates the handle but leaves the local position unchanged."
+      references:
+        - tests/component/interfaces/test_blocking_file.py:232
+        - aiosmb/commons/interfaces/blocking/file/blockingfile.py:73
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0609
+    title: Blocking file terminate never sends its command
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/component/interfaces/test_blocking_file.py::test_blocking_file_terminate_sends_protocol_command
+    affected_profiles:
+      dialects: [SMB1, SMB2, SMB3]
+      operating_systems: [all]
+      roles: [client]
+      capabilities: [blocking_file_protocol]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "Terminate enqueues exactly one termination command for the asynchronous bridge."
+      actual: "The method constructs a termination command but never sends it to the input queue."
+      references:
+        - tests/component/interfaces/test_blocking_file.py:252
+        - aiosmb/commons/interfaces/blocking/file/blockingfile.py:98
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0610
+    title: Blocking bridge drops a handle after write
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/component/interfaces/test_blocking_file.py::test_async_bridge_keeps_written_handle_open_until_close
+    affected_profiles:
+      dialects: [SMB1, SMB2, SMB3]
+      operating_systems: [all]
+      roles: [client]
+      capabilities: [blocking_file_writes]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "A successful write keeps its file handle registered until an explicit close."
+      actual: "The write branch deletes the handle immediately, so the following close cannot find it."
+      references:
+        - tests/component/interfaces/test_blocking_file.py:301
+        - aiosmb/commons/interfaces/blocking/file/file.py:65
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0611
+    title: Blocking bridge mutates handles during termination
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/component/interfaces/test_blocking_file.py::test_async_bridge_termination_closes_every_live_handle
+    affected_profiles:
+      dialects: [SMB1, SMB2, SMB3]
+      operating_systems: [all]
+      roles: [client]
+      capabilities: [blocking_file_lifecycle]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "Termination closes and removes every live handle without emitting a bridge error."
+      actual: "The termination branch deletes dictionary entries while iterating that dictionary."
+      references:
+        - tests/component/interfaces/test_blocking_file.py:337
+        - aiosmb/commons/interfaces/blocking/file/file.py:81
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0612
+    title: Machine file-data iteration leaks an open file
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/component/interfaces/test_machine.py::test_get_file_data_closes_file_after_iterator_completion
+    affected_profiles:
+      dialects: [SMB1, SMB2, SMB3]
+      operating_systems: [all]
+      roles: [client]
+      capabilities: [streaming_file_download]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "File-data iteration closes a successfully opened file after completion or failure."
+      actual: "The generator forwards all chunks but has no close or cleanup path."
+      references:
+        - tests/component/interfaces/test_machine.py:295
+        - aiosmb/commons/interfaces/machine.py:447
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0613
+    title: Pipe listing masks share enumeration errors
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/component/interfaces/test_machine.py::test_list_pipes_preserves_share_iterator_error
+    affected_profiles:
+      dialects: [SMB1, SMB2, SMB3]
+      operating_systems: [all]
+      roles: [client]
+      capabilities: [named_pipe_enumeration]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "A share enumeration error is yielded unchanged and terminates pipe enumeration."
+      actual: "The loop ignores the error and dereferences the absent share, yielding AttributeError instead."
+      references:
+        - tests/component/interfaces/test_machine.py:316
+        - aiosmb/commons/interfaces/machine.py:77
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0614
+    title: Directory target omits a path separator
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/component/interfaces/test_paths.py::test_directory_target_path_normalizes_missing_leading_separator
+    affected_profiles:
+      dialects: [SMB1, SMB2, SMB3]
+      operating_systems: [all]
+      roles: [client]
+      capabilities: [directory_path_construction]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "An unprefixed target path is normalized before constructing its UNC directory path."
+      actual: "The directory constructor concatenates host and path directly, omitting the required separator."
+      references:
+        - tests/component/interfaces/test_paths.py:64
+        - aiosmb/commons/interfaces/directory.py:61
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0615
+    title: Machine download writes a result tuple
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/component/interfaces/test_machine.py::test_get_file_writes_payload_and_closes_file
+    affected_profiles:
+      dialects: [SMB1, SMB2, SMB3]
+      operating_systems: [all]
+      roles: [client]
+      capabilities: [file_download]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "The download loop writes the byte payload returned by each successful read."
+      actual: "The loop passes the complete data-and-error tuple to the binary output stream."
+      references:
+        - tests/component/interfaces/test_machine.py:337
+        - aiosmb/commons/interfaces/machine.py:425
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0620
+    title: Server responses replace the client MessageId
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/component/server_relay/test_smb202_server.py::test_response_preserves_client_message_id
+    affected_profiles:
+      dialects: [SMB202]
+      operating_systems: [all]
+      roles: [server]
+      capabilities: [smb2_response_correlation]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "Every server response carries the MessageId from its originating client request."
+      actual: "The response helper copies the request identifier, then the generic send path overwrites it with the server sequence."
+      references:
+        - tests/component/server_relay/test_smb202_server.py:164
+        - aiosmb/server/serverconnection.py:234
+        - aiosmb/server/serverconnection.py:786
+    blocked_by: [KF-0632]
+    blocks: []
+
+  - id: KF-0621
+    title: Relative file CREATE produces no server response
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/component/server_relay/test_smb202_server.py::test_existing_file_create_accepts_a_share_relative_name
+    affected_profiles:
+      dialects: [SMB202]
+      operating_systems: [all]
+      roles: [server]
+      capabilities: [smb2_create]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "A share-relative existing file name resolves beneath the connected share and returns CREATE success."
+      actual: "Path resolution asks the relative request name to be relative to the absolute share path, raises, and sends no response."
+      references:
+        - tests/component/server_relay/test_smb202_server.py:311
+        - aiosmb/server/serverconnection.py:522
+    blocked_by: [KF-0632]
+    blocks: []
+
+  - id: KF-0622
+    title: Server ignores RETURN SINGLE ENTRY
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/component/server_relay/test_smb202_server.py::test_query_directory_honors_return_single_entry
+    affected_profiles:
+      dialects: [SMB202]
+      operating_systems: [all]
+      roles: [server]
+      capabilities: [smb2_directory_enumeration]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "QUERY_DIRECTORY returns at most one entry when SMB2_RETURN_SINGLE_ENTRY is set."
+      actual: "The response builder iterates and emits all entries that fit without consulting the single-entry flag."
+      references:
+        - tests/component/server_relay/test_smb202_server.py:344
+        - aiosmb/server/serverconnection.py:599
+    blocked_by: [KF-0632]
+    blocks: []
+
+  - id: KF-0623
+    title: Server CLOSE accepts an unknown FileId
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/component/server_relay/test_smb202_server.py::test_close_rejects_an_unknown_file_id
+    affected_profiles:
+      dialects: [SMB202]
+      operating_systems: [all]
+      roles: [server]
+      capabilities: [smb2_close]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "CLOSE returns INVALID_HANDLE when the requested FileId is not tracked by the tree."
+      actual: "The handler initializes a success response and sends it even when no file entry is found."
+      references:
+        - tests/component/server_relay/test_smb202_server.py:372
+        - aiosmb/server/serverconnection.py:728
+    blocked_by: [KF-0632]
+    blocks: []
+
+  - id: KF-0624
+    title: Host cleanup stops unrelated connections
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/component/server_relay/test_settings_and_lifecycle.py::test_host_cleanup_does_not_stop_an_unrelated_connection
+    affected_profiles:
+      dialects: [SMB202]
+      operating_systems: [all]
+      roles: [server]
+      capabilities: [server_connection_ownership]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "A completed client handler stops only the connection instance it owns."
+      actual: "The cleanup loop stops every connection stored under the server GUID, including unrelated clients."
+      references:
+        - tests/component/server_relay/test_settings_and_lifecycle.py:182
+        - aiosmb/server/server.py:48
+    blocked_by: [KF-0632]
+    blocks: []
+
+  - id: KF-0625
+    title: Server constructor failure triggers cleanup KeyError
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/component/server_relay/test_settings_and_lifecycle.py::test_host_constructor_failure_is_reported_without_cleanup_crash
+    affected_profiles:
+      dialects: [SMB202]
+      operating_systems: [all]
+      roles: [server]
+      capabilities: [server_connection_lifecycle]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "A connection-constructor failure is logged without a secondary cleanup exception."
+      actual: "Cleanup indexes the connection registry before the failed constructor path has created its server-GUID entry."
+      references:
+        - tests/component/server_relay/test_settings_and_lifecycle.py:220
+        - aiosmb/server/server.py:48
+    blocked_by: [KF-0632]
+    blocks: []
+
+  - id: KF-0626
+    title: Server EOF leaves connection state running
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/component/server_relay/test_smb202_server.py::test_reader_eof_transitions_server_connection_to_closed
+    affected_profiles:
+      dialects: [SMB202]
+      operating_systems: [all]
+      roles: [server]
+      capabilities: [server_connection_lifecycle]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "Transport EOF closes the transport and transitions the server connection to CLOSED."
+      actual: "The receive loop invokes stop, but stop never updates the connection status."
+      references:
+        - tests/component/server_relay/test_smb202_server.py:476
+        - aiosmb/server/serverconnection.py:119
+        - aiosmb/server/serverconnection.py:138
+    blocked_by: [KF-0632]
+    blocks: []
+
+  - id: KF-0627
+    title: Server stop leaks tracked file handles
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/component/server_relay/test_smb202_server.py::test_connection_stop_closes_tracked_file_handles
+    affected_profiles:
+      dialects: [SMB202]
+      operating_systems: [all]
+      roles: [server]
+      capabilities: [server_file_handle_lifecycle]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "Stopping a connection closes every filesystem handle tracked by its trees."
+      actual: "The stop path cancels the reader and closes the transport without traversing tracked file entries."
+      references:
+        - tests/component/server_relay/test_smb202_server.py:492
+        - aiosmb/server/serverconnection.py:119
+    blocked_by: [KF-0632]
+    blocks: []
+
+  - id: KF-0628
+    title: Relay CREATE dispatch calls a missing handler
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/component/server_relay/test_relay_boundary.py::test_relay_create_dispatch_returns_a_protocol_response
+    affected_profiles:
+      dialects: [SMB202]
+      operating_systems: [all]
+      roles: [relay_server]
+      capabilities: [relay_command_dispatch]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "Relay CREATE dispatch returns a protocol response correlated to the request."
+      actual: "The receive loop dispatches CREATE to a handler that the relay connection does not define."
+      references:
+        - tests/component/server_relay/test_relay_boundary.py:202
+        - aiosmb/relay/serverconnection.py:136
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0629
+    title: Relay IOCTL dispatch exits without response
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/component/server_relay/test_relay_boundary.py::test_relay_ioctl_dispatch_returns_a_protocol_response
+    affected_profiles:
+      dialects: [SMB202]
+      operating_systems: [all]
+      roles: [relay_server]
+      capabilities: [relay_command_dispatch]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "Relay IOCTL dispatch returns a protocol response correlated to the request."
+      actual: "The IOCTL dispatch branch returns before its handler call and writes no response."
+      references:
+        - tests/component/server_relay/test_relay_boundary.py:227
+        - aiosmb/relay/serverconnection.py:141
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0630
+    title: Relay TREE CONNECT leaves TreeId zero
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/component/server_relay/test_relay_boundary.py::test_relay_tree_connect_assigns_nonzero_tree_id
+    affected_profiles:
+      dialects: [SMB202]
+      operating_systems: [all]
+      roles: [relay_server]
+      capabilities: [relay_tree_connect]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "A successful relay TREE_CONNECT assigns a nonzero TreeId in the response."
+      actual: "The handler builds and sends the response without assigning any tree identifier."
+      references:
+        - tests/component/server_relay/test_relay_boundary.py:252
+        - aiosmb/relay/serverconnection.py:308
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0631
+    title: Relay IPC share detection is case-sensitive
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/component/server_relay/test_relay_boundary.py::test_relay_ipc_share_detection_is_case_insensitive
+    affected_profiles:
+      dialects: [SMB202]
+      operating_systems: [all]
+      roles: [relay_server]
+      capabilities: [relay_tree_connect]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "IPC$ is recognized as a pipe share regardless of path casing."
+      actual: "The handler performs a case-sensitive suffix check and classifies lowercase ipc$ as a disk share."
+      references:
+        - tests/component/server_relay/test_relay_boundary.py:272
+        - aiosmb/relay/serverconnection.py:321
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0632
+    title: Server annotations require Python 3.9
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/component/server_relay/test_settings_and_lifecycle.py::test_server_connection_annotations_support_python38
+    affected_profiles:
+      dialects: [SMB202]
+      operating_systems: [all]
+      roles: [server]
+      capabilities: [server_module_import]
+      python_versions: ["3.8"]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "Server modules import on every declared supported Python version."
+      actual: "Runtime evaluation of built-in generic annotations prevents serverconnection import on Python 3.8."
+      references:
+        - tests/component/server_relay/test_settings_and_lifecycle.py:43
+        - aiosmb/server/serverconnection.py:46
+        - aiosmb/server/serverconnection.py:53
+    blocked_by: []
+    blocks: [KF-0620, KF-0621, KF-0622, KF-0623, KF-0624, KF-0625, KF-0626, KF-0627]
+
+  - id: KF-0640
+    title: Finished scanner status is misspelled
+    status: confirmed
+    classification: production_defect
+    canonical_test: "tests/component/scanners_cli/test_result_serialization.py::test_finished_status_serializes_with_canonical_spelling[EnumResultStatus.FINISHED0]"
+    affected_profiles:
+      dialects: []
+      operating_systems: [all]
+      roles: [scanner_client]
+      capabilities: [scanner_result_serialization]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "Both scanner result enums serialize the finished state as FINISHED."
+      actual: "Both enum implementations expose the misspelled value FINISED."
+      references:
+        - tests/component/scanners_cli/test_result_serialization.py:214
+        - aiosmb/commons/scanner/common/comms.py:3
+        - aiosmb/examples/scancommons/internal.py:5
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0641
+    title: Registry-session header omits a field
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/component/scanners_cli/test_result_serialization.py::test_registry_session_header_matches_line_and_dict_fields
+    affected_profiles:
+      dialects: []
+      operating_systems: [all]
+      roles: [scanner_client]
+      capabilities: [scanner_result_serialization]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "Registry-session headers describe the SID and username fields emitted by line and mapping formats."
+      actual: "The header reports only USERSID while the other formats emit SID and USERNAME."
+      references:
+        - tests/component/scanners_cli/test_result_serialization.py:223
+        - aiosmb/examples/scanners/smbregsession.py:15
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0642
+    title: Progress output reverses finished and total
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/component/scanners_cli/test_result_serialization.py::test_progress_result_displays_finished_count_before_total
+    affected_profiles:
+      dialects: []
+      operating_systems: [all]
+      roles: [scanner_client]
+      capabilities: [scanner_progress_reporting]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "Progress text displays completed targets before total targets."
+      actual: "The formatter prints total targets before completed targets."
+      references:
+        - tests/component/scanners_cli/test_result_serialization.py:235
+        - aiosmb/examples/smbshareenum.py:63
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0643
+    title: File target generator always returns zero
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/component/scanners_cli/test_target_generators.py::test_queue_file_generator_count_matches_enqueued_targets
+    affected_profiles:
+      dialects: []
+      operating_systems: [all]
+      roles: [scanner_client]
+      capabilities: [scanner_target_generation]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "The file target generator returns the number of targets it enqueued."
+      actual: "The count starts at zero and is never incremented while lines are queued."
+      references:
+        - tests/component/scanners_cli/test_target_generators.py:101
+        - aiosmb/commons/scanner/targetgen/filetarget.py:9
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0644
+    title: Injected result queue has no processor
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/component/scanners_cli/test_scanner_orchestration.py::test_share_enumerator_starts_processor_for_injected_result_queue
+    affected_profiles:
+      dialects: []
+      operating_systems: [all]
+      roles: [scanner_client]
+      capabilities: [scanner_orchestration]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "Scanner setup starts result processing for both internal and caller-supplied result queues."
+      actual: "The processing task is created only when setup also creates the queue."
+      references:
+        - tests/component/scanners_cli/test_scanner_orchestration.py:100
+        - aiosmb/examples/smbshareenum.py:323
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0645
+    title: Getfile ignores its progress flag
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/component/scanners_cli/test_cli_contracts.py::test_getfile_main_leaves_progress_disabled_by_default
+    affected_profiles:
+      dialects: []
+      operating_systems: [all]
+      roles: [cli_client]
+      capabilities: [file_download_cli]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "The absent --progress flag dispatches the downloader with progress disabled."
+      actual: "Main omits the parsed flag when calling amain, so amain's enabled default is used."
+      references:
+        - tests/component/scanners_cli/test_cli_contracts.py:115
+        - aiosmb/examples/smbgetfile.py:46
+        - aiosmb/examples/smbgetfile.py:62
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0646
+    title: smbget reads an undefined argparse field
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/component/scanners_cli/test_cli_contracts.py::test_smbget_dispatches_the_parsed_url_without_network
+    affected_profiles:
+      dialects: []
+      operating_systems: [all]
+      roles: [cli_client]
+      capabilities: [recursive_download_cli]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "smbget dispatches the URL stored by its declared positional argument."
+      actual: "The parser defines args.url but dispatch reads the nonexistent args.smb_url field."
+      references:
+        - tests/component/scanners_cli/test_cli_contracts.py:140
+        - aiosmb/examples/smbget.py:123
+        - aiosmb/examples/smbget.py:136
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0647
+    title: smbgetfilezip reads an undefined argparse field
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/component/scanners_cli/test_cli_contracts.py::test_smbgetfilezip_dispatches_the_parsed_url_without_network
+    affected_profiles:
+      dialects: []
+      operating_systems: [all]
+      roles: [cli_client]
+      capabilities: [archive_download_cli]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "smbgetfilezip dispatches the URL stored by its declared positional argument."
+      actual: "The parser defines args.url but dispatch reads the nonexistent args.smb_url field."
+      references:
+        - tests/component/scanners_cli/test_cli_contracts.py:169
+        - aiosmb/examples/smbgetfilezip.py:136
+        - aiosmb/examples/smbgetfilezip.py:149
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0648
+    title: Scanner inverts the progress option
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/component/scanners_cli/test_cli_contracts.py::test_scanner_progress_is_enabled_by_default
+    affected_profiles:
+      dialects: []
+      operating_systems: [all]
+      roles: [cli_client]
+      capabilities: [scanner_progress_reporting]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "Progress is enabled by default and disabled only when --no-progress is supplied."
+      actual: "The store-false argument is negated before dispatch, disabling progress by default."
+      references:
+        - tests/component/scanners_cli/test_cli_contracts.py:207
+        - aiosmb/examples/scanners/__main__.py:40
+        - aiosmb/examples/scanners/__main__.py:108
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0660
+    title: Connection factory string exposes credentials
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/component/packaging_security/test_security_boundaries.py::test_connection_factory_string_does_not_expose_credentials
+    affected_profiles:
+      dialects: [SMB1, SMB2, SMB3]
+      operating_systems: [all]
+      roles: [client]
+      capabilities: [safe_object_rendering]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "String rendering omits or redacts credential material."
+      actual: "The renderer converts every factory attribute to text, including the credential object."
+      references:
+        - tests/component/packaging_security/test_security_boundaries.py:34
+        - aiosmb/commons/connection/factory.py:164
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0661
+    title: Kerberos preauthentication wrapper drops its cause
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/component/packaging_security/test_security_boundaries.py::test_authentication_wrapper_preserves_original_exception_cause
+    affected_profiles:
+      dialects: [SMB2, SMB3]
+      operating_systems: [all]
+      roles: [client]
+      capabilities: [authentication_error_chaining]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "A sanitized preauthentication wrapper preserves the original exception as its explicit cause."
+      actual: "The wrapper is raised without exception chaining, so __cause__ is absent."
+      references:
+        - tests/component/packaging_security/test_security_boundaries.py:78
+        - aiosmb/connection.py:699
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0662
+    title: Authentication wrapper renders sensitive cause text
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/component/packaging_security/test_security_boundaries.py::test_authentication_error_rendering_redacts_secret_text
+    affected_profiles:
+      dialects: [SMB2, SMB3]
+      operating_systems: [all]
+      roles: [client]
+      capabilities: [authentication_error_redaction]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "Public authentication error text is sanitized while diagnostic causality remains available separately."
+      actual: "The preauthentication wrapper copies the complete underlying exception text into its public message."
+      references:
+        - tests/component/packaging_security/test_security_boundaries.py:92
+        - aiosmb/connection.py:699
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0663
+    title: CLI diagnostics expose caller arguments
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/component/packaging_security/test_security_boundaries.py::test_cli_exception_diagnostics_redact_caller_arguments
+    affected_profiles:
+      dialects: []
+      operating_systems: [all]
+      roles: [cli_client]
+      capabilities: [diagnostic_redaction]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "CLI error diagnostics omit or redact caller argument values."
+      actual: "Exception handling inspects the caller frame and prints every argument value."
+      references:
+        - tests/component/packaging_security/test_security_boundaries.py:111
+        - aiosmb/examples/smbclient.py:56
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0664
+    title: CLI diagnostics expose sensitive error text
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/component/packaging_security/test_security_boundaries.py::test_cli_exception_diagnostics_redact_error_messages
+    affected_profiles:
+      dialects: []
+      operating_systems: [all]
+      roles: [cli_client]
+      capabilities: [diagnostic_redaction]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "CLI output and debug logging redact sensitive values embedded in exceptions."
+      actual: "The handler prints the exception and logs its complete formatted traceback without redaction."
+      references:
+        - tests/component/packaging_security/test_security_boundaries.py:132
+        - aiosmb/examples/smbclient.py:71
+    blocked_by: []
+    blocks: []
+
+  - id: KF-0665
+    title: DCSync debug logging renders replicated secrets
+    status: confirmed
+    classification: production_defect
+    canonical_test: tests/component/packaging_security/test_security_boundaries.py::test_dcsync_logging_does_not_render_secret_records
+    affected_profiles:
+      dialects: [SMB1, SMB2, SMB3]
+      operating_systems: [all]
+      roles: [client, domain_replication_client]
+      capabilities: [dcsync_logging]
+    evidence:
+      observed_on: "2026-08-14"
+      expected: "DCSync debug logging records safe metadata without rendering replicated credential records."
+      actual: "The debug statement formats the complete replicated record into the log."
+      references:
+        - tests/component/packaging_security/test_security_boundaries.py:184
+        - aiosmb/commons/interfaces/machine.py:574
+    blocked_by: []
+    blocks: []

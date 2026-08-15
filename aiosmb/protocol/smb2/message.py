@@ -13,6 +13,10 @@ class SMB2Compression:
 	
 	@staticmethod
 	def from_bytes(bbuff):
+		if not isinstance(bbuff, (bytes, bytearray, memoryview)):
+			raise TypeError('SMB2 compression data must be bytes-like')
+		if len(bbuff) < 16:
+			raise ValueError('Truncated SMB2 compression transform')
 		return SMB2Compression.from_buffer(io.BytesIO(bbuff))
 
 	@staticmethod
@@ -30,6 +34,8 @@ class SMB2Compression:
 		return msg
 
 	def to_bytes(self):
+		if self.header is None or self.data is None:
+			raise ValueError('SMB2 compression transform is incomplete')
 		t = self.header.to_bytes()
 		t += self.data
 		return t
