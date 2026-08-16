@@ -517,10 +517,6 @@ def test_error_reply_with_payload_decodes_exact_byte_count():
     assert error.ErrorData == b"error"
 
 
-@pytest.mark.xfail(
-    reason="KF-0205: QUERY_INFO reads InputBufferLength as 2 rather than 4 bytes",
-    strict=True,
-)
 def test_query_info_preserves_four_byte_input_buffer_length():
     body = struct.pack(
         "<HBBIHHIII16s",

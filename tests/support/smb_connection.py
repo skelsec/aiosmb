@@ -18,6 +18,7 @@ from aiosmb.wintypes.ntstatus import NTStatus
 def make_connection(
     status: SMBConnectionStatus = SMBConnectionStatus.RUNNING,
     dialect: NegotiateDialects = NegotiateDialects.SMB210,
+    advertise_encryption: bool = True,
 ) -> SMBConnection:
     target = SMBTarget(
         ip="127.0.0.1",
@@ -26,7 +27,12 @@ def make_connection(
         timeout=1,
     )
     target.preferred_dialects = {dialect: 1}
-    connection = SMBConnection(None, target, preserve_gssapi=False)
+    connection = SMBConnection(
+        None,
+        target,
+        preserve_gssapi=False,
+        advertise_encryption=advertise_encryption,
+    )
     connection.status = status
     connection.selected_dialect = dialect
     connection.activity_at = None

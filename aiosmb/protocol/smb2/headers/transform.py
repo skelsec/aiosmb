@@ -11,6 +11,7 @@ class SMB2Header_TRANSFORM:
 		self.Nonce = None
 		self.OriginalMessageSize = None
 		self.Reserved = 0
+		self.Flags = None
 		self.EncryptionAlgorithm = None
 		self.SessionId = None
 	
@@ -20,7 +21,10 @@ class SMB2Header_TRANSFORM:
 		t += self.Nonce
 		t += self.OriginalMessageSize.to_bytes(4, byteorder='little', signed = False)
 		t += self.Reserved.to_bytes(2, byteorder='little', signed = False)
-		t += self.EncryptionAlgorithm.value.to_bytes(2, byteorder='little', signed = False)
+		field_value = self.Flags
+		if field_value is None:
+			field_value = self.EncryptionAlgorithm.value
+		t += field_value.to_bytes(2, byteorder='little', signed = False)
 		t += self.SessionId.to_bytes(8, byteorder='little', signed = False)
 		return t
 
@@ -34,7 +38,11 @@ class SMB2Header_TRANSFORM:
 		hdr.Nonce  = buff.read(16)
 		hdr.OriginalMessageSize  = int.from_bytes(buff.read(4), byteorder='little', signed = False)
 		hdr.Reserved  = int.from_bytes(buff.read(2), byteorder='little', signed = False)
-		hdr.EncryptionAlgorithm = SMB2Cipher(int.from_bytes(buff.read(2), byteorder='little', signed = False))
+		hdr.Flags = int.from_bytes(buff.read(2), byteorder='little', signed = False)
+		try:
+			hdr.EncryptionAlgorithm = SMB2Cipher(hdr.Flags)
+		except ValueError:
+			hdr.EncryptionAlgorithm = None
 		hdr.SessionId = int.from_bytes(buff.read(8), byteorder='little', signed = False)
 		return hdr
 

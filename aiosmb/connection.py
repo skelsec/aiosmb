@@ -23,6 +23,7 @@ from aiosmb.protocol.smb2.commands.negotiate import SMB2ContextType, \
 	SMB2PreauthIntegrityCapabilities, SMB2HashAlgorithm, SMB2Cipher, \
 	SMB2CompressionType, SMB2CompressionFlags,SMB2EncryptionCapabilities, \
 	SMB2CompressionCapabilities, SMB2SigningAlgorithm, SMB2SigningCapabilities
+from aiosmb.protocol.smb2.commands.sessionsetup import SessionFlags
 from aiosmb.protocol.smb2.commands import *
 from aiosmb.protocol.smb2.headers import *
 from aiosmb.protocol.smb2.command_codes import *
@@ -152,8 +153,16 @@ class SMBConnection:
 	"""
 	Connection class for network connectivity and SMB messages management (sending/recieveing/singing/encrypting).
 	"""
-	def __init__(self, gssapi, target:SMBTarget, preserve_gssapi:bool = True, nosign:bool = False):
+	def __init__(
+			self,
+			gssapi,
+			target:SMBTarget,
+			preserve_gssapi:bool = True,
+			nosign:bool = False,
+			advertise_encryption:bool = True,
+		):
 		self.nosign = nosign
+		self.advertise_encryption = advertise_encryption
 		self.gssapi = gssapi
 		self.original_gssapi = None
 		if preserve_gssapi is True:
@@ -182,6 +191,7 @@ class SMBConnection:
 		self.selected_dialect = None
 		self.signing_required = False
 		self.encryption_required = False
+		self.session_encryption_required = False
 		
 		self.status = SMBConnectionStatus.NEGOTIATING
 		
@@ -231,6 +241,9 @@ class SMBConnection:
 		
 		
 		self.SessionId = 0
+		self.SessionFlags = SessionFlags(0)
+		self.is_anonymous = False
+		self.is_guest = False
 		self.SessionKey = None
 		self.SigningKey      = None
 		self.ApplicationKey  = None
@@ -272,7 +285,10 @@ class SMBConnection:
 						'available; continuing without SMB compression support'
 					)
 		self.SupportsChainedCompression = False
-		self.supported_encryptions = [SMB2Cipher.AES_128_CCM] #[SMB2Cipher.AES_128_GCM], SMB2Cipher.AES_128_GCM
+		self.supported_encryptions = [
+			SMB2Cipher.AES_128_GCM,
+			SMB2Cipher.AES_128_CCM,
+		] if self.advertise_encryption else None
 		self.supported_signatures = None #[SMB2SigningAlgorithm.AES_CMAC]
 		
 		self.preauth_ctx = hashlib.sha512
@@ -337,20 +353,32 @@ class SMBConnection:
 					#encrypted transform
 					was_encrypted = True
 					msg = SMB2Transform.from_bytes(msg_data)
-					
-					if msg.header.EncryptionAlgorithm == SMB2Cipher.AES_128_CCM:
+
+					if self.selected_dialect == NegotiateDialects.SMB311:
+						if msg.header.Flags != 0x0001:
+							raise ValueError('Invalid SMB 3.1.1 transform flags')
+						encryption_algorithm = self.CipherId
+					else:
+						encryption_algorithm = msg.header.EncryptionAlgorithm
+
+					if encryption_algorithm == SMB2Cipher.AES_128_CCM:
 						# msg_data[20:52] is a part of the smb2_transform header. we could recalc this part but would be wasting cycles
 						ctx = AES(self.DecryptionKey, MODE_CCM ,msg.header.Nonce[:11], segment_size=16)
 						msg_data = ctx.decrypt(msg.data, msg_data[20:52], msg.header.Signature)
 						#msg_data = aesCCMDecrypt(msg.data, msg_data[20:52], self.DecryptionKey, msg.header.Nonce[:11], msg.header.Signature)
 
-					elif msg.header.EncryptionAlgorithm == SMB2Cipher.AES_128_GCM:
-						ctx = AES(self.DecryptionKey, MODE_GCM, msg.header.Nonce[:12])
+					elif encryption_algorithm == SMB2Cipher.AES_128_GCM:
+						ctx = AES(
+							self.DecryptionKey,
+							MODE_GCM,
+							msg.header.Nonce[:12],
+							segment_size=16,
+						)
 						msg_data = ctx.decrypt(msg.data, msg_data[20:52], msg.header.Signature)
 					#	msg_data = aesGCMDecrypt(msg.data, msg_data[20:52], self.DecryptionKey, msg.header.Nonce[:12], msg.header.Signature)
 
 					else:
-						raise Exception('Common encryption algo is %s but it is not implemented!' % msg.header.EncryptionAlgorithm)
+						raise Exception('Common encryption algo is %s but it is not implemented!' % encryption_algorithm)
 					if len(msg_data) != msg.header.OriginalMessageSize:
 						raise ValueError('Decrypted SMB message size does not match its transform header')
 
@@ -607,9 +635,11 @@ class SMBConnection:
 			command.ClientGuid      = self.ClientGUID
 			command.Dialects        = [dialect for dialect in self.supported_dialects]
 
-			#if all(dialect in SMB2_NEGOTIATE_DIALTECTS_2 for dialect in self.supported_dialects):
-			#	command.Capabilities    = NegotiateCapabilities.ENCRYPTION
-			if all(dialect in SMB2_NEGOTIATE_DIALTECTS_3 for dialect in self.supported_dialects):
+			if (
+				self.advertise_encryption and
+				self.supported_encryptions and
+				all(dialect in SMB2_NEGOTIATE_DIALTECTS_3 for dialect in self.supported_dialects)
+			):
 				command.Capabilities    = NegotiateCapabilities.ENCRYPTION
 
 
@@ -622,7 +652,7 @@ class SMBConnection:
 					)
 				)
 							
-				if self.supported_encryptions is not None:
+				if self.advertise_encryption and self.supported_encryptions:
 					command.Capabilities |= NegotiateCapabilities.ENCRYPTION
 					command.NegotiateContextList.append(
 						SMB2EncryptionCapabilities.from_enc_list(
@@ -677,19 +707,32 @@ class SMBConnection:
 			self.signing_required = NegotiateSecurityMode.SMB2_NEGOTIATE_SIGNING_ENABLED in rply.command.SecurityMode
 			if self.nosign is True:
 				self.signing_required = False
-			
-					
-			if NegotiateCapabilities.ENCRYPTION in rply.command.Capabilities:
-				self.encryption_required = True
-				self.CipherId = SMB2Cipher.AES_128_CCM
 
+			client_offered_encryption = (
+				bool(command.Capabilities & NegotiateCapabilities.ENCRYPTION)
+			)
+			server_offered_encryption = (
+				bool(rply.command.Capabilities & NegotiateCapabilities.ENCRYPTION)
+			)
+			offered_encryption_ids = tuple(self.supported_encryptions or ())
+			negotiated_cipher = None
+			encryption_context_seen = False
 			offered_compression_ids = tuple(self.CompressionIds or ())
 			negotiated_compression_ids = None
 			compression_context_seen = False
 			for negctx in rply.command.NegotiateContextList:
 				if negctx.ContextType == SMB2ContextType.ENCRYPTION_CAPABILITIES:
-					self.encryption_required = True
-					self.CipherId = negctx.Ciphers[0]
+					if encryption_context_seen:
+						raise ValueError('Server returned multiple encryption capability contexts')
+					encryption_context_seen = True
+					if self.selected_dialect != NegotiateDialects.SMB311:
+						raise ValueError('Encryption capability contexts are only valid for SMB 3.1.1')
+					if client_offered_encryption and offered_encryption_ids:
+						if not negctx.Ciphers:
+							raise ValueError('Server returned an empty encryption capability context')
+						if negctx.Ciphers[0] not in offered_encryption_ids:
+							raise ValueError('Server selected an encryption cipher that was not offered')
+						negotiated_cipher = negctx.Ciphers[0]
 						
 				if negctx.ContextType == SMB2ContextType.COMPRESSION_CAPABILITIES:
 					if compression_context_seen:
@@ -711,6 +754,22 @@ class SMBConnection:
 						self.SupportsChainedCompression and
 						negctx.Flags == SMB2CompressionFlags.CHAINED
 					)
+
+			if self.selected_dialect == NegotiateDialects.SMB311:
+				self.SupportsEncryption = bool(
+					client_offered_encryption and
+					negotiated_cipher is not None
+				)
+				self.CipherId = negotiated_cipher if self.SupportsEncryption else None
+			elif self.selected_dialect in [NegotiateDialects.SMB300, NegotiateDialects.SMB302]:
+				self.SupportsEncryption = bool(
+					client_offered_encryption and server_offered_encryption
+				)
+				self.CipherId = SMB2Cipher.AES_128_CCM if self.SupportsEncryption else None
+			else:
+				self.SupportsEncryption = False
+				self.CipherId = None
+			self.encryption_required = self.SupportsEncryption
 
 			if self.selected_dialect == NegotiateDialects.SMB311 and negotiated_compression_ids:
 				self.CompressionIds = negotiated_compression_ids
@@ -735,7 +794,7 @@ class SMBConnection:
 			self.SupportsFileLeasing = NegotiateCapabilities.LEASING in rply.command.Capabilities
 			self.SupportsMultiCredit = NegotiateCapabilities.LARGE_MTU in rply.command.Capabilities
 					
-			self.ClientCapabilities = rply.command.Capabilities
+			self.ClientCapabilities = command.Capabilities
 			self.ServerCapabilities = rply.command.Capabilities
 			#self.ClientSecurityMode = 0			
 			self.status = SMBConnectionStatus.SESSIONSETUP
@@ -811,13 +870,52 @@ class SMBConnection:
 				if err is not None:
 					raise err
 
-				if self.gssapi.is_guest() is True:
-					self.signing_required = False
+				self.SessionFlags = SessionFlags(rply.command.SessionFlags)
+				self.session_encryption_required = bool(
+					self.SessionFlags & SessionFlags.SMB2_SESSION_FLAG_ENCRYPT_DATA
+				)
+				self.is_anonymous = bool(
+					self.SessionFlags & SessionFlags.SMB2_SESSION_FLAG_IS_NULL
+				)
+				self.is_guest = bool(
+					self.SessionFlags & SessionFlags.SMB2_SESSION_FLAG_IS_GUEST
+				)
+				if self.is_anonymous and self.is_guest:
+					raise SMBAuthenticationFailed(
+						'Server marked the SMB session as both anonymous and guest'
+					)
 
-				self.SessionKey = self.gssapi.get_session_key()[:16]
+				if self.is_anonymous or self.is_guest:
+					if (
+						NegotiateSecurityMode.SMB2_NEGOTIATE_SIGNING_REQUIRED
+						in self.ServerSecurityMode
+					):
+						raise SMBAuthenticationFailed(
+							'Anonymous and guest SMB sessions cannot satisfy required signing'
+						)
+					self.signing_required = False
+					self.encryption_required = False
+					self.session_encryption_required = False
+					self.SessionKey = None
+					self.SigningKey = None
+					self.ApplicationKey = None
+					self.EncryptionKey = None
+					self.DecryptionKey = None
+				else:
+					session_key = self.gssapi.get_session_key()
+					if not session_key:
+						raise SMBAuthenticationFailed(
+							'Authenticated SMB session did not produce a session key'
+						)
+					self.SessionKey = session_key[:16]
+					if self.session_encryption_required and self.SupportsEncryption:
+						self.encryption_required = True
 				
 				# TODO: key calc
-				if self.signing_required and self.selected_dialect in [NegotiateDialects.SMB300 , NegotiateDialects.SMB302 , NegotiateDialects.SMB311]:
+				if (
+					(self.signing_required or self.SupportsEncryption) and
+					self.selected_dialect in [NegotiateDialects.SMB300 , NegotiateDialects.SMB302 , NegotiateDialects.SMB311]
+				):
 					if self.selected_dialect == NegotiateDialects.SMB311:
 						#SMB311 is a special snowflake
 						self.SigningKey      = KDF_CounterMode(self.SessionKey, b"SMBSigningKey\x00", self.PreauthIntegrityHashValue, 128)
@@ -838,6 +936,20 @@ class SMBConnection:
 			#	raise SMBAuthenticationFailed(NTStatus.MORE_PROCESSING_REQUIRED)
 			
 			else:
+				anonymous_requested = False
+				if hasattr(self.gssapi, 'is_anonymous'):
+					try:
+						anonymous_requested = self.gssapi.is_anonymous()
+					except Exception:
+						pass
+				if (
+					anonymous_requested
+					and NegotiateSecurityMode.SMB2_NEGOTIATE_SIGNING_REQUIRED
+					in self.ServerSecurityMode
+				):
+					raise SMBAuthenticationFailed(
+						'Anonymous SMB authentication was rejected because the server requires signing'
+					)
 				raise SMBException('session_setup (authentication probably failed)', rply.header.Status)
 		
 			return True, None
@@ -940,6 +1052,8 @@ class SMBConnection:
 			hdr.OriginalMessageSize = len(msg_data)
 
 			hdr.EncryptionAlgorithm = self.CipherId
+			if self.selected_dialect == NegotiateDialects.SMB311:
+				hdr.Flags = 0x0001
 			hdr.SessionId = self.SessionId
 
 			ctx = AES(self.EncryptionKey, MODE_CCM, nonce, segment_size=16)
@@ -954,9 +1068,16 @@ class SMBConnection:
 			hdr.OriginalMessageSize = len(msg_data)
 
 			hdr.EncryptionAlgorithm = self.CipherId
+			if self.selected_dialect == NegotiateDialects.SMB311:
+				hdr.Flags = 0x0001
 			hdr.SessionId = self.SessionId
 
-			ctx = AES(self.EncryptionKey, MODE_GCM, nonce)
+			ctx = AES(
+				self.EncryptionKey,
+				MODE_GCM,
+				nonce,
+				segment_size=16,
+			)
 			enc_data, hdr.Signature = ctx.encrypt(msg_data, hdr.to_bytes()[20:52])
 
 		#elif self.CipherId == SMB2Cipher.AES_128_GCM:

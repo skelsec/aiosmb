@@ -116,3 +116,15 @@ PYTHONHASHSEED=0 python -m pytest
 
 Samba and Windows tests are collected but skipped unless their explicit gates
 and profiles are provided.
+
+The SMB 2.0.2 server also has a local `smbclient` acceptance gate that does
+not use the disposable Samba server lab:
+
+```console
+AIOSMB_RUN_LOCAL_SMBCLIENT=1 python -m pytest \
+  tests/component/server_relay/test_smbclient_interop.py --run-samba
+```
+
+This requires the Samba `smbclient` executable. The test starts an authenticated
+`aiosmb` server on a temporary loopback port and exercises file and directory
+CRUD against a temporary share.

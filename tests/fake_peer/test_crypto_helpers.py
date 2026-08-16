@@ -252,14 +252,7 @@ async def test_cancelled_compression_keeps_worker_slot_until_codec_finishes() ->
     "cipher,nonce",
     [
         (SMB2Cipher.AES_128_CCM, b"\x21" * 11),
-        pytest.param(
-            SMB2Cipher.AES_128_GCM,
-            b"\x32" * 12,
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason="KF-0506: AES-GCM helper passes an invalid MAC length",
-            ),
-        ),
+        (SMB2Cipher.AES_128_GCM, b"\x32" * 12),
     ],
 )
 async def test_encryption_is_deterministic_with_fixed_key_and_nonce(
@@ -279,7 +272,7 @@ async def test_encryption_is_deterministic_with_fixed_key_and_nonce(
     parsed = SMB2Transform.from_bytes(first)
 
     assert first == second
-    assert parsed.header.EncryptionAlgorithm == cipher
+    assert parsed.header.Flags == 0x0001
     assert parsed.header.OriginalMessageSize == len(plain)
     assert parsed.header.SessionId == connection.SessionId
     assert parsed.header.Nonce.startswith(nonce)

@@ -41,29 +41,26 @@ pytestmark = [pytest.mark.component, pytest.mark.asyncio]
 
 
 def server_types() -> Tuple[Any, Any]:
-    try:
-        server_module = importlib.import_module("aiosmb.server.server")
-        connection_module = importlib.import_module(
-            "aiosmb.server.serverconnection"
-        )
-    except TypeError:
-        if sys.version_info < (3, 9):
-            pytest.xfail(
-                "blocked by KF-0632: server annotations require Python 3.9"
-            )
-        raise
+    server_module = importlib.import_module("aiosmb.server.server")
+    connection_module = importlib.import_module(
+        "aiosmb.server.serverconnection"
+    )
     return server_module, connection_module
 
 
 def make_connection(
     shares: Dict[str, Path] = None,
+    log_callback=None,
+    log_level=None,
 ) -> Tuple[SMBServerConnection, FakeTransport, FakeGSSAPI]:
     server_module, connection_module = server_types()
     transport = FakeTransport()
     gssapi = FakeGSSAPI()
     settings = server_module.SMBServerSettings(
-        lambda: gssapi, log_callback=None
+        lambda: gssapi, log_callback=log_callback
     )
+    if log_level is not None:
+        settings.log_level = log_level
     settings.shares = {
         name: str(path) for name, path in (shares or {}).items()
     }
@@ -98,6 +95,7 @@ async def connect_tree(
 
 def query_request(
     tree_id: int,
+    file_id: int = 0,
     flags: QueryDirectoryFlag = QueryDirectoryFlag.SMB2_RESTART_SCANS,
     pattern: str = "*",
     output_length: int = 65535,
@@ -106,7 +104,7 @@ def query_request(
     command.FileInformationClass = FileInfoClass.FileFullDirectoryInformation
     command.Flags = flags
     command.FileIndex = 0
-    command.FileId = 0
+    command.FileId = file_id
     command.FileName = pattern
     command.OutputBufferLength = output_length
     return make_request(
@@ -161,10 +159,6 @@ async def test_echo_returns_a_successful_smb202_response() -> None:
     assert reply.header.CreditReq == 5
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="KF-0620: server responses replace the client MessageId",
-)
 async def test_response_preserves_client_message_id() -> None:
     connection, transport, _ = make_connection()
     connection.status = connection.status.__class__.RUNNING
@@ -233,23 +227,34 @@ async def test_root_create_query_and_close_supported_path(
     )
     create_reply = SMB2Message.from_bytes(transport.writes[-1])
     assert create_reply.header.Status == NTStatus.SUCCESS
-    assert create_reply.command.FileId == 0
+    assert create_reply.command.FileId != 0
     assert create_reply.command.FileAttributes.name == (
         "FILE_ATTRIBUTE_DIRECTORY"
     )
 
     await wait_for(
-        connection.query_directory(query_request(tree_id, pattern="*"))
+        connection.query_directory(
+            query_request(
+                tree_id,
+                file_id=create_reply.command.FileId,
+                pattern="*",
+            )
+        )
     )
     query_reply = SMB2Message.from_bytes(transport.writes[-1])
     entries = FileFullDirectoryInformationList.from_bytes(
         query_reply.command.Data
     )
     assert query_reply.header.Status == NTStatus.SUCCESS
-    assert {entry.FileName for entry in entries} == {"alpha.txt", "nested"}
+    assert {"alpha.txt", "nested"} <= {
+        entry.FileName for entry in entries
+    }
 
     continuation = query_request(
-        tree_id, flags=QueryDirectoryFlag(0), pattern="*"
+        tree_id,
+        file_id=create_reply.command.FileId,
+        flags=QueryDirectoryFlag(0),
+        pattern="*",
     )
     await wait_for(connection.query_directory(continuation))
     exhausted = SMB2Message.from_bytes(transport.writes[-1])
@@ -257,7 +262,7 @@ async def test_root_create_query_and_close_supported_path(
 
     close = CLOSE_REQ()
     close.Flags = CloseFlag.NONE
-    close.FileId = 0
+    close.FileId = create_reply.command.FileId
     await wait_for(
         connection.close(
             make_request(
@@ -308,10 +313,6 @@ async def test_close_releases_a_tracked_file_handle(tmp_path: Path) -> None:
     assert reply.command.EndofFile == len(b"tracked")
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="KF-0621: relative existing-file CREATE produces no response",
-)
 async def test_existing_file_create_accepts_a_share_relative_name(
     tmp_path: Path,
 ) -> None:
@@ -341,10 +342,6 @@ async def test_existing_file_create_accepts_a_share_relative_name(
     assert reply.command.EndofFile == 5
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="KF-0622: QUERY_DIRECTORY ignores SMB2_RETURN_SINGLE_ENTRY",
-)
 async def test_query_directory_honors_return_single_entry(
     tmp_path: Path,
 ) -> None:
@@ -354,8 +351,22 @@ async def test_query_directory_honors_return_single_entry(
     tree_id = await connect_tree(
         connection, transport, r"\\server.invalid\data"
     )
+    create = CREATE_REQ()
+    create.Name = None
+    await connection.create(
+        make_request(
+            create,
+            SMB2Command.CREATE,
+            message_id=41,
+            tree_id=tree_id,
+        )
+    )
+    directory_id = SMB2Message.from_bytes(
+        transport.writes[-1]
+    ).command.FileId
     request = query_request(
         tree_id,
+        file_id=directory_id,
         flags=(
             QueryDirectoryFlag.SMB2_RESTART_SCANS
             | QueryDirectoryFlag.SMB2_RETURN_SINGLE_ENTRY
@@ -369,10 +380,6 @@ async def test_query_directory_honors_return_single_entry(
     assert len(entries) == 1
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="KF-0623: CLOSE reports success for an unknown FileId",
-)
 async def test_close_rejects_an_unknown_file_id(tmp_path: Path) -> None:
     connection, transport, _ = make_connection({"data": tmp_path})
     tree_id = await connect_tree(
@@ -473,10 +480,6 @@ async def test_reader_clears_completed_pending_lifecycle(
     assert connection.pending_table == {}
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="KF-0626: receive-loop EOF leaves server status RUNNING",
-)
 async def test_reader_eof_transitions_server_connection_to_closed() -> None:
     connection, transport, _ = make_connection()
     status_class = connection.status.__class__
@@ -489,10 +492,6 @@ async def test_reader_eof_transitions_server_connection_to_closed() -> None:
     assert transport.closed is True
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="KF-0627: connection stop leaks tracked filesystem handles",
-)
 async def test_connection_stop_closes_tracked_file_handles(
     tmp_path: Path,
 ) -> None:

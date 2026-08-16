@@ -1,9 +1,11 @@
 """Deterministic URL, target, and DCE/RPC binding parsing tests."""
 
 import pytest
+from asyauth.common.constants import asyauthSecret
 
 from asysocks.unicomm.common.target import UniProto
 
+from aiosmb.commons.connection.factory import SMBConnectionFactory
 from aiosmb.commons.connection.target import SMBTarget
 from aiosmb.dcerpc.v5.common.connection.connectionstring import (
     DCERPCStringBinding,
@@ -102,6 +104,27 @@ def test_smb_url_parses_compression_threshold() -> None:
 
     assert target.compression == 1
     assert target.compression_min_size == 8192
+
+
+def test_smb_url_parses_ntlm_none_as_anonymous() -> None:
+    factory = SMBConnectionFactory.from_url(
+        "smb202+ntlm-none://files.example/Public"
+    )
+
+    assert factory.credential.stype is asyauthSecret.NONE
+    assert factory.credential.is_anonymous is True
+    assert factory.target.hostname == "files.example"
+    assert factory.target.path == "/Public"
+
+
+def test_explicit_anonymous_factory_uses_ntlm_none_credential() -> None:
+    target = SMBTarget.from_url("smb202://files.example/Public")
+
+    factory = SMBConnectionFactory.create_anonymous(target)
+
+    assert factory.target is target
+    assert factory.credential.stype is asyauthSecret.NONE
+    assert factory.credential.is_anonymous is True
 
 
 def test_smb_url_parses_ordered_compression_algorithms() -> None:

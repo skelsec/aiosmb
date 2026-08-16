@@ -4,6 +4,33 @@ import datetime
 from aiosmb.wintypes.fscc.FileAttributes import FileAttributes
 from aiosmb.wintypes.access_mask import FileAccessMask
 
+SMB2_HEADER_SIZE = 64
+CREATE_REQUEST_FIXED_SIZE = 56
+CREATE_RESPONSE_FIXED_SIZE = 88
+CREATE_CONTEXT_HEADER_SIZE = 16
+
+
+def _int_value(value):
+	if isinstance(value, enum.Enum):
+		return value.value
+	return value
+
+
+def _read_smb_relative(buff, command_start, offset, length):
+	if offset < SMB2_HEADER_SIZE:
+		raise ValueError('SMB2 offset points inside the header')
+	position = command_start - SMB2_HEADER_SIZE + offset
+	if position < 0:
+		raise ValueError('Invalid SMB2 buffer offset')
+	current = buff.tell()
+	buff.seek(position, io.SEEK_SET)
+	data = buff.read(length)
+	buff.seek(current, io.SEEK_SET)
+	if len(data) != length:
+		raise ValueError('Truncated SMB2 variable buffer')
+	return data
+
+
 class OplockLevel(enum.Enum):
 	SMB2_OPLOCK_LEVEL_NONE = 0x00 #No oplock is requested.
 	SMB2_OPLOCK_LEVEL_II = 0x01 #A level II oplock is requested.
@@ -60,6 +87,11 @@ class CreateAction(enum.Enum):
 	FILE_CREATED = 0x00000002 #A new file was created.
 	FILE_OVERWRITTEN = 0x00000003
 
+
+class CreateReplyFlag(enum.IntFlag):
+	NONE = 0x00
+	SMB2_CREATE_FLAG_REPARSEPOINT = 0x01
+
 # https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-smb2/e8fb45c1-a03d-44ca-b7ae-47385cfd7997
 class CREATE_REQ:
 	def __init__(self):
@@ -74,60 +106,65 @@ class CREATE_REQ:
 		self.ShareAccess      = None
 		self.CreateDisposition       = None
 		self.CreateOptions        = None
-		self.NameOffset         = None
-		self.NameLength          = None
+		self.NameOffset         = 0
+		self.NameLength          = 0
 		self.CreateContextsOffset = 0
 		self.CreateContextsLength = 0
 		
-		self.Buffer = None
+		self.Buffer = b''
 		
 		#high-level
 		self.Name = None
 		self.CreateContext = []
 
 	def to_bytes(self):
-		self.Buffer = io.BytesIO()
+		payload = bytearray()
+		name = b''
 		if self.Name is not None:
+			name = self.Name.encode('utf-16-le')
+		if name:
+			self.NameOffset = SMB2_HEADER_SIZE + CREATE_REQUEST_FIXED_SIZE
+			self.NameLength = len(name)
+			payload.extend(name)
+		else:
+			self.NameOffset = 0
+			self.NameLength = 0
 
-			t_name = self.Name.encode('utf-16-le')
-			self.Buffer.write(t_name)
-			self.NameOffset = 120
-			self.NameLength = len(t_name)
-			
-		if self.CreateContext is not None and len(self.CreateContext) > 0:
-			# 8 byte aligned buffer
-			if self.NameLength % 8 != 0:
-				pad = b'\x00' * (8 - self.NameLength % 8)
-				self.Buffer.write(pad)
-			
-			ctx_start = self.Buffer.tell()
-			for i, ctx in enumerate(self.CreateContext):
-				is_last = i == len(self.CreateContext) - 1
-				ctx.to_buffer(self.Buffer, is_last=is_last)
-			ctx_end = self.Buffer.tell()
+		contexts = self.CreateContext or []
+		if contexts:
+			context_offset = SMB2_HEADER_SIZE + CREATE_REQUEST_FIXED_SIZE + len(payload)
+			padding = (-context_offset) % 8
+			payload.extend(b'\x00' * padding)
+			context_offset += padding
+			context_data = serialize_create_contexts(contexts)
+			self.CreateContextsOffset = context_offset
+			self.CreateContextsLength = len(context_data)
+			payload.extend(context_data)
+		else:
+			self.CreateContextsOffset = 0
+			self.CreateContextsLength = 0
 
-			
-			self.CreateContextsLength = ctx_end - ctx_start
-			self.CreateContextsOffset = ctx_start + 120
+		self.Buffer = bytes(payload)
 		
 		t  = self.StructureSize.to_bytes(2, byteorder='little', signed = False)
 		t += self.SecurityFlags.to_bytes(1, byteorder='little', signed = False)
-		t += self.RequestedOplockLevel.value.to_bytes(1, byteorder='little', signed = False)
-		t += self.ImpersonationLevel.value.to_bytes(4, byteorder='little', signed = False)
+		t += _int_value(self.RequestedOplockLevel).to_bytes(1, byteorder='little', signed = False)
+		t += _int_value(self.ImpersonationLevel).to_bytes(4, byteorder='little', signed = False)
 		t += self.SmbCreateFlags.to_bytes(8, byteorder='little', signed = False)
 		t += self.Reserved.to_bytes(8, byteorder='little', signed = False)
-		t += self.DesiredAccess.to_bytes(4, byteorder='little', signed = False)
-		t += self.FileAttributes.to_bytes(4, byteorder='little', signed = False)
-		t += self.ShareAccess.to_bytes(4, byteorder='little', signed = False)
-		t += self.CreateDisposition.value.to_bytes(4, byteorder='little', signed = False)
-		t += self.CreateOptions.to_bytes(4, byteorder='little', signed = False)
+		t += _int_value(self.DesiredAccess).to_bytes(4, byteorder='little', signed = False)
+		t += _int_value(self.FileAttributes).to_bytes(4, byteorder='little', signed = False)
+		t += _int_value(self.ShareAccess).to_bytes(4, byteorder='little', signed = False)
+		t += _int_value(self.CreateDisposition).to_bytes(4, byteorder='little', signed = False)
+		t += _int_value(self.CreateOptions).to_bytes(4, byteorder='little', signed = False)
 		t += self.NameOffset.to_bytes(2, byteorder='little', signed = False)
 		t += self.NameLength.to_bytes(2, byteorder='little', signed = False)
 		t += self.CreateContextsOffset.to_bytes(4, byteorder='little', signed = False)
 		t += self.CreateContextsLength.to_bytes(4, byteorder='little', signed = False)
-		t += self.Buffer.getvalue()
-		if self.CreateContextsLength == 0:
-			t += b'\x00' # not sure if this is needed
+		t += self.Buffer
+		if not contexts:
+			# Preserve the one-byte Buffer member used by existing callers.
+			t += b'\x00'
 		return t
 
 	@staticmethod
@@ -137,8 +174,10 @@ class CREATE_REQ:
 	@staticmethod
 	def from_buffer(buff):
 		msg = CREATE_REQ()
+		command_start = buff.tell()
 		msg.StructureSize = int.from_bytes(buff.read(2), byteorder='little')
-		assert msg.StructureSize == 57
+		if msg.StructureSize != 57:
+			raise ValueError('Invalid SMB2 CREATE request StructureSize')
 		msg.SecurityFlags = int.from_bytes(buff.read(1), byteorder='little')
 		msg.RequestedOplockLevel = OplockLevel(int.from_bytes(buff.read(1), byteorder='little'))
 		msg.ImpersonationLevel = ImpersonationLevel(int.from_bytes(buff.read(4), byteorder = 'little'))
@@ -155,14 +194,23 @@ class CREATE_REQ:
 		msg.CreateContextsLength = int.from_bytes(buff.read(4), byteorder = 'little')
 		
 		if msg.NameLength > 0:
-			buff.seek(msg.NameOffset, io.SEEK_SET)
-			t = buff.read(msg.NameLength)
+			t = _read_smb_relative(
+				buff, command_start, msg.NameOffset, msg.NameLength
+			)
 			msg.Name = t.decode('utf-16-le')
 		
 		if msg.CreateContextsLength > 0:
-			buff.seek(msg.CreateContextsOffset, io.SEEK_SET)
-			t = buff.read(msg.CreateContextsLength)
-			msg.CreateContext = t #ADDITIONAL PARSING NEEDED BUT NOT YET IMPLEMENTED!!!! See: https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-smb2/75364667-3a93-4e2c-b771-592d8d5e876d
+			if msg.CreateContextsOffset % 8:
+				raise ValueError(
+					'SMB2 CREATE context list is not 8-byte aligned'
+				)
+			t = _read_smb_relative(
+				buff,
+				command_start,
+				msg.CreateContextsOffset,
+				msg.CreateContextsLength,
+			)
+			msg.CreateContext = parse_create_contexts(t)
 		
 		return msg
 
@@ -186,7 +234,7 @@ class CREATE_REPLY:
 	def __init__(self):
 		self.StructureSize = 89
 		self.OplockLevel = None
-		self.Flags = 0
+		self.Flags = CreateReplyFlag.NONE
 		self.CreateAction = None
 		self.CreationTime   = 0
 		self.LastAccessTime    = 0
@@ -197,19 +245,37 @@ class CREATE_REPLY:
 		self.FileAttributes         = None
 		self.Reserved2          = 0
 		self.FileId           = None
-		self.CreateContextsOffset = None
-		self.CreateContextsLength = None
+		self.CreateContextsOffset = 0
+		self.CreateContextsLength = 0
 		
 		self.Buffer = b''
 		
 		#high-level
-		self.CreateContext = None
+		self.CreateContext = []
 
 	def to_bytes(self):
+		contexts = self.CreateContext or []
+		if isinstance(contexts, (bytes, bytearray, memoryview)):
+			context_data = bytes(contexts)
+			# Validate raw context chains before putting them on the wire.
+			parse_create_contexts(context_data)
+		else:
+			context_data = serialize_create_contexts(contexts) if contexts else b''
+		self.Buffer = context_data
+
+		if context_data:
+			self.CreateContextsOffset = (
+				SMB2_HEADER_SIZE + CREATE_RESPONSE_FIXED_SIZE
+			)
+			self.CreateContextsLength = len(context_data)
+		else:
+			self.CreateContextsOffset = 0
+			self.CreateContextsLength = 0
+
 		t = self.StructureSize.to_bytes(2, byteorder='little', signed = False)
-		t += self.OplockLevel.value.to_bytes(1, byteorder='little', signed = False)
-		t += self.Flags.value.to_bytes(1, byteorder='little', signed = False)
-		t += self.CreateAction.value.to_bytes(4, byteorder = 'little', signed = False)
+		t += _int_value(self.OplockLevel).to_bytes(1, byteorder='little', signed = False)
+		t += _int_value(self.Flags).to_bytes(1, byteorder='little', signed = False)
+		t += _int_value(self.CreateAction).to_bytes(4, byteorder = 'little', signed = False)
 		
 		t += self.CreationTime.to_bytes(8, byteorder = 'little', signed = False)
 		t += self.LastAccessTime.to_bytes(8, byteorder = 'little', signed = False)
@@ -217,15 +283,13 @@ class CREATE_REPLY:
 		t += self.ChangeTime.to_bytes(8, byteorder = 'little', signed = False)
 		t += self.AllocationSize.to_bytes(8, byteorder = 'little', signed = False)
 		t += self.EndofFile.to_bytes(8, byteorder = 'little', signed = False)
-		t += self.FileAttributes.value.to_bytes(4, byteorder = 'little', signed = False)
+		t += _int_value(self.FileAttributes).to_bytes(4, byteorder = 'little', signed = False)
 		t += self.Reserved2.to_bytes(4, byteorder = 'little', signed = False)
 		t += self.FileId.to_bytes(16, byteorder = 'little', signed = False)
 		t += self.CreateContextsOffset.to_bytes(4, byteorder = 'little', signed = False)
 		t += self.CreateContextsLength.to_bytes(4, byteorder = 'little', signed = False)
 		
-		if self.CreateContextsLength > 0 or self.CreateContext is not None:
-			raise NotImplementedError()
-		
+		t += context_data
 		return t
 
 	@staticmethod
@@ -235,10 +299,12 @@ class CREATE_REPLY:
 	@staticmethod
 	def from_buffer(buff):
 		msg = CREATE_REPLY()
+		command_start = buff.tell()
 		msg.StructureSize = int.from_bytes(buff.read(2), byteorder='little')
-		assert msg.StructureSize == 89
+		if msg.StructureSize != 89:
+			raise ValueError('Invalid SMB2 CREATE response StructureSize')
 		msg.OplockLevel  = OplockLevel(int.from_bytes(buff.read(1), byteorder='little'))
-		msg.Flags  = CreateOptions(int.from_bytes(buff.read(1), byteorder='little'))
+		msg.Flags  = CreateReplyFlag(int.from_bytes(buff.read(1), byteorder='little'))
 		msg.CreateAction  = CreateAction(int.from_bytes(buff.read(4), byteorder = 'little'))
 		
 		msg.CreationTime  = int.from_bytes(buff.read(8), byteorder = 'little')
@@ -254,9 +320,18 @@ class CREATE_REPLY:
 		msg.CreateContextsLength = int.from_bytes(buff.read(4), byteorder = 'little')
 		
 		if msg.CreateContextsLength > 0:
-			buff.seek(msg.CreateContextsOffset, io.SEEK_SET)
-			t = buff.read(msg.CreateContextsLength)
-			msg.CreateContext = t #ADDITIONAL PARSING NEEDED BUT NOT YET IMPLEMENTED!!!! See: https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-smb2/75364667-3a93-4e2c-b771-592d8d5e876d
+			if msg.CreateContextsOffset % 8:
+				raise ValueError(
+					'SMB2 CREATE response contexts are not 8-byte aligned'
+				)
+			t = _read_smb_relative(
+				buff,
+				command_start,
+				msg.CreateContextsOffset,
+				msg.CreateContextsLength,
+			)
+			msg.CreateContext = parse_create_contexts(t)
+			msg.Buffer = t
 		
 		return msg
 
@@ -279,66 +354,185 @@ class CREATE_REPLY:
 		return t
 
 class CREATE_CONTEXT:
-	def __init__(self, name: str, data: bytes):
-		self.Name = name.encode()
-		self.Data = data
-		
+	def __init__(self, name, data):
+		if isinstance(name, str):
+			name = name.encode('ascii')
+		if not isinstance(name, (bytes, bytearray, memoryview)):
+			raise TypeError('CREATE context name must be str or bytes-like')
+		if not isinstance(data, (bytes, bytearray, memoryview)):
+			raise TypeError('CREATE context data must be bytes-like')
+		self.Name = bytes(name)
+		self.Data = bytes(data)
+
 		self.Next: int = 0
 		self.NameOffset: int = 16
 		self.NameLength: int = len(self.Name)
-		self.Reserved: bytes = b'\x00' * 2
-		self.DataOffset: int = self.NameOffset + self.NameLength
+		self.Reserved: int = 0
+		self.DataOffset: int = 0
 		self.DataLength: int = len(self.Data)
 		self.Buffer: bytes = b''
-
-		self.Buffer = self.Name
-		
-		if (len(self.Buffer) + 16) % 8 != 0:
-			# data must be 8-byte aligned after the name???
-			# why does Microsoft do this?
-			pad = (8 - (len(self.Buffer) + 16) % 8)
-			self.Buffer += b'\x00' * pad
-			self.DataOffset += pad
-		
-		self.Buffer += self.Data
-
+		self.Raw: bytes = b''
 	
 	def to_bytes(self):
 		buff = io.BytesIO()
-		self.to_buffer(buff)
+		self.to_buffer(buff, is_last=True)
 		return buff.getvalue()
 	
 	def to_buffer(self, buff: io.BytesIO, is_last: bool = False):
-		if is_last is False:
-			self.Next = 14 + len(self.Buffer)
+		self.NameOffset = CREATE_CONTEXT_HEADER_SIZE
+		self.NameLength = len(self.Name)
+		self.DataLength = len(self.Data)
+		if self.DataLength:
+			self.DataOffset = self.NameOffset + self.NameLength
+			self.DataOffset += (-self.DataOffset) % 8
+		else:
+			self.DataOffset = 0
+
+		record = bytearray(CREATE_CONTEXT_HEADER_SIZE)
+		record.extend(self.Name)
+		if self.DataLength:
+			record.extend(b'\x00' * (self.DataOffset - len(record)))
+			record.extend(self.Data)
+		if not is_last:
+			record.extend(b'\x00' * ((-len(record)) % 8))
+			self.Next = len(record)
 		else:
 			self.Next = 0
-		
-		start_pos = buff.tell()
-		
-		buff.write(self.Next.to_bytes(4, byteorder='little', signed = False))
-		buff.write(self.NameOffset.to_bytes(2, byteorder='little', signed = False))
-		buff.write(self.NameLength.to_bytes(2, byteorder='little', signed = False))
-		buff.write(self.Reserved)
-		buff.write(self.DataOffset.to_bytes(2, byteorder='little', signed = False))
-		buff.write(self.DataLength.to_bytes(4, byteorder='little', signed = False))
-		buff.write(self.Buffer)
 
-		if is_last is True:
-			buff_end = buff.tell()
-			buff.seek(start_pos, io.SEEK_SET)
-			buff.write(b'\x00'*4) # next is zero
-		
+		record[0:4] = self.Next.to_bytes(
+			4, byteorder='little', signed=False
+		)
+		record[4:6] = self.NameOffset.to_bytes(
+			2, byteorder='little', signed=False
+		)
+		record[6:8] = self.NameLength.to_bytes(
+			2, byteorder='little', signed=False
+		)
+		record[8:10] = _int_value(self.Reserved).to_bytes(
+			2, byteorder='little', signed=False
+		)
+		record[10:12] = self.DataOffset.to_bytes(
+			2, byteorder='little', signed=False
+		)
+		record[12:16] = self.DataLength.to_bytes(
+			4, byteorder='little', signed=False
+		)
+		self.Buffer = bytes(record[CREATE_CONTEXT_HEADER_SIZE:])
+		self.Raw = bytes(record)
+		buff.write(record)
+
+	@staticmethod
+	def from_bytes(data):
+		return CREATE_CONTEXT.from_buffer(io.BytesIO(data), len(data))
+
+	@staticmethod
+	def from_buffer(buff, record_length=None):
+		start = buff.tell()
+		header = buff.read(CREATE_CONTEXT_HEADER_SIZE)
+		if len(header) != CREATE_CONTEXT_HEADER_SIZE:
+			raise ValueError('Truncated SMB2 CREATE context header')
+		next_offset = int.from_bytes(header[0:4], byteorder='little')
+		name_offset = int.from_bytes(header[4:6], byteorder='little')
+		name_length = int.from_bytes(header[6:8], byteorder='little')
+		reserved = int.from_bytes(header[8:10], byteorder='little')
+		data_offset = int.from_bytes(header[10:12], byteorder='little')
+		data_length = int.from_bytes(header[12:16], byteorder='little')
+
+		if record_length is None:
+			record_length = next_offset
+			if not record_length:
+				current = buff.tell()
+				buff.seek(0, io.SEEK_END)
+				record_length = buff.tell() - start
+				buff.seek(current, io.SEEK_SET)
+		if record_length < CREATE_CONTEXT_HEADER_SIZE:
+			raise ValueError('Invalid SMB2 CREATE context length')
+		if name_offset < CREATE_CONTEXT_HEADER_SIZE:
+			raise ValueError('Invalid SMB2 CREATE context NameOffset')
+		if data_length:
+			if data_offset < CREATE_CONTEXT_HEADER_SIZE:
+				raise ValueError('Invalid SMB2 CREATE context DataOffset')
+			if data_offset % 8:
+				raise ValueError(
+					'SMB2 CREATE context DataOffset is not aligned'
+				)
+		elif data_offset != 0:
+			raise ValueError(
+				'Empty SMB2 CREATE context has a nonzero DataOffset'
+			)
+		if name_offset + name_length > record_length:
+			raise ValueError('SMB2 CREATE context name exceeds its record')
+		if data_offset + data_length > record_length:
+			raise ValueError('SMB2 CREATE context data exceeds its record')
+
+		buff.seek(start + name_offset, io.SEEK_SET)
+		name = buff.read(name_length)
+		buff.seek(start + data_offset, io.SEEK_SET)
+		data = buff.read(data_length)
+		buff.seek(start, io.SEEK_SET)
+		raw = buff.read(record_length)
+		buff.seek(start + record_length, io.SEEK_SET)
+
+		if name == b'TWrp':
+			msg = CREATE_TIMEWARP_TOKEN(data)
 		else:
-			if buff.tell() % 8 != 0:
-				pad = (8 - buff.tell() % 8)
-				buff.write(b'\x00' * pad)
-			buff_end = buff.tell()
-			
-			buff.seek(start_pos, io.SEEK_SET)
-			buff.write(buff_end.to_bytes(4, byteorder='little', signed = False)) # 
+			msg = CREATE_CONTEXT(name, data)
+		msg.Next = next_offset
+		msg.NameOffset = name_offset
+		msg.NameLength = name_length
+		msg.Reserved = reserved
+		msg.DataOffset = data_offset
+		msg.DataLength = data_length
+		msg.Buffer = raw[CREATE_CONTEXT_HEADER_SIZE:]
+		msg.Raw = raw
+		return msg
 
-		buff.seek(buff_end, io.SEEK_SET)
+
+def serialize_create_contexts(contexts):
+	buff = io.BytesIO()
+	for index, context in enumerate(contexts):
+		if not isinstance(context, CREATE_CONTEXT):
+			raise TypeError('CREATE context chain entries must be CREATE_CONTEXT')
+		context.to_buffer(buff, is_last=index == len(contexts) - 1)
+	return buff.getvalue()
+
+
+def parse_create_contexts(data):
+	if not isinstance(data, (bytes, bytearray, memoryview)):
+		raise TypeError('CREATE context chain must be bytes-like')
+	data = bytes(data)
+	if not data:
+		return []
+
+	contexts = []
+	offset = 0
+	while True:
+		if len(data) - offset < CREATE_CONTEXT_HEADER_SIZE:
+			raise ValueError('Truncated SMB2 CREATE context chain')
+		next_offset = int.from_bytes(
+			data[offset:offset + 4], byteorder='little'
+		)
+		if next_offset:
+			if next_offset < CREATE_CONTEXT_HEADER_SIZE:
+				raise ValueError('Invalid SMB2 CREATE context Next offset')
+			if next_offset % 8:
+				raise ValueError('SMB2 CREATE context Next is not 8-byte aligned')
+			if offset + next_offset > len(data):
+				raise ValueError('SMB2 CREATE context Next exceeds the chain')
+			record_length = next_offset
+		else:
+			record_length = len(data) - offset
+
+		contexts.append(
+			CREATE_CONTEXT.from_buffer(
+				io.BytesIO(data[offset:offset + record_length]),
+				record_length,
+			)
+		)
+		if not next_offset:
+			break
+		offset += next_offset
+	return contexts
 
 
 class CREATE_TIMEWARP_TOKEN(CREATE_CONTEXT):

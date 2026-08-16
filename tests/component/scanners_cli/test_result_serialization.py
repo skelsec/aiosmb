@@ -19,6 +19,7 @@ from aiosmb.examples.scanners.smbadmin import SMBAdminRes
 from aiosmb.examples.scanners.smbbrute import SMBBruteForceRes
 from aiosmb.examples.scanners.smbfile import SMBFileRes
 from aiosmb.examples.scanners.smbfinger import SMBFingerRes
+from aiosmb.examples.scanners.smbencryption import SMBEncryptionRes
 from aiosmb.examples.scanners.smbiface import SMBInterfaceRes
 from aiosmb.examples.scanners.smbprintnightmare import SMBPrintnightmareRes
 from aiosmb.examples.scanners.smbproto import SMBProtocolRes
@@ -48,6 +49,34 @@ def test_protocol_result_normalizes_wildcard_and_serializes() -> None:
         "PROTO": "SMB1",
         "SIGN_ENABLED": True,
         "SIGN_ENFORCED": False,
+    }
+
+
+def test_encryption_result_keeps_header_line_and_dict_in_sync() -> None:
+    result = SMBEncryptionRes(
+        "SMB311",
+        True,
+        True,
+        False,
+        "CLEAR_SESSION_ACCEPTED",
+    )
+
+    assert result.get_header() == [
+        "DIALECT",
+        "ENCRYPTION_SUPPORTED",
+        "SESSION_ENCRYPTION_REQUIRED",
+        "ENCRYPTION_ENFORCED",
+        "PROBE_STATUS",
+    ]
+    assert result.to_line("|") == (
+        "SMB311|True|True|False|CLEAR_SESSION_ACCEPTED"
+    )
+    assert result.to_dict() == {
+        "DIALECT": "SMB311",
+        "ENCRYPTION_SUPPORTED": True,
+        "SESSION_ENCRYPTION_REQUIRED": True,
+        "ENCRYPTION_ENFORCED": False,
+        "PROBE_STATUS": "CLEAR_SESSION_ACCEPTED",
     }
 
 

@@ -242,10 +242,6 @@ def test_compression_context_rejects_duplicate_algorithms():
         SMB2CompressionCapabilities.from_buffer(io.BytesIO(wire))
 
 
-@pytest.mark.xfail(
-    reason="KF-0204: non-first CREATE_CONTEXT Next is absolute, not relative",
-    strict=True,
-)
 def test_each_create_context_next_offset_is_structure_relative():
     contexts = [
         CREATE_CONTEXT("RqLs", b"12345678"),

@@ -237,6 +237,11 @@ class IOCTL_REPLY:
 		self.Buffer = None
 
 	def to_bytes(self):
+		data = bytes(self.Buffer or b'')
+		if data and not self.OutputOffset:
+			self.OutputOffset = 64 + 48
+		if data:
+			self.OutputCount = len(data)
 		t = self.StructureSize.to_bytes(2, byteorder='little', signed = False)
 		t += self.Reserved.to_bytes(2, byteorder='little', signed = False)
 		t += self.CtlCode.value.to_bytes(4, byteorder='little', signed = False)
@@ -247,7 +252,7 @@ class IOCTL_REPLY:
 		t += self.OutputCount.to_bytes(4, byteorder='little', signed = False)
 		t += self.Flags.to_bytes(4, byteorder='little', signed = False)
 		t += self.Reserved2.to_bytes(4, byteorder='little', signed = False)
-		t += self.Buffer
+		t += data
 		return t
 
 
@@ -271,6 +276,13 @@ class IOCTL_REPLY:
 		msg.Reserved2 = int.from_bytes(buff.read(4), byteorder='little')
 
 		if msg.CtlCode == CtlCode.FSCTL_PIPE_WAIT:
+			return msg
+		elif msg.CtlCode in (CtlCode.FSCTL_PIPE_PEEK, CtlCode.FSCTL_PIPE_TRANSCEIVE):
+			if msg.OutputCount:
+				buff.seek(msg.OutputOffset)
+				msg.Buffer = buff.read(msg.OutputCount)
+			else:
+				msg.Buffer = b''
 			return msg
 		elif msg.CtlCode == CtlCode.FSCTL_LMR_REQUEST_RESILIENCY:
 			return msg

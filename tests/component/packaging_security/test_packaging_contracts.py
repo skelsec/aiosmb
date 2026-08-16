@@ -18,6 +18,7 @@ pytestmark = pytest.mark.component
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 EXPECTED_ENTRY_POINTS: Dict[str, str] = {
+    "aiosmb-server": "aiosmb.examples.smbserver:main",
     "asmbcertreq": "aiosmb.examples.smbcertreq:main",
     "asmbclient": "aiosmb.examples.smbclient:main",
     "asmbgetfile": "aiosmb.examples.smbgetfile:main",

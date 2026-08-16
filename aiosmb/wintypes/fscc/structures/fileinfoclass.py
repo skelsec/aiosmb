@@ -48,3 +48,18 @@ class FileInfoClass(enum.Enum):
 	FileStreamInformation = 22 #Query
 	FileTrackingInformation = 36 #LOCAL
 	FileValidDataLengthInformation = 39 #Set
+
+
+# https://learn.microsoft.com/openspecs/windows_protocols/ms-fscc/ee12042a-9352-46e3-9f67-c094b75fe6c3
+class FileSystemInfoClass(enum.Enum):
+	FileFsVolumeInformation = 1
+	FileFsLabelInformation = 2
+	FileFsSizeInformation = 3
+	FileFsDeviceInformation = 4
+	FileFsAttributeInformation = 5
+	FileFsControlInformation = 6
+	FileFsFullSizeInformation = 7
+	FileFsObjectIdInformation = 8
+	FileFsDriverPathInformation = 9
+	FileFsVolumeFlagsInformation = 10
+	FileFsSectorSizeInformation = 11

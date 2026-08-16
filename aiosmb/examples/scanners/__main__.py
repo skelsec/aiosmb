@@ -14,11 +14,13 @@ from aiosmb.examples.scanners.smbfile import SMBFileScanner
 from aiosmb.examples.scanners.smbbrute import SMBBruteForceScanner
 from aiosmb.examples.scanners.smbregsession import SMBRegSessionScanner
 from aiosmb.examples.scanners.smbshare import SMBShareScanner
+from aiosmb.examples.scanners.smbencryption import SMBEncryptionScanner
 
 smbscan_options = {
 	'finger'    : (SMBFingerScanner, "SMB Finger grabs OS info. Only works with NTLM auth"),
 	'interface' : (SMBInterfaceScanner, "Lists available interfaces on the remote hosts"),
 	'proto'  : (SMBProtocolScanner, "SMB protocol version and NTLM signing checker"),
+	'encryption': (SMBEncryptionScanner, "Checks whether SMB 3 encryption is enforced"),
 	'admin'     : (SMBAdminScanner, "Checks if giver user is admin on the remote hosts"),
 	'session'   : (SMBSessionScanner, "Lists SMB sessions"),
 	'printnightmare': (SMBPrintnightmareScanner, "Checks hosts for printnightmare vulnerability"),
@@ -52,6 +54,10 @@ async def amain():
 
 	protoscan = subparsers.add_parser('proto', help='Scan for SMB protocol version and NTLM signing')
 	protoscan.add_argument('targets', nargs='*', help = 'Hostname or IP address or file with a list of targets')
+
+	encryptionscan = subparsers.add_parser('encryption', help='Check whether SMB 3 encryption is enforced')
+	encryptionscan.add_argument('url', help = 'Authenticated connection string in URL format')
+	encryptionscan.add_argument('targets', nargs='*', help = 'Hostname or IP address or file with a list of targets')
 
 	adminscan = subparsers.add_parser('admin', help='Check if user is admin')
 	adminscan.add_argument('url', help = 'Connection string in URL format')
@@ -118,6 +124,14 @@ async def amain():
 	
 	if args.scantype == 'proto':
 		connectionfactory = SMBConnectionFactory.create_dummy()
+		executor = smbscan_options[args.scantype][0](connectionfactory)
+		tgen = UniTargetGen.from_list(args.targets)
+		scanner = UniScanner('SMBScanner', [executor], [tgen], worker_count=args.worker_count, host_timeout=args.timeout)
+		await scanner.scan_and_process(progress=not args.no_progress, out_file=args.out_file, include_errors=args.errors)
+		return
+
+	if args.scantype == 'encryption':
+		connectionfactory = SMBConnectionFactory.from_url(args.url)
 		executor = smbscan_options[args.scantype][0](connectionfactory)
 		tgen = UniTargetGen.from_list(args.targets)
 		scanner = UniScanner('SMBScanner', [executor], [tgen], worker_count=args.worker_count, host_timeout=args.timeout)

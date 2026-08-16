@@ -20,6 +20,7 @@ EXPECTED_ENTRY_POINTS = {
     "asmbgetfile": "aiosmb.examples.smbgetfile:main",
     "asmbcertreq": "aiosmb.examples.smbcertreq:main",
     "asmbscanner": "aiosmb.examples.scanners.__main__:main",
+    "aiosmb-server": "aiosmb.examples.smbserver:main",
 }
 EXPECTED_MARKERS = {
     "unit",

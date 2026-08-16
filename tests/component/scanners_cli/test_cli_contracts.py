@@ -71,6 +71,97 @@ def test_scanner_subcommand_help_is_offline_and_documents_targets() -> None:
     assert completed.stderr == ""
 
 
+def test_encryption_scanner_help_documents_authenticated_url_and_targets() -> None:
+    completed = run_module(
+        "aiosmb.examples.scanners.__main__",
+        "encryption",
+        "--help",
+    )
+
+    assert completed.returncode == 0
+    assert "url" in completed.stdout
+    assert "Authenticated connection string" in completed.stdout
+    assert "targets" in completed.stdout
+    assert completed.stderr == ""
+
+
+@pytest.mark.asyncio
+async def test_encryption_scanner_dispatches_authenticated_factory(
+    monkeypatch,
+) -> None:
+    module = importlib.import_module("aiosmb.examples.scanners.__main__")
+    targetgen_module = importlib.import_module(
+        "asysocks.unicomm.common.scanner.targetgen"
+    )
+    scanner_module = importlib.import_module(
+        "asysocks.unicomm.common.scanner.scanner"
+    )
+    calls = {}
+
+    class FakeConnectionFactory:
+        @staticmethod
+        def from_url(url):
+            calls["url"] = url
+            return "authenticated-factory"
+
+    class FakeExecutor:
+        def __init__(self, factory):
+            calls["executor_factory"] = factory
+
+    class FakeTargetGen:
+        @classmethod
+        def from_list(cls, targets):
+            calls["targets"] = list(targets)
+            return "target-generator"
+
+    class FakeScanner:
+        def __init__(
+            self, name, executors, target_generators, worker_count, host_timeout
+        ):
+            calls["scanner"] = (
+                name,
+                executors,
+                target_generators,
+                worker_count,
+                host_timeout,
+            )
+
+        async def scan_and_process(self, **kwargs):
+            calls["processing"] = kwargs
+
+    monkeypatch.setattr(module, "SMBConnectionFactory", FakeConnectionFactory)
+    monkeypatch.setitem(
+        module.smbscan_options,
+        "encryption",
+        (FakeExecutor, module.smbscan_options["encryption"][1]),
+    )
+    monkeypatch.setattr(targetgen_module, "UniTargetGen", FakeTargetGen)
+    monkeypatch.setattr(scanner_module, "UniScanner", FakeScanner)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "asmbscanner",
+            "--worker-count",
+            "4",
+            "--timeout",
+            "9",
+            "encryption",
+            "smb3+ntlm-password://EXAMPLE\\alice:secret@placeholder",
+            "files.example",
+        ],
+    )
+
+    await module.amain()
+
+    assert calls["url"] == (
+        "smb3+ntlm-password://EXAMPLE\\alice:secret@placeholder"
+    )
+    assert calls["executor_factory"] == "authenticated-factory"
+    assert calls["targets"] == ["files.example"]
+    assert calls["scanner"][3:] == (4, 9)
+
+
 def test_getfile_main_dispatches_url_output_and_progress(monkeypatch) -> None:
     module = importlib.import_module("aiosmb.examples.smbgetfile")
     calls = []

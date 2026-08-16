@@ -100,6 +100,107 @@ currently validates a Linux x86-64 wheel; use a source build with Rust and
 unusable, even explicit compression requests degrade safely to uncompressed
 SMB after the one-time warning.
 
+### SMB 2.0.2 file server
+
+`aiosmb.server` provides an SMB 2.0.2 server backed by local directories. It
+supports NTLM/SPNEGO with a configured password or NT hash, optional or
+required HMAC-SHA256 signing, file and directory CRUD, metadata queries, and
+read-only share discovery through `IPC$\srvsvc`.
+
+The installed `aiosmb-server` command configures one or more shares directly:
+
+```bash
+aiosmb-server --host 0.0.0.0 --port 445 \
+  --domain LAB --username alice --password secret \
+  --share Data=/srv/aiosmb/data \
+  --read-only-share Public=/srv/aiosmb/public \
+  --require-signing
+```
+
+Run `aiosmb-server --help` for the NT-hash, server identity, and logging
+options. Omitting `--username`, `--password`, and `--nt-hash` enables an
+anonymous session:
+
+```bash
+aiosmb-server --share Public=/srv/aiosmb/public
+```
+
+The server logs client intent at info level, including authentication, share
+connections, file/directory opens, directory listings, renames, truncation,
+and deletion. Successful named NTLM authentication also logs the captured
+hashcat-compatible NetNTLMv2 challenge-response; anonymous sessions have no
+such hash. Treat server logs as credential-sensitive. Use `-v` for request
+details such as read/write ranges and `-vv` only when raw SMB packet structure
+dumps are needed.
+
+`--disable-ess` (alias `--downgrade-ess`) clears
+`NTLMSSP_NEGOTIATE_EXTENDED_SESSIONSECURITY` from the NTLM challenge for
+compatibility and downgrade testing. This affects negotiated session security;
+it does not select NTLMv1 versus NTLMv2, which remains client policy.
+
+Anonymous sessions cannot be combined with required SMB signing and are
+disabled by many modern clients unless their local security policy explicitly
+permits them. An `aiosmb` client requests this identity explicitly with:
+
+```text
+smb202+ntlm-none://server.example/Public
+```
+
+`ntlm-none` sends the NTLM anonymous wire form (empty user and domain, no NT
+response) and a successful server response is tracked as an SMB null session
+from `SMB2_SESSION_FLAG_IS_NULL`. A server-reported
+`SMB2_SESSION_FLAG_IS_GUEST` is tracked separately as guest access. Neither
+restricted session type has an SMB signing key. A named account with an empty
+password is still `ntlm-password`, not `ntlm-none`; Kerberos `none` credentials
+do not have anonymous/null-session semantics and are unsupported.
+
+The equivalent credentialed programmatic setup is:
+
+```python
+import asyncio
+
+from asysocks.unicomm.common.target import UniProto, UniTarget
+from aiosmb.server.server import SMBServer, SMBServerSettings
+
+
+async def main():
+    settings = SMBServerSettings.from_password(
+        username="alice",
+        password="secret",
+        domain="LAB",
+    )
+    settings.shares = {
+        "Data": "/srv/aiosmb/data",
+    }
+    settings.RequireSigning = False
+
+    server = SMBServer(
+        UniTarget("0.0.0.0", 445, UniProto.SERVER_TCP),
+        settings,
+    )
+    server_task, error = await server.run()
+    if error is not None:
+        raise error
+    await server_task
+
+
+asyncio.run(main())
+```
+
+Share roots must already exist and be directories. Request paths are confined
+to their configured root, including symlink resolution. Use
+`SMBServerSettings.from_nt_hash()` when storing an NT hash instead of a
+password; use `SMBServerSettings.from_anonymous()` for anonymous sessions.
+Setting `RequireSigning = True` rejects unsigned authenticated requests;
+signed responses use the NTLM session key.
+
+The supported server profile is intentionally narrow: SMB 2.0.2, one local
+filesystem backend, ordinary non-durable handles, and NDR32 `srvsvc`
+`NetrShareEnum`, `NetrShareGetInfo`, and `NetrServerGetInfo`. SMB 2.1/3.x
+features, encryption, compression, leases/oplocks, durable handles,
+multichannel, notifications, byte-range locks, NDR64, and RPC-level
+authentication/signing/sealing are not implemented.
+
 ### Proxy
 Supports Socks4 and Socks5 natively. Socks5 currently not supporting authentication.  
 Bear in mind, that proxy support doesnt always play well with all auth methods, see this table below.
@@ -126,6 +227,8 @@ Where `version`: `2` for any `SBM2` `3` for any `SMB3` dialects, or specific 3 c
 `authmethod` format: `auth-type`  
 Where `auth`: `ntlm` or `kerberos` or `sspi` or `negext`
 Where `type`: `password` or `nt` or `aes` or `rc4` or `kirbi` ...  
+For native NTLM anonymous access, use `ntlm-none` without user information or
+a secret. `none` is not a Kerberos authentication type.
   
 `user` format: `DOMAIN\username`  
 Where `DOMAIN`: your domain  

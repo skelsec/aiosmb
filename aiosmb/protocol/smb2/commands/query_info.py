@@ -44,9 +44,14 @@ class QUERY_INFO_REQ:
 		
 	def to_bytes(self):
 		if self.Data:
-			self.Buffer = io.BytesIO(self.Data)
-			self.InputBufferOffset = 64 + 2+1+1+4+2+2+2+4+4+16
-			self.InputBufferLength = len(self.Data)
+			data = self.Data
+			if hasattr(data, 'to_bytes') and not isinstance(
+				data, (bytes, bytearray, memoryview)
+			):
+				data = data.to_bytes()
+			self.Buffer = bytes(data)
+			self.InputBufferOffset = 64 + 40
+			self.InputBufferLength = len(self.Buffer)
 			
 		t  = self.StructureSize.to_bytes(2, byteorder='little', signed = False)
 		t += self.InfoType.value.to_bytes(1, byteorder='little', signed = False)
@@ -70,21 +75,30 @@ class QUERY_INFO_REQ:
 	@staticmethod
 	def from_buffer(buff):
 		msg = QUERY_INFO_REQ()
+		command_start = buff.tell()
 		msg.StructureSize   = int.from_bytes(buff.read(2), byteorder='little')
 		assert msg.StructureSize == 41
 		msg.InfoType = QueryInfoType(int.from_bytes(buff.read(1), byteorder='little'))
-		msg.FileInfoClass  = FileInfoClass(int.from_bytes(buff.read(1), byteorder='little'))
+		info_class = int.from_bytes(buff.read(1), byteorder='little')
+		if msg.InfoType == QueryInfoType.FILESYSTEM:
+			msg.FileInfoClass = FileSystemInfoClass(info_class)
+		else:
+			msg.FileInfoClass = FileInfoClass(info_class)
 		msg.OutputBufferLength  = int.from_bytes(buff.read(4), byteorder = 'little')
 		msg.InputBufferOffset  = int.from_bytes(buff.read(2), byteorder = 'little')
 		msg.Reserved   = int.from_bytes(buff.read(2), byteorder = 'little')
-		msg.InputBufferLength    = int.from_bytes(buff.read(2), byteorder = 'little')
+		msg.InputBufferLength    = int.from_bytes(buff.read(4), byteorder = 'little')
 		msg.AdditionalInformation = SecurityInfo(int.from_bytes(buff.read(4), byteorder = 'little'))
 		msg.Flags = EaInformation(int.from_bytes(buff.read(4), byteorder = 'little'))
 		msg.FileId = int.from_bytes(buff.read(16), byteorder = 'little')
 
-		if msg.InputBufferLength > 0:
-			buff.seek(msg.InputBufferOffset, io.SEEK_SET)
+		if msg.InputBufferLength > 0 and msg.InputBufferOffset > 0:
+			buff.seek(
+				command_start - 64 + msg.InputBufferOffset, io.SEEK_SET
+			)
 			msg.Buffer= buff.read(msg.InputBufferLength)
+			if len(msg.Buffer) != msg.InputBufferLength:
+				raise ValueError('Truncated SMB2 QUERY_INFO input buffer')
 
 		return msg
 
@@ -116,6 +130,11 @@ class QUERY_INFO_REPLY:
 		
 	def to_bytes(self):
 			data = self.Data if self.Data is not None else b''
+			if hasattr(data, 'to_bytes') and not isinstance(
+				data, (bytes, bytearray, memoryview)
+			):
+				data = data.to_bytes()
+			data = bytes(data)
 			self.OutputBufferLength = len(data)
 			self.OutputBufferOffset = 64 + 8
 			t  = self.StructureSize.to_bytes(2, byteorder='little', signed=False)

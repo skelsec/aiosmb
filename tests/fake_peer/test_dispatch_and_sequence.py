@@ -303,18 +303,26 @@ async def test_compressed_packet_is_expanded_before_dispatch(
         assert raw == plain
 
 
+@pytest.mark.parametrize(
+    "cipher,nonce",
+    [
+        (SMB2Cipher.AES_128_CCM, b"\x42" * 11),
+        (SMB2Cipher.AES_128_GCM, b"\x43" * 12),
+    ],
+)
 async def test_encrypted_packet_uses_transform_integrity_without_inner_signature(
     monkeypatch: pytest.MonkeyPatch,
+    cipher: SMB2Cipher,
+    nonce: bytes,
 ) -> None:
     key = bytes(range(16))
-    nonce = b"\x42" * 11
     connection = make_connection(dialect=NegotiateDialects.SMB311)
-    connection.CipherId = SMB2Cipher.AES_128_CCM
+    connection.CipherId = cipher
     connection.DecryptionKey = key
     connection.SigningKey = b"\x99" * 16
     connection.SessionId = 0x88776655
     peer = make_connection(dialect=NegotiateDialects.SMB311)
-    peer.CipherId = SMB2Cipher.AES_128_CCM
+    peer.CipherId = cipher
     peer.EncryptionKey = key
     peer.SessionId = connection.SessionId
     monkeypatch.setattr("aiosmb.connection.os.urandom", lambda size: nonce)

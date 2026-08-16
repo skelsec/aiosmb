@@ -7,29 +7,123 @@ from aiosmb.server.serverconnection import SMBServerConnection
 from asyauth.protocols.spnego.server.native import spnegoserver_ntlm_factory
 from asyauth.protocols.ntlm.server.native import ntlmserver_factory
 from asyauth.common.credentials.ntlm import NTLMCredential
+from aiosmb.server.authentication import (
+	anonymous_authenticator_factory,
+	ntlm_authenticator_factory,
+	ntlm_hash_authenticator_factory,
+)
 import traceback
 import asyncio
+import logging
 
-async def log_callback(msg):
-	print(msg)
+from aiosmb import logger
+
+
+TRACE_LEVEL = 5
+logging.addLevelName(TRACE_LEVEL, 'TRACE')
+
+async def log_callback(msg, level=logging.INFO):
+	logger.log(level, msg)
 
 class SMBServerSettings:
-	def __init__(self, gssapi_factory, log_callback = log_callback):
+	def __init__(
+		self,
+		gssapi_factory,
+		log_callback=log_callback,
+		log_level=logging.INFO,
+		disable_ess=False,
+	):
 		self.gssapi_factory = gssapi_factory
 		self.preferred_dialects = [NegotiateDialects.SMB202]
 		self.MaxTransactSize = 0x100000
 		self.MaxReadSize = 0x100000
 		self.MaxWriteSize = 0x100000
+		self.MaxCredits = 128
 		self.ServerGuid = GUID.random()
+		self.ServerName = 'AIOSMB'
+		self.ServerComment = 'aiosmb SMB server'
 		self.RequireSigning = False
+		self.DisableESS = disable_ess
 		self.log_callback = log_callback
+		self.log_level = log_level
 
 		self.shares = {} #share_name -> path on disk
+		self.filesystem_backend_factory = None
+
+	async def emit_log(self, level, message):
+		if self.log_callback is None or level < self.log_level:
+			return
+		if self.log_callback is log_callback:
+			await self.log_callback(message, level)
+			return
+		await self.log_callback(message)
+
+	@classmethod
+	def from_password(
+		cls,
+		username,
+		password,
+		domain='',
+		log_callback=log_callback,
+		disable_ess=False,
+	):
+		return cls(
+			ntlm_authenticator_factory(password, username, domain),
+			log_callback=log_callback,
+			disable_ess=disable_ess,
+		)
+
+	@classmethod
+	def from_nt_hash(
+		cls,
+		username,
+		nt_hash,
+		domain='',
+		log_callback=log_callback,
+		disable_ess=False,
+	):
+		return cls(
+			ntlm_hash_authenticator_factory(nt_hash, username, domain),
+			log_callback=log_callback,
+			disable_ess=disable_ess,
+		)
+
+	@classmethod
+	def from_anonymous(
+		cls,
+		log_callback=log_callback,
+		disable_ess=False,
+	):
+		return cls(
+			anonymous_authenticator_factory(),
+			log_callback=log_callback,
+			disable_ess=disable_ess,
+		)
+
+	@classmethod
+	def anonymous(cls, log_callback=log_callback, disable_ess=False):
+		return cls.from_anonymous(
+			log_callback=log_callback,
+			disable_ess=disable_ess,
+		)
 
 	def create_new_gssapi(self, connection):
 		gssapi = self.gssapi_factory()
+		if self.DisableESS:
+			credential = getattr(gssapi, 'credential', None)
+			if credential is None:
+				raise ValueError(
+					'DisableESS requires an NTLM credential-backed authenticator'
+				)
+			credential.disable_ess = True
 		gssapi.set_connection_info(connection)
 		return gssapi
+
+	def create_filesystem_backend(self):
+		if self.filesystem_backend_factory is not None:
+			return self.filesystem_backend_factory(self)
+		from aiosmb.server.filesystem import LocalFilesystemBackend
+		return LocalFilesystemBackend(self.shares)
 	
 
 class SMBServer:
@@ -41,32 +135,54 @@ class SMBServer:
 		self.connections = {}
 		self.connection_ctr = 0
 	
-	async def print(self, msg):
-		if self.settings.log_callback is not None:
-			await self.settings.log_callback(msg)
+	async def log(self, level, msg):
+		level_name = logging.getLevelName(level)
+		await self.settings.emit_log(
+			level,
+			'[SMBSERVER][%s] %s' % (level_name, msg),
+		)
 
 	async def __handle_connection(self, connection):
+		smbconnection = None
+		connection_id = None
 		try:
 			self.connection_ctr += 1
-			await self.print('[SMBRELAY][%s][INF] Got new connection!' % self.connection_ctr)
+			connection_id = self.connection_ctr
+			await self.log(
+				logging.INFO,
+				'connection %s accepted' % connection_id,
+			)
 			
 			try:
-				smbconnection = SMBServerConnection(self.settings, connection, connection_id=self.connection_ctr)
-				if self.settings.ServerGuid not in self.connections:
-					self.connections[self.settings.ServerGuid] = []
-				self.connections[self.settings.ServerGuid].append(smbconnection)
+				smbconnection = SMBServerConnection(self.settings, connection, connection_id=connection_id)
+				self.connections.setdefault(self.settings.ServerGuid, []).append(smbconnection)
 				connection_task = await smbconnection.run()
 				await connection_task
-				await self.print('[SMBRELAY][%s][INF] Connection end' % self.connection_ctr)
+				await self.log(
+					logging.INFO,
+					'connection %s closed' % connection_id,
+				)
 			except Exception as e:
-				await self.print('[SMBRELAY][%s][ERR] %s' % (self.connection_ctr, e))
+				await self.log(
+					logging.ERROR,
+					'connection %s failed: %s' % (connection_id, e),
+				)
 
 		except Exception as e:
-			await self.print('[SMBRELAY][%s][ERR] SMB Server stopped! Error: %s' % (self.connection_ctr, e))
+			await self.log(
+				logging.ERROR,
+				'connection %s stopped unexpectedly: %s'
+				% (connection_id, e),
+			)
 			return
 		finally:
-			for connection in self.connections[self.settings.ServerGuid]:
-				await connection.stop()
+			if smbconnection is not None:
+				await smbconnection.stop()
+				connections = self.connections.get(self.settings.ServerGuid, [])
+				if smbconnection in connections:
+					connections.remove(smbconnection)
+				if not connections:
+					self.connections.pop(self.settings.ServerGuid, None)
 
 	async def run(self):
 		self.server = UniServer(self.target, NetBIOSPacketizer())

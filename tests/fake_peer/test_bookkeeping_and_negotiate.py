@@ -11,6 +11,7 @@ from aiosmb.protocol.smb2.command_codes import SMB2Command
 from aiosmb.protocol.smb2.commands import (
     CLOSE_REPLY,
     CREATE_REPLY,
+    ECHO_REPLY,
     TREE_CONNECT_REPLY,
     TREE_DISCONNECT_REPLY,
 )
@@ -26,8 +27,13 @@ from aiosmb.protocol.smb2.commands.negotiate import (
     NEGOTIATE_REPLY,
     NegotiateCapabilities,
     NegotiateSecurityMode,
+    SMB2Cipher,
+    SMB2ContextType,
     SMB2CompressionCapabilities,
     SMB2CompressionType,
+    SMB2EncryptionCapabilities,
+    SMB2HashAlgorithm,
+    SMB2PreauthIntegrityCapabilities,
 )
 from aiosmb.protocol.smb2.commands.tree_connect import (
     ShareFlags,
@@ -280,6 +286,43 @@ def _negotiate_311_reply(message_id: int, algorithm) -> bytes:
     ).to_bytes()
 
 
+def _negotiate_311_preauth_reply(
+    message_id: int,
+    include_encryption: bool = False,
+) -> bytes:
+    body = NEGOTIATE_REPLY()
+    body.SecurityMode = NegotiateSecurityMode.SMB2_NEGOTIATE_SIGNING_ENABLED
+    body.DialectRevision = NegotiateDialects.SMB311
+    body.ServerGuid = GUID.from_string(
+        "00112233-4455-6677-8899-aabbccddeeff"
+    )
+    body.Capabilities = NegotiateCapabilities.LARGE_MTU
+    if not include_encryption:
+        body.Capabilities |= NegotiateCapabilities.ENCRYPTION
+    body.SystemTime = datetime.datetime(2020, 1, 2, 3, 4, 5)
+    body.ServerStartTime = datetime.datetime(2020, 1, 1)
+    body.SecurityBuffer = b""
+    body.NegotiateContextOffset = 128
+    if include_encryption:
+        body.NegotiateContextList = [
+            SMB2EncryptionCapabilities.from_enc_list(
+                [SMB2Cipher.AES_128_GCM]
+            )
+        ]
+    else:
+        body.NegotiateContextList = [
+            SMB2PreauthIntegrityCapabilities.construct(
+                [SMB2HashAlgorithm.SHA_512]
+            )
+        ]
+    body.NegotiateContextCount = len(body.NegotiateContextList)
+    return make_reply(
+        message_id,
+        body,
+        command=SMB2Command.NEGOTIATE,
+    ).to_bytes()
+
+
 async def test_scripted_negotiate_populates_connection_contract() -> None:
     connection = make_connection(
         status=SMBConnectionStatus.NEGOTIATING,
@@ -315,6 +358,131 @@ async def test_scripted_negotiate_populates_connection_contract() -> None:
         assert connection.MaxWriteSize == 524288
         assert transport.packetizer.buffer_size == connection.MaxReadSize
         assert connection.PreauthIntegrityHashValue != b"\x00" * 64
+
+
+async def test_smb311_encryption_opt_out_omits_capability_and_context() -> None:
+    connection = make_connection(
+        status=SMBConnectionStatus.NEGOTIATING,
+        dialect=NegotiateDialects.SMB311,
+        advertise_encryption=False,
+    )
+    connection.selected_dialect = None
+
+    def negotiate_response(
+        wire_data: bytes, transport: ScriptedSMBTransport
+    ) -> bytes:
+        request = SMB2Message.from_bytes(wire_data)
+        assert request.header.Command == SMB2Command.NEGOTIATE
+        assert not (
+            request.command.Capabilities & NegotiateCapabilities.ENCRYPTION
+        )
+        context_types = [
+            context.ContextType
+            for context in request.command.NegotiateContextList
+        ]
+        assert SMB2ContextType.PREAUTH_INTEGRITY_CAPABILITIES in context_types
+        assert SMB2ContextType.ENCRYPTION_CAPABILITIES not in context_types
+        return _negotiate_311_preauth_reply(request.header.MessageId)
+
+    transport = ScriptedSMBTransport([negotiate_response])
+
+    async with connection_reader(connection, transport):
+        result, _, error = await asyncio.wait_for(
+            connection.negotiate(protocol_test=True),
+            timeout=TIMEOUT,
+        )
+
+    assert error is None
+    assert result is True
+    assert connection.ClientCapabilities == 0
+    assert (
+        connection.ServerCapabilities & NegotiateCapabilities.ENCRYPTION
+    )
+    assert connection.SupportsEncryption is False
+    assert connection.encryption_required is False
+    assert connection.CipherId is None
+
+
+async def test_smb311_negotiate_tracks_mutual_encryption_capability() -> None:
+    connection = make_connection(
+        status=SMBConnectionStatus.NEGOTIATING,
+        dialect=NegotiateDialects.SMB311,
+    )
+    connection.selected_dialect = None
+
+    def negotiate_response(
+        wire_data: bytes, transport: ScriptedSMBTransport
+    ) -> bytes:
+        request = SMB2Message.from_bytes(wire_data)
+        assert (
+            request.command.Capabilities & NegotiateCapabilities.ENCRYPTION
+        )
+        encryption_contexts = [
+            context
+            for context in request.command.NegotiateContextList
+            if isinstance(context, SMB2EncryptionCapabilities)
+        ]
+        assert len(encryption_contexts) == 1
+        assert encryption_contexts[0].Ciphers == [
+            SMB2Cipher.AES_128_GCM,
+            SMB2Cipher.AES_128_CCM,
+        ]
+        return _negotiate_311_preauth_reply(
+            request.header.MessageId,
+            include_encryption=True,
+        )
+
+    transport = ScriptedSMBTransport([negotiate_response])
+
+    async with connection_reader(connection, transport):
+        result, _, error = await asyncio.wait_for(
+            connection.negotiate(protocol_test=True),
+            timeout=TIMEOUT,
+        )
+
+    assert error is None
+    assert result is True
+    assert not (
+        connection.ServerCapabilities & NegotiateCapabilities.ENCRYPTION
+    )
+    assert connection.SupportsEncryption is True
+    assert connection.encryption_required is True
+    assert connection.CipherId is SMB2Cipher.AES_128_GCM
+
+
+async def test_encryption_opt_out_sends_clear_post_auth_echo() -> None:
+    connection = make_connection(
+        dialect=NegotiateDialects.SMB311,
+        advertise_encryption=False,
+    )
+    connection.SessionId = 7
+    connection.CipherId = None
+    connection.EncryptionKey = b"\x44" * 16
+    connection.encryption_required = False
+
+    def echo_response(
+        wire_data: bytes, transport: ScriptedSMBTransport
+    ) -> bytes:
+        assert wire_data[:4] == b"\xfeSMB"
+        request = SMB2Message.from_bytes(wire_data)
+        assert request.header.Command == SMB2Command.ECHO
+        return make_reply(
+            request.header.MessageId,
+            ECHO_REPLY(),
+            command=SMB2Command.ECHO,
+            session_id=connection.SessionId,
+        ).to_bytes()
+
+    transport = ScriptedSMBTransport([echo_response])
+
+    async with connection_reader(connection, transport):
+        result, error = await asyncio.wait_for(
+            connection.echo(),
+            timeout=TIMEOUT,
+        )
+
+    assert result is True
+    assert error is None
 
 
 async def test_session_setup_preserves_client_signing_requirement(

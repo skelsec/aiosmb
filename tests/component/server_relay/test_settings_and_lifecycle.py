@@ -28,22 +28,9 @@ SERVER_CASES = (
 
 
 def import_boundary_module(module_name: str) -> Any:
-    try:
-        return importlib.import_module(module_name)
-    except TypeError:
-        if sys.version_info < (3, 9) and module_name.startswith(
-            "aiosmb.server"
-        ):
-            pytest.xfail(
-                "blocked by KF-0632: server annotations require Python 3.9"
-            )
-        raise
+    return importlib.import_module(module_name)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="KF-0632: server annotations evaluate Python 3.9-only generics",
-)
 async def test_server_connection_annotations_support_python38() -> None:
     source_path = (
         Path(__file__).parents[3]
@@ -172,17 +159,20 @@ async def test_host_tracks_and_stops_a_completed_connection(
     await wait_for(handler(transport))
 
     assert server.connection_ctr == 1
-    assert server.connections[settings.ServerGuid] == instances
+    if server_name == "SMBServer":
+        assert settings.ServerGuid not in server.connections
+    else:
+        assert server.connections[settings.ServerGuid] == instances
     assert instances[0].connection is transport
     assert instances[0].stop_calls == 1
-    assert any("Got new connection" in entry for entry in logs)
-    assert any("Connection end" in entry for entry in logs)
+    if server_name == "SMBServer":
+        assert any("connection 1 accepted" in entry for entry in logs)
+        assert any("connection 1 closed" in entry for entry in logs)
+    else:
+        assert any("Got new connection" in entry for entry in logs)
+        assert any("Connection end" in entry for entry in logs)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="KF-0624: completing one client stops unrelated hosted connections",
-)
 async def test_host_cleanup_does_not_stop_an_unrelated_connection(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -217,10 +207,6 @@ async def test_host_cleanup_does_not_stop_an_unrelated_connection(
     assert instances[0].stop_calls == 1
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="KF-0625: constructor failure triggers a cleanup KeyError",
-)
 async def test_host_constructor_failure_is_reported_without_cleanup_crash(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

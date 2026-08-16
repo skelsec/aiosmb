@@ -1,7 +1,7 @@
 from aiosmb.protocol.smb2.commands.negotiate import NEGOTIATE_REQ, NEGOTIATE_REPLY,NegotiateSecurityMode, NegotiateCapabilities, NegotiateDialects
 from aiosmb.protocol.smb2.commands.sessionsetup import SESSION_SETUP_REQ, SESSION_SETUP_REPLY
 from aiosmb.protocol.smb2.commands.tree_connect import TREE_CONNECT_REQ, TREE_CONNECT_REPLY, TreeConnectFlag, TreeCapabilities, ShareFlags
-from aiosmb.protocol.smb2.commands.create import CREATE_REQ, CREATE_REPLY, OplockLevel, ImpersonationLevel, OplockLevel, ImpersonationLevel, ShareAccess, CreateDisposition, CreateOptions
+from aiosmb.protocol.smb2.commands.create import CREATE_REQ, CREATE_REPLY, OplockLevel, ImpersonationLevel, OplockLevel, ImpersonationLevel, ShareAccess, CreateDisposition, CreateOptions, CreateReplyFlag, CREATE_CONTEXT, CREATE_TIMEWARP_TOKEN
 from aiosmb.protocol.smb2.commands.read import READ_REQ, READ_REPLY, Channel, ReadFlag
 from aiosmb.protocol.smb2.commands.query_info import QUERY_INFO_REPLY, QUERY_INFO_REQ, EaInformation, SecurityInfo, QueryInfoType
 from aiosmb.protocol.smb2.commands.query_directory import QUERY_DIRECTORY_REPLY, QUERY_DIRECTORY_REQ, QueryDirectoryFlag
@@ -14,6 +14,7 @@ from aiosmb.protocol.smb2.commands.logoff import LOGOFF_REQ, LOGOFF_REPLY
 from aiosmb.protocol.smb2.commands.error import ERROR_REPLY
 from aiosmb.protocol.smb2.commands.write import WRITE_REPLY, WRITE_REQ
 from aiosmb.protocol.smb2.commands.ioctl import IOCTL_REQ, IOCTL_REPLY, IOCTLREQFlags, CtlCode
+from aiosmb.protocol.smb2.commands.set_info import SET_INFO_REQ, SET_INFO_REPLY, SetInfoType
 
 
 __all__ = ['NEGOTIATE_REQ', 'NEGOTIATE_REPLY', 'SESSION_SETUP_REQ','SESSION_SETUP_REPLY','NegotiateSecurityMode', 
@@ -24,7 +25,8 @@ __all__ = ['NEGOTIATE_REQ', 'NEGOTIATE_REPLY', 'SESSION_SETUP_REQ','SESSION_SETU
 			'QUERY_DIRECTORY_REPLY', 'QUERY_DIRECTORY_REQ', 'QueryDirectoryFlag','TREE_DISCONNECT_REQ','TREE_DISCONNECT_REPLY',
 			'CLOSE_REQ','CLOSE_REPLY','FLUSH_REQ','FLUSH_REPLY','ECHO_REQ','ECHO_REPLY','CANCEL_REQ','LOGOFF_REQ',
 			'LOGOFF_REPLY','ERROR_REPLY', 'CloseFlag', 'WRITE_REPLY', 'WRITE_REQ', 'IOCTL_REQ', 'IOCTL_REPLY',
-			'IOCTLREQFlags', 'CtlCode']
+			'IOCTLREQFlags', 'CtlCode', 'SET_INFO_REQ', 'SET_INFO_REPLY', 'CreateReplyFlag',
+			'CREATE_CONTEXT', 'CREATE_TIMEWARP_TOKEN', 'SetInfoType']
 			
 			
 			

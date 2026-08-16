@@ -134,7 +134,10 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			_, err = await self.connection.login()
 			if err is not None:
 				raise err
-			self.is_anon = self.connection.gssapi.is_guest()
+			self.is_anon = (
+				self.connection.is_anonymous
+				or self.connection.is_guest
+			)
 			self.machine = SMBMachine(self.connection)
 			if self.no_dce is False:
 				# listing shares for better user experience
