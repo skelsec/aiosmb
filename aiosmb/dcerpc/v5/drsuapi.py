@@ -18,8 +18,6 @@
 #   Helper functions start with "h"<name of the call>.
 #   There are test cases for them too. 
 #
-from __future__ import division
-from __future__ import print_function
 from builtins import bytes
 from unicrypto import hashlib
 from struct import pack

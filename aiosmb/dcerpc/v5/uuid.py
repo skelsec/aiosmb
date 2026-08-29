@@ -11,8 +11,6 @@
 # Author:
 #   Javier Kohen (jkohen)
 #
-from __future__ import absolute_import
-from __future__ import print_function
 import re
 
 from random import randrange

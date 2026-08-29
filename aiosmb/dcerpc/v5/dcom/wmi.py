@@ -10,7 +10,6 @@
 #   - IEnumWbemClassObject for result enumeration
 #
 
-from __future__ import division
 from struct import unpack, calcsize, pack
 from functools import partial
 from collections import OrderedDict

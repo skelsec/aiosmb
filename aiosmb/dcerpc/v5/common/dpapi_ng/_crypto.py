@@ -2,8 +2,6 @@
 # MIT License (see LICENSE or https://opensource.org/licenses/MIT)
 
 from __future__ import annotations
-from __future__ import division
-from __future__ import print_function
 
 import uuid
 import os
