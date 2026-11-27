@@ -850,6 +850,12 @@ class SMBConnection:
 		if mechanism == ntlm:
 			# NTLM target names omit the realm required by the Kerberos SPN parser.
 			return 'cifs/%s' % self.target.get_hostname_or_ip()
+		if mechanism in ('MS KRB5 - Microsoft Kerberos 5', 'KRB5 - Kerberos 5') and self.target.hostname is None:
+			raise SMBAuthenticationFailed(
+				'Kerberos authentication requires the server hostname to build the SPN. '
+				'Put the hostname in the URL host and the IP in the "serverip" parameter, e.g. '
+				'smb2+kerberos-password://DOMAIN\\user:pass@server.domain.local/?serverip=10.0.0.1&dc=10.0.0.2'
+			)
 		return self.target.to_target_string()
 
 	async def session_setup(self, fake_auth: bool = False) -> Tuple[bool, Optional[Exception]]:
