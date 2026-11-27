@@ -11,6 +11,7 @@ from aiosmb.commons.connection.factory import SMBConnectionFactory
 from aiosmb.commons.interfaces.directory import SMBDirectory
 from aiosmb.commons.interfaces.file import SMBFile
 from aiosmb.commons.interfaces.machine import SMBMachine
+from aiosmb.commons.interfaces.share import SMBShare
 from aiosmb.server.server import SMBServer, SMBServerSettings
 
 
@@ -112,6 +113,20 @@ async def test_production_client_crud_and_srvsvc(
             assert error is None
             listed.append((entry.name, entry_type))
         assert ("production.bin", "file") in listed
+
+        share_root = SMBShare(
+            name="Data",
+            fullpath=r"\\127.0.0.1\Data",
+        )
+        connected, error = await share_root.connect(connection)
+        assert connected is True and error is None
+        share_listed = []
+        async for entry, entry_type, error in share_root.subdirs[""].list_gen(
+            connection
+        ):
+            assert error is None
+            share_listed.append((entry.name, entry_type))
+        assert ("production.bin", "file") in share_listed
 
         made, error = await SMBDirectory.create_remote(
             connection, r"\Data\created"

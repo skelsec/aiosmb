@@ -27,6 +27,15 @@ from tests.support.scripted_smb import ScriptedSMBTransport, connection_reader
 from tests.support.smb_connection import make_connection, make_reply, make_request
 
 
+def _signed_echo_reply(connection, message_id: int, session_key: bytes) -> bytes:
+    reply = make_reply(message_id, ECHO_REPLY())
+    previous_key = connection.SessionKey
+    connection.SessionKey = session_key
+    connection.sign_message(reply)
+    connection.SessionKey = previous_key
+    return reply.to_bytes()
+
+
 pytestmark = [pytest.mark.fake_peer, pytest.mark.asyncio]
 TIMEOUT = 0.5
 
@@ -231,11 +240,76 @@ async def test_plain_error_packet_is_dispatched_to_waiter() -> None:
         assert raw == wire
 
 
+async def test_signed_echo_is_verified_when_signing_is_required() -> None:
+    real_key = b"\x5a" * 16
+    connection = make_connection()
+    connection.SessionKey = real_key
+    connection.signing_required = True
+    transport = ScriptedSMBTransport()
+    message_id = 43
+    connection.OutstandingResponsesEvent[message_id] = asyncio.Event()
+
+    async with connection_reader(connection, transport):
+        await transport.feed(_signed_echo_reply(connection, message_id, real_key))
+        reply, raw, error = await asyncio.wait_for(
+            connection.recvSMB(message_id), timeout=TIMEOUT
+        )
+
+    assert error is None
+    assert reply.header.MessageId == message_id
+    assert raw[48:64] != b"\x00" * 16
+
+
+async def test_signed_echo_with_dummy_relay_key_is_rejected() -> None:
+    connection = make_connection()
+    connection.SessionKey = b"\x00" * 16
+    connection.signing_required = True
+    transport = ScriptedSMBTransport()
+    message_id = 47
+    connection.OutstandingResponsesEvent[message_id] = asyncio.Event()
+
+    async with connection_reader(connection, transport) as reader:
+        await transport.feed(
+            _signed_echo_reply(connection, message_id, session_key=b"\x5a" * 16)
+        )
+        message, raw, error = await asyncio.wait_for(
+            connection.recvSMB(message_id), timeout=TIMEOUT
+        )
+        await asyncio.wait_for(reader, timeout=TIMEOUT)
+
+    assert message is None
+    assert raw is None
+    assert str(error) == "Connection closed"
+
+
+async def test_nosign_accepts_signed_echo_with_dummy_relay_key() -> None:
+    connection = make_connection(nosign=True)
+    connection.SessionKey = b"\x00" * 16
+    connection.signing_required = False
+    transport = ScriptedSMBTransport()
+    message_id = 53
+    connection.OutstandingResponsesEvent[message_id] = asyncio.Event()
+
+    async with connection_reader(connection, transport):
+        await transport.feed(
+            _signed_echo_reply(connection, message_id, session_key=b"\x5a" * 16)
+        )
+        reply, raw, error = await asyncio.wait_for(
+            connection.recvSMB(message_id), timeout=TIMEOUT
+        )
+
+    assert error is None
+    assert reply.header.MessageId == message_id
+    assert reply.header.Flags & SMB2HeaderFlag.SMB2_FLAGS_SIGNED
+    assert raw[48:64] != b"\x00" * 16
+
+
 async def test_signed_session_setup_is_deferred_until_key_derivation() -> None:
     connection = make_connection(
         status=SMBConnectionStatus.SESSIONSETUP,
         dialect=NegotiateDialects.SMB311,
     )
+    connection.signing_required = True
     transport = ScriptedSMBTransport()
     message_id = 41
     body = SESSION_SETUP_REPLY()

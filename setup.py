@@ -61,18 +61,20 @@ setup(
 	],
 	entry_points={
 		'console_scripts': [
-			'asmbclient = aiosmb.examples.smbclient:main',
-			'asmbshareenum = aiosmb.examples.smbshareenum:main',
-			'asmbgetfile = aiosmb.examples.smbgetfile:main',
-			'asmbcertreq = aiosmb.examples.smbcertreq:main',
-			'asmbscanner = aiosmb.examples.scanners.__main__:main',
-			# new names
+			# Canonical command names
 			'aiosmb-server = aiosmb.examples.smbserver:main',
 			'aiosmb-client = aiosmb.examples.smbclient:main',
 			'aiosmb-shareenum = aiosmb.examples.smbshareenum:main',
 			'aiosmb-getfile = aiosmb.examples.smbgetfile:main',
 			'aiosmb-certreq = aiosmb.examples.smbcertreq:main',
+			'aiosmb-cainfo = aiosmb.examples.smbcainfo:main',
 			'aiosmb-scanner = aiosmb.examples.scanners.__main__:main',
+			# Backward-compatible command names
+			'asmbclient = aiosmb.examples.smbclient:main',
+			'asmbshareenum = aiosmb.examples.smbshareenum:main',
+			'asmbgetfile = aiosmb.examples.smbgetfile:main',
+			'asmbcertreq = aiosmb.examples.smbcertreq:main',
+			'asmbscanner = aiosmb.examples.scanners.__main__:main',
 		],
 
 	}

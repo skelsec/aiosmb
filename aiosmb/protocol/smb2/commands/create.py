@@ -122,17 +122,21 @@ class CREATE_REQ:
 		name = b''
 		if self.Name is not None:
 			name = self.Name.encode('utf-16-le')
+		buffer_offset = SMB2_HEADER_SIZE + CREATE_REQUEST_FIXED_SIZE
 		if name:
-			self.NameOffset = SMB2_HEADER_SIZE + CREATE_REQUEST_FIXED_SIZE
+			self.NameOffset = buffer_offset
 			self.NameLength = len(name)
 			payload.extend(name)
 		else:
-			self.NameOffset = 0
+			# Windows rejects NameOffset=0 for a share-root open
+			# (empty name, no create contexts) with STATUS_INVALID_PARAMETER.
+			# Point NameOffset at the Buffer even when NameLength is 0.
+			self.NameOffset = buffer_offset
 			self.NameLength = 0
 
 		contexts = self.CreateContext or []
 		if contexts:
-			context_offset = SMB2_HEADER_SIZE + CREATE_REQUEST_FIXED_SIZE + len(payload)
+			context_offset = buffer_offset + len(payload)
 			padding = (-context_offset) % 8
 			payload.extend(b'\x00' * padding)
 			context_offset += padding
@@ -140,6 +144,9 @@ class CREATE_REQ:
 			self.CreateContextsOffset = context_offset
 			self.CreateContextsLength = len(context_data)
 			payload.extend(context_data)
+			if not name:
+				# Do not claim the context list is also the file name.
+				self.NameOffset = 0
 		else:
 			self.CreateContextsOffset = 0
 			self.CreateContextsLength = 0
@@ -163,7 +170,8 @@ class CREATE_REQ:
 		t += self.CreateContextsLength.to_bytes(4, byteorder='little', signed = False)
 		t += self.Buffer
 		if not contexts:
-			# Preserve the one-byte Buffer member used by existing callers.
+			# StructureSize 57 requires a one-byte Buffer. Windows
+			# rejects a 56-byte CREATE body with STATUS_INVALID_PARAMETER.
 			t += b'\x00'
 		return t
 

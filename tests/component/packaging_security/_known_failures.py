@@ -26,11 +26,19 @@ def load_registry(path: Path) -> Mapping[str, Any]:
     return registry
 
 
-def active_entries(registry: Mapping[str, Any]) -> List[Mapping[str, Any]]:
+def registry_entries(registry: Mapping[str, Any]) -> List[Mapping[str, Any]]:
     entries = registry.get("known_failures")
     if not isinstance(entries, list):
         raise AssertionError("known_failures must be a list")
     return entries
+
+
+def active_entries(registry: Mapping[str, Any]) -> List[Mapping[str, Any]]:
+    return [
+        entry
+        for entry in registry_entries(registry)
+        if entry.get("status") != "resolved"
+    ]
 
 
 def parse_canonical_test(repository_root: Path, nodeid: str) -> CanonicalTest:

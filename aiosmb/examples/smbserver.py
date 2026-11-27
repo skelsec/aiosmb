@@ -10,6 +10,7 @@ from typing import Dict
 from asysocks.unicomm.common.target import UniProto, UniTarget
 
 from aiosmb import logger as aiosmb_logger
+from aiosmb.examples._cli import add_verbosity, make_parser
 from aiosmb.server.filesystem import ShareConfig
 from aiosmb.server.server import SMBServer, SMBServerSettings, TRACE_LEVEL
 
@@ -59,34 +60,46 @@ def collect_shares(writable, read_only):
     return shares
 
 
-def build_parser():
-    parser = argparse.ArgumentParser(
-        prog="aiosmb-server",
-        description="Serve local directories over SMB 2.0.2",
+def build_parser(prog="aiosmb-server"):
+    parser = make_parser(
+        "Serve local directories over SMB 2.0.2",
+        prog=prog,
+        epilog=(
+            "Examples:\n"
+            "  Anonymous read-only share:\n"
+            "    aiosmb-server --read-only-share Public=/srv/public\n\n"
+            "  Authenticated writable share with signing:\n"
+            "    aiosmb-server --share Data=/srv/data --username alice "
+            "--password PASSWORD --domain LAB --require-signing\n\n"
+            "Repeat --share and --read-only-share to expose multiple roots."
+        ),
     )
-    parser.add_argument(
+    listener = parser.add_argument_group("listener")
+    listener.add_argument(
         "--host",
         default="0.0.0.0",
-        help="address to listen on (default: %(default)s)",
+        help="address on which to accept SMB connections",
     )
-    parser.add_argument(
+    listener.add_argument(
         "--port",
         type=_port,
         default=445,
-        help="TCP port to listen on (default: %(default)s)",
+        help="TCP port on which to accept SMB connections",
     )
-    parser.add_argument(
+
+    authentication = parser.add_argument_group("authentication")
+    authentication.add_argument(
         "-u",
         "--username",
         help="NTLM account name; omit all credentials for anonymous access",
     )
-    parser.add_argument(
+    authentication.add_argument(
         "-d",
         "--domain",
         default="",
-        help="NTLM domain (default: empty)",
+        help="NTLM domain; empty means a local account",
     )
-    credential = parser.add_mutually_exclusive_group()
+    credential = authentication.add_mutually_exclusive_group()
     credential.add_argument(
         "-p",
         "--password",
@@ -96,25 +109,12 @@ def build_parser():
         "--nt-hash",
         help="32-character hexadecimal NT hash",
     )
-    parser.add_argument(
-        "-s",
-        "--share",
-        action="append",
-        metavar="NAME=PATH",
-        help="writable disk share; repeat for multiple shares",
-    )
-    parser.add_argument(
-        "--read-only-share",
-        action="append",
-        metavar="NAME=PATH",
-        help="read-only disk share; repeat for multiple shares",
-    )
-    parser.add_argument(
+    authentication.add_argument(
         "--require-signing",
         action="store_true",
         help="reject unsigned authenticated SMB requests",
     )
-    parser.add_argument(
+    authentication.add_argument(
         "--disable-ess",
         "--downgrade-ess",
         dest="disable_ess",
@@ -124,23 +124,36 @@ def build_parser():
             "does not select NTLMv1 versus NTLMv2"
         ),
     )
-    parser.add_argument(
+
+    shares = parser.add_argument_group("shares")
+    shares.add_argument(
+        "-s",
+        "--share",
+        action="append",
+        metavar="NAME=PATH",
+        help="writable disk share; repeat for multiple shares",
+    )
+    shares.add_argument(
+        "--read-only-share",
+        action="append",
+        metavar="NAME=PATH",
+        help="read-only disk share; repeat for multiple shares",
+    )
+
+    identity = parser.add_argument_group("server identity")
+    identity.add_argument(
         "--server-name",
         default="AIOSMB",
-        help="name returned by srvsvc (default: %(default)s)",
+        help="server name returned by the srvsvc RPC service",
     )
-    parser.add_argument(
+    identity.add_argument(
         "--server-comment",
         default="aiosmb SMB server",
-        help="comment returned by srvsvc",
+        help="server comment returned by the srvsvc RPC service",
     )
-    parser.add_argument(
-        "-v",
-        "--verbose",
-        action="count",
-        default=0,
-        help="increase diagnostic logging; use twice for raw packet dumps",
-    )
+
+    diagnostics = parser.add_argument_group("diagnostics")
+    add_verbosity(diagnostics)
     return parser
 
 
@@ -153,6 +166,7 @@ def settings_from_args(args):
             "--username requires --password or --nt-hash; "
             "omit all credentials for anonymous access"
         )
+    shares = collect_shares(args.share, args.read_only_share)
 
     if args.username is None:
         if args.require_signing:
@@ -183,7 +197,7 @@ def settings_from_args(args):
             disable_ess=args.disable_ess,
         )
 
-    settings.shares = collect_shares(args.share, args.read_only_share)
+    settings.shares = shares
     settings.RequireSigning = args.require_signing
     settings.ServerName = args.server_name
     settings.ServerComment = args.server_comment

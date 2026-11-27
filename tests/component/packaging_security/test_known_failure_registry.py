@@ -12,6 +12,7 @@ from ._known_failures import (
     load_registry,
     parse_canonical_test,
     referenced_ids,
+    registry_entries,
     relationship_graph,
     strict_xfail_ids,
 )
@@ -26,7 +27,7 @@ TEST_ROOT = REPOSITORY_ROOT / "tests"
 
 def test_registry_entries_match_declared_schema_values() -> None:
     registry = load_registry(REGISTRY_PATH)
-    entries = active_entries(registry)
+    entries = registry_entries(registry)
     schema = registry["schema"]
     identifier_pattern = re.compile(schema["id_pattern"])
     statuses = set(schema["status_values"])
@@ -43,7 +44,7 @@ def test_registry_entries_match_declared_schema_values() -> None:
 
 def test_registry_entries_are_ordered_unique_and_structurally_complete() -> None:
     registry = load_registry(REGISTRY_PATH)
-    entries = active_entries(registry)
+    entries = registry_entries(registry)
     required = set(registry["schema"]["entry_required"])
     ids = [entry["id"] for entry in entries]
 
@@ -64,7 +65,7 @@ def test_registry_entries_are_ordered_unique_and_structurally_complete() -> None
 
 
 def test_registry_blocker_links_exist_are_reciprocal_and_acyclic() -> None:
-    entries = active_entries(load_registry(REGISTRY_PATH))
+    entries = registry_entries(load_registry(REGISTRY_PATH))
     by_id = {entry["id"]: entry for entry in entries}
 
     for entry in entries:

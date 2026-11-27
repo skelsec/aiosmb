@@ -29,6 +29,26 @@ markers = [
     "capability(name): tests requiring one or more named target capabilities",
 ]
 
+[tool.mypy]
+warn_unused_configs = true
+# Third-party stubs are not installed and most of aiosmb is not yet typed, so
+# stay lenient globally and tighten typing module-by-module via overrides.
+ignore_missing_imports = true
+follow_imports = "silent"
+
+# Typed modules are enforced here; expand this list as more files get annotations.
+# warn_return_any stays off: most callees are still untyped (Any), so it would
+# only produce noise until the wider stack is typed.
+[[tool.mypy.overrides]]
+module = [
+    "aiosmb.commons.interfaces.machine",
+    "aiosmb.connection",
+]
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+no_implicit_optional = true
+
 [tool.coverage.run]
 branch = true
 relative_files = true

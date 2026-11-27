@@ -10,17 +10,21 @@ from pathlib import Path
 
 import pytest
 import yaml
-from packaging.requirements import Requirement
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 EXPECTED_ENTRY_POINTS = {
-    "asmbclient": "aiosmb.examples.smbclient:main",
-    "asmbshareenum": "aiosmb.examples.smbshareenum:main",
-    "asmbgetfile": "aiosmb.examples.smbgetfile:main",
-    "asmbcertreq": "aiosmb.examples.smbcertreq:main",
-    "asmbscanner": "aiosmb.examples.scanners.__main__:main",
+    "aiosmb-certreq": "aiosmb.examples.smbcertreq:main",
+    "aiosmb-client": "aiosmb.examples.smbclient:main",
+    "aiosmb-getfile": "aiosmb.examples.smbgetfile:main",
+    "aiosmb-scanner": "aiosmb.examples.scanners.__main__:main",
     "aiosmb-server": "aiosmb.examples.smbserver:main",
+    "aiosmb-shareenum": "aiosmb.examples.smbshareenum:main",
+    "asmbcertreq": "aiosmb.examples.smbcertreq:main",
+    "asmbclient": "aiosmb.examples.smbclient:main",
+    "asmbgetfile": "aiosmb.examples.smbgetfile:main",
+    "asmbscanner": "aiosmb.examples.scanners.__main__:main",
+    "asmbshareenum": "aiosmb.examples.smbshareenum:main",
 }
 EXPECTED_MARKERS = {
     "unit",
@@ -79,21 +83,15 @@ def test_console_entry_point_loads(name: str, target: str) -> None:
 
     assert name in entry_points
     assert entry_points[name].value == target
-    if name == "asmbcertreq":
-        pytest.skip("blocked by KF-0002: msldap is not a declared dependency")
     assert callable(entry_points[name].load())
 
 
 @pytest.mark.unit
-@pytest.mark.xfail(
-    strict=True,
-    reason="KF-0002: asmbcertreq imports the undeclared msldap dependency",
-)
-def test_asmbcertreq_declares_msldap_runtime_dependency() -> None:
-    requirements = metadata.distribution("aiosmb").requires or []
-    requirement_names = {Requirement(value).name.lower() for value in requirements}
+def test_asmbcertreq_has_no_undeclared_msldap_dependency() -> None:
+    source_path = REPOSITORY_ROOT / "aiosmb" / "examples" / "smbcertreq.py"
+    source = source_path.read_text(encoding="utf-8")
 
-    assert "msldap" in requirement_names
+    assert "msldap" not in source
 
 
 @pytest.mark.unit

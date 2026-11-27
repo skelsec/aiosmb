@@ -54,10 +54,6 @@ def test_access_mask_composition_and_membership():
     assert FileAccessMask(0x00000200).value == 0x00000200
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="KF-0302: DTYP ACCESS_MASK.GENERIC_WRITE has the wrong bit value",
-)
 def test_dtyp_generic_write_uses_standard_high_bit():
     assert ACCESS_MASK.GENERIC_WRITE.value == 0x40000000
 

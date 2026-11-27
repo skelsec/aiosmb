@@ -182,6 +182,42 @@ async def test_file_crud_rename_truncate_and_delete(tmp_path: Path) -> None:
     assert not (tmp_path / "renamed.bin").exists()
 
 
+async def test_share_root_create_and_query_directory(tmp_path: Path) -> None:
+    (tmp_path / "root.txt").write_text("share-root", encoding="utf-8")
+    connection, transport, _ = make_connection({"data": tmp_path})
+    tree_id = await connect_tree(connection, transport, r"\\server\data")
+    root = await send(
+        connection,
+        transport,
+        create_request(
+            "",
+            CreateDisposition.FILE_OPEN,
+            CreateOptions.FILE_DIRECTORY_FILE,
+        ),
+        SMB2Command.CREATE,
+        tree_id,
+        19,
+    )
+    assert root.header.Status == NTStatus.SUCCESS
+
+    query = QUERY_DIRECTORY_REQ()
+    query.FileInformationClass = FileInfoClass.FileFullDirectoryInformation
+    query.Flags = QueryDirectoryFlag.SMB2_RESTART_SCANS
+    query.FileIndex = 0
+    query.FileId = root.command.FileId
+    query.FileName = "*"
+    query.OutputBufferLength = 4096
+    listed = await send(
+        connection,
+        transport,
+        query,
+        SMB2Command.QUERY_DIRECTORY,
+        tree_id,
+        20,
+    )
+    assert "root.txt".encode("utf-16-le") in listed.command.Data
+
+
 async def test_directory_create_enumerate_and_remove(tmp_path: Path) -> None:
     connection, transport, _ = make_connection({"data": tmp_path})
     tree_id = await connect_tree(connection, transport, r"\\server\data")

@@ -201,80 +201,68 @@ features, encryption, compression, leases/oplocks, durable handles,
 multichannel, notifications, byte-range locks, NDR64, and RPC-level
 authentication/signing/sealing are not implemented.
 
-### Proxy
-Supports Socks4 and Socks5 natively. Socks5 currently not supporting authentication.  
-Bear in mind, that proxy support doesnt always play well with all auth methods, see this table below.
+# Console commands
 
-|          | SOCKS4                 | SOCKS4A | SOCKS5               |
-|----------|------------------------|---------|----------------------|
-| NTLM     | Y                      | Y       | Y                    |
-| Kerberos | N (incompatible)       | Y       | Y                    |
-| SSPI     | Y (only local users)   | Y (only local users)      | Y (only local users) |
-| NEGOEX   | Y                      | Y       | Y                    |
+The canonical installed commands are:
 
+- `aiosmb-client`: interactive client and batch command runner
+- `aiosmb-shareenum`: recursive share, directory, and file enumeration
+- `aiosmb-getfile`: single-file downloader
+- `aiosmb-certreq`: certificate enrollment through ICPR RPC
+- `aiosmb-cainfo`: read-only AD CS certificate authority configuration audit
+- `aiosmb-scanner`: multi-target discovery and security checks
+- `aiosmb-server`: local SMB 2.0.2 file server
 
-# Connection url
-I managed to condense all information needed to specify an SMB connection into an URL format.  
-It looks like this:  
-  
-`dialect-network+authmethod://user:secret@target:port/?param1=value1&param2=value2`  
-  
-`dialect` fomat:  `smbX/smbXXX`  
-Where `version`: `2` for any `SBM2` `3` for any `SMB3` dialects, or specific 3 character code like `200` or `201` or `300`...  
-  
-`network` format: `tcp` or `quic` (leave empty for TCP)  
+The historical `asmbclient`, `asmbshareenum`, `asmbgetfile`, `asmbcertreq`, and
+`asmbscanner` names remain available as compatibility aliases. Every command
+supports `--help` and `--version`. Commands accepting a connection URL also
+support `--help-url`, which documents authentication types and all SMB,
+Kerberos, NTLM, transport, and proxy query parameters.
 
-`authmethod` format: `auth-type`  
-Where `auth`: `ntlm` or `kerberos` or `sspi` or `negext`
-Where `type`: `password` or `nt` or `aes` or `rc4` or `kirbi` ...  
-For native NTLM anonymous access, use `ntlm-none` without user information or
-a secret. `none` is not a Kerberos authentication type.
-  
-`user` format: `DOMAIN\username`  
-Where `DOMAIN`: your domain  
-Where `username`: your username  
-  
-`secret` format: Depends on the `authmethod`'s `type` value  
-`target` format: IP address or hostname of the target  
-`port` format: integer describing the port  
+# Connection URL
 
+Connection URLs use this form:
 
-### Example
-The following parameters are used (the user victim is trying to log in to the domain controller):
-Username: `victim`  
-Domain: `TEST`  
-Passowrd: `Passw0rd!1`  
-DC IP address: `10.10.10.2`  
-DC hostname: `win2019ad`  
-Socks4 proxy serer: `127.0.0.1`
-Socks4 proxy port : `9050`
+```text
+<dialect>[-<transport>]+<auth>://[<domain>\]<user>[:<secret>]@<host>[:<port>][/<path>][?<query>]
+```
 
-#### Example 1 - NTLM with password
-`smb+ntlm-password://TEST\victim:Passw0rd!1@10.10.10.2`
-#### Example 2 - NTLM with NT hash
-`smb+ntlm-nt://TEST\victim:f8963568a1ec62a3161d9d6449baba93@10.10.10.2`
-#### Example 3 - NTLM using the SSPI in Windows
-`smb+sspi-ntlm://10.10.10.2`
-#### Example 4 - KERBEROS with password
-`smb+kerberos-password://TEST\victim:Passw0rd!1@10.10.10.2/?dc=10.10.10.2`
-#### Example 5 - KERBEROS with NT hash
-`smb+kerberos-nt://TEST\victim:f8963568a1ec62a3161d9d6449baba93@win2019ad.test.corp/?dc=10.10.10.2`
-#### Example 6 - KERBEROS with PFX certificate
-`smb2+kerberos-pfx://user.pfx:password@win2019ad.test.corp/?dc=10.10.10.2`
-#### Example 7 - KERBEROS with PEM certificate
-`smb2+kerberos-pem://cert.pem:key.pem@win2019ad.test.corp/?dc=10.10.10.2`
-#### Example 7 - KERBEROS with certificate from windows certificate store
-`smb2+kerberos-pem://cert.pem:key.pem@win2019ad.test.corp/?dc=10.10.10.2`
-#### Example 8 - KERBEROS using the SSPI in Windows
-`smb+sspi-kerberos://win2019ad.test.corp`
-#### Example 9 - Socks proxy and NTLM with password
-`smb+ntlm-password://TEST\victim:Passw0rd!1@10.10.10.2/?proxyhost=127.0.0.1&proxyport=9050`
-#### Example 10 - NTLM with password with timeout higher than normal (60s)
-`smb+ntlm-password://TEST\victim:Passw0rd!1@10.10.10.2/?timeout=60`
-#### Example 11 - Negoex certificate auth using PFX file. (eg. Azure P2P auth)
-`smb+negoex-pfx://certificate.pfx:certpass@10.10.10.2/`
-#### Example 12 - Negoex certstore auth using certificate from the current user's certstore (Windows only). (eg. Azure P2P auth)
-`smb+negoex-certstore://<subject CN of the certificate to use>@10.10.10.2/`
+Dialects include `smb`, `smb2`, `smb3`, and exact values such as `smb311`.
+TCP is the default transport; append `-quic` for QUIC. Common authentication
+forms include `ntlm-password`, `ntlm-pwprompt`, `ntlm-nt`, `ntlm-none`,
+`kerberos-password`, `kerberos-rc4`, `kerberos-aes`, `kerberos-ccache`,
+`kerberos-keytab`, `kerberos-kirbi`, `sspi-ntlm`, and `sspi-kerberos`.
+
+For native NTLM anonymous access, use `ntlm-none` without a user or secret.
+Quote URLs in the shell and percent-encode reserved characters; `%5C` is the
+domain/user backslash.
+
+Useful query-parameter families include:
+
+- Target: `timeout`, `serverip`, `dc`, `dns`, `privport`
+- SMB: `fragment`, `compress`, `compress_min`, `compress_algorithms`
+- NTLM: `ntlmnosig`, `ntlmdisableess`, `ntlmworkstation`, `ntlmdomain`,
+  `ntlmflags`, and the `ntlmversion*` fields
+- Kerberos: `altname`, `altdomain`, `etype`, `dcc`, `dnsc`, `realmc`,
+  `certdata`, `keydata`
+- TLS/QUIC: `sslca`, `sslcert`, `sslkey`, `sslpassword`, `sslverify`
+- Proxy: `proxytype`, `proxyhost`, `proxyport`, `proxyuser`, `proxypass`,
+  `proxytimeout`; use the `proxy1...`, `proxy2...` prefixes for chained proxies
+
+Run any URL-based command with `--help-url` for descriptions and examples:
+
+```bash
+aiosmb-client --help-url
+```
+
+Examples:
+
+```text
+smb2+ntlm-none://files.example
+smb3+ntlm-pwprompt://LAB%5Calice@files.example
+smb3+kerberos-password://LAB.EXAMPLE%5Calice:PASSWORD@files.example?dc=10.0.0.10
+smb3+ntlm-password://LAB%5Calice:PASSWORD@files.example?proxytype=socks5&proxyhost=127.0.0.1&proxyport=1080
+```
 
 # TODO
 - DCERPC: in progress, lot of features working already

@@ -170,7 +170,7 @@ class _FakeSamr:
         return "domain-handle", None
 
     async def list_domain_users(
-        self, handle: str
+        self, handle: str, user_type: int = None
     ) -> AsyncIterator[Tuple[str, str, None]]:
         yield "alice", "S-1-5-21-100-1100", None
 

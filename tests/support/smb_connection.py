@@ -19,6 +19,7 @@ def make_connection(
     status: SMBConnectionStatus = SMBConnectionStatus.RUNNING,
     dialect: NegotiateDialects = NegotiateDialects.SMB210,
     advertise_encryption: bool = True,
+    nosign: bool = False,
 ) -> SMBConnection:
     target = SMBTarget(
         ip="127.0.0.1",
@@ -31,6 +32,7 @@ def make_connection(
         None,
         target,
         preserve_gssapi=False,
+        nosign=nosign,
         advertise_encryption=advertise_encryption,
     )
     connection.status = status

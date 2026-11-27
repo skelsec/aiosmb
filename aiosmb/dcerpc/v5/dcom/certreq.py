@@ -20,8 +20,10 @@ from aiosmb import logger
 from aiosmb.dcerpc.v5.dcom.remunknown import IRemUnknown
 from aiosmb.dcerpc.v5.dcom.interface import INTERFACE
 from aiosmb.dcerpc.v5.dcom.dcomrt import DCOMCALL, DCOMANSWER
-from aiosmb.dcerpc.v5.ndr import NDRSTRUCT, NDRPOINTER, NDRUniConformantArray
-from aiosmb.dcerpc.v5.dtypes import DWORD, LPWSTR, ULONG, LONG
+from aiosmb.dcerpc.v5.icpr import CERTTRANSBLOB
+from aiosmb.dcerpc.v5.rpcrt import DCERPCException
+from aiosmb.dcerpc.v5 import hresult_errors, system_errors
+from aiosmb.dcerpc.v5.dtypes import DWORD, LPWSTR, ULONG, LONG, NULL
 from aiosmb.dcerpc.v5.uuid import string_to_bin, uuidtup_to_bin
 
 
@@ -67,34 +69,24 @@ CR_IN_CMC = 0x00000400
 CR_IN_RPC = 0x00020000
 
 
+class DCERPCSessionError(DCERPCException):
+    def __init__(self, error_string=None, error_code=None, packet=None):
+        DCERPCException.__init__(self, error_string, error_code, packet)
+
+    def __str__(self):
+        if self.error_code in hresult_errors.ERROR_MESSAGES:
+            error_msg_short = hresult_errors.ERROR_MESSAGES[self.error_code][0]
+            error_msg_verbose = hresult_errors.ERROR_MESSAGES[self.error_code][1]
+            return 'CertRequest SessionError: code: 0x%x - %s - %s' % (self.error_code, error_msg_short, error_msg_verbose)
+        if self.error_code & 0xFFFF0000 == 0x80070000 and self.error_code & 0xFFFF in system_errors.ERROR_MESSAGES:
+            error_msg_short, error_msg_verbose = system_errors.ERROR_MESSAGES[self.error_code & 0xFFFF]
+            return 'CertRequest SessionError: code: 0x%x - %s - %s' % (self.error_code, error_msg_short, error_msg_verbose)
+        return 'CertRequest SessionError: unknown error code: 0x%x' % self.error_code
+
+
 # =========================================================================
 # Protocol Structures for MS-WCCE
 # =========================================================================
-
-class BYTE_ARRAY(NDRUniConformantArray):
-    """Conformant array of bytes"""
-    item = 'c'
-
-
-class CERTTRANSBLOB(NDRSTRUCT):
-    """
-    Certificate transport blob structure.
-    
-    Defined in [MS-WCCE] section 2.2.2.2
-    Used to transport certificate data and request attributes.
-    """
-    structure = (
-        ('cb', ULONG),      # Size of the pb field in bytes
-        ('pb', BYTE_ARRAY), # Data bytes
-    )
-
-
-class PCERTTRANSBLOB(NDRPOINTER):
-    """Pointer to CERTTRANSBLOB"""
-    referent = (
-        ('Data', CERTTRANSBLOB),
-    )
-
 
 class CertServerRequestD(DCOMCALL):
     """
@@ -177,14 +169,14 @@ class ICertRequestD(IRemUnknown):
     
     Supports async context manager for automatic resource cleanup:
         async with ICertRequestD(iInterface) as cert_req:
-            result, err = await cert_req.request(...)
+            result, err = await cert_req.request_certificate(...)
         # RemRelease() called automatically
     
     Usage:
         # After DCOM activation with CLSID_ICertRequest
         async with ICertRequestD(iInterface) as cert_req:
             # Submit a certificate request
-            result, err = await cert_req.request(
+            result, err = await cert_req.request_certificate(
                 ca_name='DC01\\MyCA',
                 csr_der=csr_bytes,
                 attributes=['CertificateTemplate:User']
@@ -235,7 +227,7 @@ class ICertRequestD(IRemUnknown):
                 pass
         return False
     
-    async def request(
+    async def request_certificate(
         self,
         ca_name: str,
         csr_der: bytes,
@@ -269,20 +261,20 @@ class ICertRequestD(IRemUnknown):
             # Build request structure
             req = CertServerRequestD()
             req['dwFlags'] = flags
-            req['pwszAuthority'] = ca_name + '\x00'
+            req['pwszAuthority'] = ca_name.split('\\')[-1] + '\x00'  # the CA wants the bare name, not host\\CA
             req['pdwRequestId'] = 0  # New request
             req['pwszAttributes'] = attributes_str + '\x00' if attributes_str else '\x00'
             
             # Set CSR data
-            req['pctbRequest']['cb'] = len(csr_der)
-            req['pctbRequest']['pb'] = list(csr_der)
+            req['pctbRequest']['cbData'] = len(csr_der)
+            req['pctbRequest']['pbData'] = csr_der
             
             logger.debug(f'Submitting certificate request to CA: {ca_name}')
             logger.debug(f'Attributes: {attributes_str}')
             logger.debug(f'CSR size: {len(csr_der)} bytes')
             
             # Send request
-            resp, err = await self._request(req, IID_ICertRequestD, self.get_ipidRemUnknown())
+            resp, err = await self._request(req, IID_ICertRequestD, self.get_iPid())
             if err is not None:
                 raise err
             
@@ -296,17 +288,17 @@ class ICertRequestD(IRemUnknown):
             certificate_chain = None
             
             if disposition == CR_DISP_ISSUED:
-                cert_data = b''.join(resp['pctbEncodedCert']['pb'])
+                cert_data = b''.join(resp['pctbEncodedCert']['pbData'])
                 if len(cert_data) > 0:
                     certificate = cert_data
                 
-                chain_data = b''.join(resp['pctbCertChain']['pb'])
+                chain_data = b''.join(resp['pctbCertChain']['pbData'])
                 if len(chain_data) > 0:
                     certificate_chain = chain_data
             
             # Extract disposition message
             disposition_message = None
-            msg_data = b''.join(resp['pctbDispositionMessage']['pb'])
+            msg_data = b''.join(resp['pctbDispositionMessage']['pbData'])
             if len(msg_data) > 0:
                 try:
                     disposition_message = msg_data.decode('utf-16-le').rstrip('\x00')
@@ -359,18 +351,19 @@ class ICertRequestD(IRemUnknown):
             # Build request structure - same as request but with existing ID
             req = CertServerRequestD()
             req['dwFlags'] = flags
-            req['pwszAuthority'] = ca_name + '\x00'
+            req['pwszAuthority'] = ca_name.split('\\')[-1] + '\x00'  # the CA wants the bare name, not host\\CA
             req['pdwRequestId'] = request_id
-            req['pwszAttributes'] = '\x00'
-            
-            # Empty CSR for retrieval
-            req['pctbRequest']['cb'] = 0
-            req['pctbRequest']['pb'] = []
+            # Both the attributes and the request must be NULL pointers.
+            # The CA takes a non-NULL request as a new request and an empty
+            # attribute string as an (invalid) certificate serial number.
+            req['pwszAttributes'] = NULL
+            req['pctbRequest']['cbData'] = 0
+            req['pctbRequest']['pbData'] = NULL
             
             logger.debug(f'Retrieving certificate from CA: {ca_name}, Request ID: {request_id}')
             
             # Send request
-            resp, err = await self._request(req, IID_ICertRequestD, self.get_ipidRemUnknown())
+            resp, err = await self._request(req, IID_ICertRequestD, self.get_iPid())
             if err is not None:
                 raise err
             
@@ -383,17 +376,17 @@ class ICertRequestD(IRemUnknown):
             certificate_chain = None
             
             if disposition == CR_DISP_ISSUED:
-                cert_data = b''.join(resp['pctbEncodedCert']['pb'])
+                cert_data = b''.join(resp['pctbEncodedCert']['pbData'])
                 if len(cert_data) > 0:
                     certificate = cert_data
                 
-                chain_data = b''.join(resp['pctbCertChain']['pb'])
+                chain_data = b''.join(resp['pctbCertChain']['pbData'])
                 if len(chain_data) > 0:
                     certificate_chain = chain_data
             
             # Extract disposition message
             disposition_message = None
-            msg_data = b''.join(resp['pctbDispositionMessage']['pb'])
+            msg_data = b''.join(resp['pctbDispositionMessage']['pbData'])
             if len(msg_data) > 0:
                 try:
                     disposition_message = msg_data.decode('utf-16-le').rstrip('\x00')
@@ -432,15 +425,15 @@ class ICertRequestD(IRemUnknown):
         try:
             req = GetCACert()
             req['fchain'] = 1 if get_chain else 0
-            req['pwszAuthority'] = ca_name + '\x00'
+            req['pwszAuthority'] = ca_name.split('\\')[-1] + '\x00'  # the CA wants the bare name, not host\\CA
             
             logger.debug(f'Retrieving CA certificate: {ca_name}')
             
-            resp, err = await self._request(req, IID_ICertRequestD, self.get_ipidRemUnknown())
+            resp, err = await self._request(req, IID_ICertRequestD, self.get_iPid())
             if err is not None:
                 raise err
             
-            cert_data = b''.join(resp['pctbOut']['pb'])
+            cert_data = b''.join(resp['pctbOut']['pbData'])
             
             logger.info(f'Retrieved CA certificate: {len(cert_data)} bytes')
             
@@ -453,8 +446,5 @@ class ICertRequestD(IRemUnknown):
     async def _request(self, req, iid, uuid):
         """
         Internal method to make DCOM requests.
-        
-        Wraps the parent class request() method with proper interface binding.
         """
-        return await super().request(req, iid, uuid)
-
+        return await self.request(req, iid, uuid)

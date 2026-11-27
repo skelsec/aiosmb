@@ -18,7 +18,13 @@ pytestmark = pytest.mark.component
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 EXPECTED_ENTRY_POINTS: Dict[str, str] = {
+    "aiosmb-cainfo": "aiosmb.examples.smbcainfo:main",
+    "aiosmb-certreq": "aiosmb.examples.smbcertreq:main",
+    "aiosmb-client": "aiosmb.examples.smbclient:main",
+    "aiosmb-getfile": "aiosmb.examples.smbgetfile:main",
+    "aiosmb-scanner": "aiosmb.examples.scanners.__main__:main",
     "aiosmb-server": "aiosmb.examples.smbserver:main",
+    "aiosmb-shareenum": "aiosmb.examples.smbshareenum:main",
     "asmbcertreq": "aiosmb.examples.smbcertreq:main",
     "asmbclient": "aiosmb.examples.smbclient:main",
     "asmbgetfile": "aiosmb.examples.smbgetfile:main",
@@ -105,8 +111,6 @@ def test_each_declared_console_entry_point_loads(
     }
 
     assert entry_points[name].value == target
-    if name == "asmbcertreq":
-        pytest.skip("blocked by KF-0002: msldap is not a declared dependency")
     assert callable(entry_points[name].load())
 
 

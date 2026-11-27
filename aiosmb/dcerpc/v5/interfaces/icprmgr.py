@@ -61,6 +61,46 @@ class ICPRRPC:
 			return False, e
 	
 	@staticmethod
+	async def from_tcp_relay(relay, ca_ip, auth_level = RPC_C_AUTHN_LEVEL_CONNECT, proxies = None, dc_ip = None, domain = None, open:bool = True, perform_dummy:bool = False):
+		"""
+		Creates an ICPR connection over ncacn_ip_tcp driven by a relayed NTLM
+		authentication context (an asyauth SPNEGO relay object).
+
+		The CA's ICPR endpoint is dynamically assigned, so we first resolve it via
+		EPM on ca_ip:135, then open the RPC connection to the mapped endpoint using
+		the relay as the auth context. Because a relay can only pass tokens through
+		(there is no session key to sign/seal with), the default auth level is
+		CONNECT. This is exactly the path abused by ESC8/ESC11-style relaying when
+		IF_ENFORCEENCRYPTICERTREQUEST is not set on the CA.
+		"""
+		epm = None
+		try:
+			epm = EPM.from_address(ca_ip, proxies = proxies)
+			_, err = await epm.connect()
+			if err is not None:
+				raise err
+
+			constring, err = await epm.map(ICPRRPC().service_uuid)
+			if err is not None:
+				raise err
+
+			target = DCERPCTarget.from_connection_string(constring, proxies = proxies, dc_ip = dc_ip, domain = domain)
+			dcerpc_auth = DCERPCAuth.from_relay(relay)
+			rpc_connection = DCERPC5Connection(dcerpc_auth, target)
+
+			service, err = await ICPRRPC.from_rpcconnection(rpc_connection, auth_level=auth_level, open=open, perform_dummy = perform_dummy)
+			if err is not None:
+				raise err
+
+			return service, None
+		except Exception as e:
+			traceback.print_exc()
+			return None, e
+		finally:
+			if epm is not None:
+				await epm.disconnect()
+
+	@staticmethod
 	async def from_smbconnection(connection:SMBConnection, auth_level = None, open:bool = True, perform_dummy:bool = False):
 		"""
 		Creates the connection to the service using an established SMBConnection.
@@ -122,7 +162,7 @@ class ICPRRPC:
 			
 			data, err = await icpr.hCertServerRequest(
 				self.dce,
-				ca_name, 
+				ca_name.split('\\')[-1], # the CA wants the bare name, not host\CA
 				csr,
 				dwFlags = flags, 
 				pctbAttribs = flattrib, 
@@ -157,7 +197,7 @@ class ICPRRPC:
 		try:
 			data, err = await icpr.hCertServerRequest(
 				self.dce,
-				ca_name, 
+				ca_name.split('\\')[-1], # the CA wants the bare name, not host\CA
 				b'',  # Empty CSR for retrieval
 				dwFlags = flags, 
 				pctbAttribs = "", 

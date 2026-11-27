@@ -7,7 +7,7 @@ import datetime
 import functools
 import os
 import secrets
-from typing import Coroutine
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from aiosmb import logger
 from aiosmb.commons.exceptions import *
@@ -58,20 +58,20 @@ class SMBConnectionStatus(enum.Enum):
 	CLOSED = 'CLOSED'
 	
 class TreeEntry:
-	def __init__(self):
-		self.share_name = None
-		self.tree_id = None
-		self.session_id = None
-		self.number_of_users = None
-		self.is_DFS = None
-		self.is_CA = None
-		self.is_scaleout = None
-		self.encrypt = None
-		self.compress = None
-		self.maximal_access = None
+	def __init__(self) -> None:
+		self.share_name: Optional[str] = None
+		self.tree_id: Optional[int] = None
+		self.session_id: Optional[int] = None
+		self.number_of_users: Optional[int] = None
+		self.is_DFS: Optional[bool] = None
+		self.is_CA: Optional[bool] = None
+		self.is_scaleout: Optional[bool] = None
+		self.encrypt: Optional[bool] = None
+		self.compress: Optional[bool] = None
+		self.maximal_access: Any = None
 		
 	@staticmethod
-	def from_tree_reply(reply, share_name):
+	def from_tree_reply(reply: Any, share_name: str) -> "TreeEntry":
 		te = TreeEntry()
 		te.share_name = share_name
 		te.tree_id = reply.header.TreeId
@@ -86,18 +86,18 @@ class TreeEntry:
 		return te
 	
 class FileHandle:
-	def __init__(self):
-		self.file_id = None
-		self.tree_id = None
-		self.oplock_level = None
-		self.is_durable = None
-		self.is_resilient = None
-		self.last_disconnect_time = None
-		self.file_name = None
+	def __init__(self) -> None:
+		self.file_id: Any = None
+		self.tree_id: Optional[int] = None
+		self.oplock_level: Any = None
+		self.is_durable: Optional[bool] = None
+		self.is_resilient: Optional[bool] = None
+		self.last_disconnect_time: Optional[int] = None
+		self.file_name: Optional[str] = None
 		self.oplock = asyncio.Semaphore(1)
 	
 	@staticmethod	
-	def from_create_reply(reply, tree_id, file_name, oplock_level):
+	def from_create_reply(reply: Any, tree_id: int, file_name: str, oplock_level: Any) -> "FileHandle":
 		fh = FileHandle()
 		fh.file_id = reply.command.FileId
 		fh.tree_id = tree_id
@@ -109,25 +109,25 @@ class FileHandle:
 		return fh
 
 class SMBPendingMsg:
-	def __init__(self, message_id, OutstandingResponses, OutstandingResponsesEvent, timeout = 5000, max_renewal = 100):
+	def __init__(self, message_id: int, OutstandingResponses: Dict[int, Any], OutstandingResponsesEvent: Dict[int, asyncio.Event], timeout: int = 5000, max_renewal: Optional[int] = 100) -> None:
 		self.message_id = message_id
 		self.max_renewal = max_renewal
 		self.timeout = timeout #different operations require different timeouts, even depending on dielacts!!!
 		self.OutstandingResponses = OutstandingResponses
 		self.OutstandingResponsesEvent = OutstandingResponsesEvent
-		self.pending_task = None
+		self.pending_task: Optional[asyncio.Task] = None
 
-	async def __pending_waiter(self):
+	async def __pending_waiter(self) -> None:
 		await asyncio.sleep(5000)
 		await self.__destroy_message(SMBPendingTimeout())
 
-	async def __destroy_message(self, problem):
+	async def __destroy_message(self, problem: Exception) -> None:
 		self.OutstandingResponses[self.message_id] = (None, problem)
 		if self.message_id in self.OutstandingResponsesEvent:
 			self.OutstandingResponsesEvent[self.message_id].set()
 		return
 
-	async def update(self):
+	async def update(self) -> None:
 		#print('PENDING update')
 		#print('PENDING max_renewal %s' % max_renewal)
 		if self.pending_task is not None:
@@ -140,11 +140,11 @@ class SMBPendingMsg:
 		self.pending_task = asyncio.create_task(self.__pending_waiter())
 
 
-	async def run(self):
+	async def run(self) -> None:
 		#print('PENDING RUN')
 		self.pending_task = asyncio.create_task(self.__pending_waiter())
 
-	async def stop(self):
+	async def stop(self) -> None:
 		#print('PENDING STOP')
 		if self.pending_task is not None:
 			self.pending_task.cancel()
@@ -153,18 +153,22 @@ class SMBConnection:
 	"""
 	Connection class for network connectivity and SMB messages management (sending/recieveing/singing/encrypting).
 	"""
+	# preferred_dialects is a dialect *set/dict* at runtime, but SMBTarget types it
+	# as SMBConnectionDialect; keep this Any so `in` / iteration type-check.
+	supported_dialects: Any
+
 	def __init__(
 			self,
-			gssapi,
+			gssapi: Any,
 			target:SMBTarget,
 			preserve_gssapi:bool = True,
 			nosign:bool = False,
 			advertise_encryption:bool = True,
-		):
+		) -> None:
 		self.nosign = nosign
 		self.advertise_encryption = advertise_encryption
 		self.gssapi = gssapi
-		self.original_gssapi = None
+		self.original_gssapi: Any = None
 		if preserve_gssapi is True:
 			self.original_gssapi = copy.deepcopy(gssapi) #preserving a copy of the original
 		
@@ -173,55 +177,55 @@ class SMBConnection:
 		#######DONT CHANGE THIS
 		#use this for smb2 > self.supported_dialects = [NegotiateDialects.WILDCARD, NegotiateDialects.SMB202, NegotiateDialects.SMB210]
 		#self.supported_dialects = [NegotiateDialects.SMB202, NegotiateDialects.SMB210]
-		self.supported_dialects = self.target.preferred_dialects #[NegotiateDialects.WILDCARD, NegotiateDialects.SMB311]
+		self.supported_dialects: Any = self.target.preferred_dialects #[NegotiateDialects.WILDCARD, NegotiateDialects.SMB311]
 		#######
 		
-		self.settings = None
-		self.network_connection = None 
-		self.netbios_transport = None #this class is used by the netbios transport class, keeping it here also maybe you like to go in raw
-		self.incoming_task = None
-		self.keepalive_task = None
+		self.settings: Any = None
+		self.network_connection: Any = None
+		self.netbios_transport: Any = None #this class is used by the netbios transport class, keeping it here also maybe you like to go in raw
+		self.incoming_task: Optional[asyncio.Task] = None
+		self.keepalive_task: Optional[asyncio.Task] = None
 		self.keepalive_timeout = 15
-		self.connection_closed_evt = None
+		self.connection_closed_evt: Optional[asyncio.Event] = None
 		self.login_ok = False
 		# TODO: turn it back on 
 		self.supress_keepalive = False
-		self.activity_at = None
+		self.activity_at: Optional[datetime.datetime] = None
 		
-		self.selected_dialect = None
+		self.selected_dialect: Optional[NegotiateDialects] = None
 		self.signing_required = False
 		self.encryption_required = False
 		self.session_encryption_required = False
 		
 		self.status = SMBConnectionStatus.NEGOTIATING
 		
-		self.OutstandingResponsesEvent = {}
-		self.OutstandingRequests = {}
-		self.OutstandingResponses = {}
+		self.OutstandingResponsesEvent: Dict[int, asyncio.Event] = {}
+		self.OutstandingRequests: Dict[int, Any] = {}
+		self.OutstandingResponses: Dict[int, Any] = {}
 
 		# this is used to prevent overlapping send operations
 		# on the same connection
 		# we're also introducing a lock owner to prevent deadlocks
 		self.send_lock = asyncio.Lock()
-		self._send_lock_owner = None
+		self._send_lock_owner: Optional["asyncio.Task[Any]"] = None
 		self._compression_semaphore = asyncio.Semaphore(1)
 
-		self.pending_table = {}
-		self.messageIdToOplock = {} #dunno?
+		self.pending_table: Dict[int, SMBPendingMsg] = {}
+		self.messageIdToOplock: Dict[int, asyncio.Semaphore] = {} #dunno?
 		
 		#two dicts for the same data, but with different lookup key
-		self.TreeConnectTable_id = {}
-		self.TreeConnectTable_share = {}
+		self.TreeConnectTable_id: Dict[int, TreeEntry] = {}
+		self.TreeConnectTable_share: Dict[str, TreeEntry] = {}
 		
-		self.FileHandleTable = {}
+		self.FileHandleTable: Dict[Any, FileHandle] = {}
 		
 		self.SequenceWindow = 0
 		self.MaxTransactSize = self.target.MaxTransactSize if self.target.MaxTransactSize is not None else 0x100000
 		self.MaxReadSize = self.target.MaxReadSize if self.target.MaxReadSize is not None else 0x100000
 		self.MaxWriteSize = self.target.MaxWriteSize if self.target.MaxWriteSize is not None else 0x100000
-		self.ServerGuid = None
+		self.ServerGuid: Any = None
 		self.RequireSigning = False
-		self.ServerName = None
+		self.ServerName: Optional[str] = None
 		self.ClientGUID = GUID.random()
 
 		#self.Dialect = 0
@@ -237,18 +241,18 @@ class SMBConnection:
 		self.ClientSecurityMode = NegotiateSecurityMode.NONE
 		if nosign is False:
 			self.ClientSecurityMode = NegotiateSecurityMode.SMB2_NEGOTIATE_SIGNING_ENABLED | NegotiateSecurityMode.SMB2_NEGOTIATE_SIGNING_REQUIRED
-		self.ServerSecurityMode = 0
+		self.ServerSecurityMode: Any = 0
 		
 		
 		self.SessionId = 0
 		self.SessionFlags = SessionFlags(0)
 		self.is_anonymous = False
 		self.is_guest = False
-		self.SessionKey = None
-		self.SigningKey      = None
-		self.ApplicationKey  = None
-		self.EncryptionKey   = None
-		self.DecryptionKey   = None
+		self.SessionKey: Optional[bytes] = None
+		self.SigningKey: Optional[bytes]      = None
+		self.ApplicationKey: Optional[bytes]  = None
+		self.EncryptionKey: Optional[bytes]   = None
+		self.DecryptionKey: Optional[bytes]   = None
 
 		
 		### SMB311 global
@@ -258,18 +262,30 @@ class SMBConnection:
 		### SMB311 transport
 		self.PreauthIntegrityHashId = SMB2HashAlgorithm.SHA_512 #the type of the hash function was negotiated , now there is only one type
 		self.PreauthIntegrityHashValue = b'\x00'*64 #The preauthentication integrity hash value that was computed for the exchange of SMB2 NEGOTIATE request and response messages on this connection.
-		self.CompressionId = None #the selected compression
-		self.CipherId = None #
-		self.CompressionIds = None
+		self.CompressionId: Any = None #the selected compression
+		self.CipherId: Any = None #
+		self.CompressionIds: Optional[List[Any]] = None
+		self.server_supported_compression_ids: Optional[List[Any]] = None #populated in advertise-only probes
 		if (
 			self.target.compression and
 			NegotiateDialects.SMB311 not in self.supported_dialects
 		):
 			raise ValueError('SMB compression requires the SMB 3.1.1 dialect')
+		# Advertise-only: offer the compression negotiate context to elicit the
+		# server's capabilities without a working backend and without ever
+		# compressing traffic (used for SMBGhost / CVE-2020-0796 detection).
+		self.compression_advertise_only = False
 		if NegotiateDialects.SMB311 in self.supported_dialects:
 			available_compression_ids = compression_backend.supported_algorithms()
 			requested_compression_ids = self.target.compression_algorithms
-			if not available_compression_ids:
+			if not available_compression_ids and getattr(self.target, 'advertise_compression', False):
+				self.compression_advertise_only = True
+				self.CompressionIds = list(requested_compression_ids) if requested_compression_ids else [
+					SMB2CompressionType.LZNT1,
+					SMB2CompressionType.LZ77,
+					SMB2CompressionType.LZ77_Huffman,
+				]
+			elif not available_compression_ids:
 				compression_backend.warn_if_unavailable()
 			elif requested_compression_ids is None:
 				self.CompressionIds = list(available_compression_ids)
@@ -285,11 +301,11 @@ class SMBConnection:
 						'available; continuing without SMB compression support'
 					)
 		self.SupportsChainedCompression = False
-		self.supported_encryptions = [
+		self.supported_encryptions: Optional[List[Any]] = [
 			SMB2Cipher.AES_128_GCM,
 			SMB2Cipher.AES_128_CCM,
 		] if self.advertise_encryption else None
-		self.supported_signatures = None #[SMB2SigningAlgorithm.AES_CMAC]
+		self.supported_signatures: Optional[List[Any]] = None #[SMB2SigningAlgorithm.AES_CMAC]
 		
 		self.preauth_ctx = hashlib.sha512
 
@@ -299,18 +315,18 @@ class SMBConnection:
 		#if this happens then logoff will fail as well!
 		self.session_closed = False 
 		
-	async def __aenter__(self):
+	async def __aenter__(self) -> "SMBConnection":
 		return self
 		
-	async def __aexit__(self, exc_type, exc, traceback):
+	async def __aexit__(self, exc_type: Any, exc: Any, traceback: Any) -> None:
 		await asyncio.wait_for(self.terminate(), timeout = 5)
 
-	def get_session_key(self):
+	def get_session_key(self) -> Optional[bytes]:
 		if self.selected_dialect in [NegotiateDialects.SMB300 , NegotiateDialects.SMB302 , NegotiateDialects.SMB311]:
 			return self.ApplicationKey
 		return self.SessionKey
 
-	def get_extra_info(self):
+	def get_extra_info(self) -> Optional[Dict[str, Any]]:
 		try:
 			ntlm_data = self.gssapi.get_extra_info()
 			if ntlm_data is not None:
@@ -330,7 +346,7 @@ class SMBConnection:
 	#	await asyncio.sleep(timeout)
 		
 
-	async def __handle_smb_in(self):
+	async def __handle_smb_in(self) -> None:
 		"""
 		Waits from SMB message bytes from the transport in_queue, and fills the connection table.
 		This function started automatically when calling connect.
@@ -396,7 +412,7 @@ class SMBConnection:
 					msg = SMB2Message.from_bytes(msg_data)
 					if (
 						not was_encrypted and
-						msg.header.Flags & SMB2HeaderFlag.SMB2_FLAGS_SIGNED
+						self._should_verify_signature(msg)
 					):
 						if self._can_verify_message():
 							self.verify_message(msg, msg_data)
@@ -443,7 +459,7 @@ class SMBConnection:
 			await self.terminate()
 			
 			
-	async def login(self):
+	async def login(self) -> Tuple[bool, Optional[Exception]]:
 		"""
 		This is the normal starting function.
 		Performs establishment of the TCP connection, then the negotiation and finally the session setup.
@@ -471,7 +487,7 @@ class SMBConnection:
 			await self.disconnect()
 			return False, e
 		
-	async def fake_login(self):
+	async def fake_login(self) -> Tuple[Any, Optional[Exception]]:
 		try:
 			if 'NTLMSSP - Microsoft NTLM Security Support Provider' not in self.gssapi.authentication_contexts:
 				raise Exception('Fake authentication is only supported via NTLM package')
@@ -491,7 +507,7 @@ class SMBConnection:
 		finally:
 			await self.disconnect()
 
-	async def protocol_test(self, protocol):
+	async def protocol_test(self, protocol: Any) -> Tuple[bool, Optional[bool], Optional[bool], Any, Optional[Exception]]:
 		"""
 		Checks if the remote end supports a given protocol.
 		On success it returns True and the reply from the server (for checking SMB3 capabilities)
@@ -520,7 +536,7 @@ class SMBConnection:
 		finally:
 			await self.disconnect()
 	
-	async def connect(self):
+	async def connect(self) -> Tuple[bool, Optional[Exception]]:
 		"""
 		Establishes socket connection to the remote endpoint. Also starts the internal reading procedures.
 		"""
@@ -535,7 +551,7 @@ class SMBConnection:
 			await self.disconnect()
 			return False, e
 		
-	async def disconnect(self):
+	async def disconnect(self) -> None:
 		"""
 		Tears down the socket connecting as well as the reading cycle.
 		Doesn't do any cleanup! 
@@ -558,7 +574,7 @@ class SMBConnection:
 		
 		
 
-	async def keepalive(self):
+	async def keepalive(self) -> None:
 		"""
 		Sends an echo message every X seconds to the server to keep the channel open
 		"""
@@ -570,7 +586,7 @@ class SMBConnection:
 				sleep_time = max(self.target.timeout - 1, sleep_time)
 			while True:
 				await asyncio.sleep(sleep_time)
-				if (datetime.datetime.now(datetime.timezone.utc) - self.activity_at).seconds > sleep_time and self.supress_keepalive is False: 
+				if self.activity_at is not None and (datetime.datetime.now(datetime.timezone.utc) - self.activity_at).seconds > sleep_time and self.supress_keepalive is False: 
 					await asyncio.wait_for(self.echo(), timeout = self.keepalive_timeout)
 				
 		except asyncio.CancelledError:
@@ -579,18 +595,21 @@ class SMBConnection:
 			logger.debug('Keepalive failed! Server probably disconnected!')
 			await self.disconnect()
 
-	def update_integrity(self, msg_data:bytes):
+	def update_integrity(self, msg_data:bytes) -> None:
 		ctx = hashlib.sha512()
 		ctx.update(self.PreauthIntegrityHashValue + msg_data)
 		self.PreauthIntegrityHashValue = ctx.digest()
 		
-	async def negotiate(self, protocol_test = False):
+	async def negotiate(self, protocol_test: bool = False) -> Tuple[Any, ...]:
 		"""
 		Initiates protocol negotiation.
 		First we send an SMB_COM_NEGOTIATE_REQ with our supported dialects
 		"""
 		try:
-			rply = None
+			rply: Any = None
+			header: Any
+			command: Any
+			msg: Any
 			if NegotiateDialects.WILDCARD in self.supported_dialects:
 				###let's construct an SMBv1 SMB_COM_NEGOTIATE_REQ packet
 				header = SMBHeader()
@@ -689,6 +708,8 @@ class SMBConnection:
 			rply, rply_data, err = await self.recvSMB(message_id) #negotiate MessageId should be 1
 			if err is not None:
 				raise err
+			if rply_data is None:
+				raise ValueError('negotiate reply had no payload')
 			if isinstance(rply, SMBMessage):
 				raise Exception('Server replied with SMBv1 message, doesnt support SMBv2')
 			self.update_integrity(rply_data)
@@ -771,7 +792,16 @@ class SMBConnection:
 				self.CipherId = None
 			self.encryption_required = self.SupportsEncryption
 
-			if self.selected_dialect == NegotiateDialects.SMB311 and negotiated_compression_ids:
+			if self.compression_advertise_only:
+				# We only probed the server's compression support; never
+				# compress traffic (no backend). The negotiated result was
+				# captured above (negotiated_compression_ids) and remains
+				# readable from the raw negotiate reply by the caller.
+				self.server_supported_compression_ids = negotiated_compression_ids
+				self.CompressionIds = None
+				self.CompressionId = None
+				self.SupportsChainedCompression = False
+			elif self.selected_dialect == NegotiateDialects.SMB311 and negotiated_compression_ids:
 				self.CompressionIds = negotiated_compression_ids
 				self.CompressionId = self.CompressionIds[0]
 			else:
@@ -810,7 +840,7 @@ class SMBConnection:
 				return False, None, None
 			return False, e
 
-	async def session_setup(self, fake_auth = False):
+	async def session_setup(self, fake_auth: bool = False) -> Tuple[bool, Optional[Exception]]:
 		try:
 			authdata = None
 			status = NTStatus.MORE_PROCESSING_REQUIRED
@@ -859,6 +889,8 @@ class SMBConnection:
 					break
 
 				if rply.header.Status != NTStatus.SUCCESS:
+					if rply_data is None:
+						raise ValueError('session setup reply had no payload')
 					self.update_integrity(rply_data)
 				
 				authdata = rply.command.Buffer
@@ -874,16 +906,31 @@ class SMBConnection:
 				self.session_encryption_required = bool(
 					self.SessionFlags & SessionFlags.SMB2_SESSION_FLAG_ENCRYPT_DATA
 				)
-				self.is_anonymous = bool(
+				server_anonymous = bool(
 					self.SessionFlags & SessionFlags.SMB2_SESSION_FLAG_IS_NULL
 				)
-				self.is_guest = bool(
+				server_guest = bool(
 					self.SessionFlags & SessionFlags.SMB2_SESSION_FLAG_IS_GUEST
 				)
-				if self.is_anonymous and self.is_guest:
-					raise SMBAuthenticationFailed(
-						'Server marked the SMB session as both anonymous and guest'
-					)
+				gssapi_guest = False
+				if hasattr(self.gssapi, 'is_guest'):
+					try:
+						gssapi_guest = bool(self.gssapi.is_guest())
+					except Exception:
+						pass
+				if self.nosign:
+					# Relayed NTLM cannot produce a real session key. Some
+					# targets still mark those unsigned sessions as guest or
+					# null even when the forwarded token is a real user.
+					self.is_anonymous = False
+					self.is_guest = gssapi_guest
+				else:
+					self.is_anonymous = server_anonymous
+					self.is_guest = server_guest
+					if self.is_anonymous and self.is_guest:
+						raise SMBAuthenticationFailed(
+							'Server marked the SMB session as both anonymous and guest'
+						)
 
 				if self.is_anonymous or self.is_guest:
 					if (
@@ -927,7 +974,9 @@ class SMBConnection:
 						self.ApplicationKey  = KDF_CounterMode(self.SessionKey, b"SMB2APP\x00", b"SmbRpc\x00", 128)
 						self.EncryptionKey   = KDF_CounterMode(self.SessionKey, b"SMB2AESCCM\x00", b"ServerIn \x00", 128)
 						self.DecryptionKey   = KDF_CounterMode(self.SessionKey, b"SMB2AESCCM\x00", b"ServerOut\x00", 128)
-				if rply.header.Flags & SMB2HeaderFlag.SMB2_FLAGS_SIGNED:
+				if self._should_verify_signature(rply):
+					if rply_data is None:
+						raise ValueError('session setup reply had no payload')
 					self.verify_message(rply, rply_data)
 				
 				self.status = SMBConnectionStatus.RUNNING
@@ -957,11 +1006,13 @@ class SMBConnection:
 			return False, e
 		
 		
-	async def recvSMB(self, message_id) -> Coroutine[SMB2Message, bytes, Exception]:
+	async def recvSMB(self, message_id: Optional[int]) -> Tuple[Any, Optional[bytes], Optional[Exception]]:
 		"""
 		Returns an SMB message from the outstandingresponse dict, OR waits until the expected message_id appears.
 		"""
 		try:
+			if message_id is None:
+				raise ValueError('recvSMB called without a message id')
 			if self._send_lock_owner is not None and self._send_lock_owner is asyncio.current_task():
 				raise RuntimeError('BUG: recvSMB entered while this task holds send_lock. Raising to prevent deadlocks.')
 			
@@ -990,7 +1041,7 @@ class SMBConnection:
 		except Exception as e:
 			return None, None, e
 		
-	def sign_message(self, msg:SMB2Message):
+	def sign_message(self, msg:SMB2Message) -> None:
 		if self.selected_dialect in [NegotiateDialects.SMB202, NegotiateDialects.SMB210]:
 			if self.SessionKey:
 				msg.header.Flags |= SMB2HeaderFlag.SMB2_FLAGS_SIGNED
@@ -1012,12 +1063,20 @@ class SMBConnection:
 				#print(signature)
 				#msg.header.Signature = signature
 
-	def _can_verify_message(self):
+	def _should_verify_signature(self, msg:SMB2Message) -> bool:
+		# Relayed NTLM sessions export a dummy session key, so `nosign`
+		# (and any session that did not commit to signing) must not
+		# enforce incoming signatures.
+		if self.nosign or not self.signing_required:
+			return False
+		return bool(msg.header.Flags & SMB2HeaderFlag.SMB2_FLAGS_SIGNED)
+
+	def _can_verify_message(self) -> bool:
 		if self.selected_dialect in [NegotiateDialects.SMB202, NegotiateDialects.SMB210]:
 			return self.SessionKey is not None
 		return self.SigningKey is not None
 
-	def verify_message(self, msg:SMB2Message, msg_data:bytes):
+	def verify_message(self, msg:SMB2Message, msg_data:bytes) -> bool:
 		signature = msg.header.Signature
 		unsigned_data = bytearray(msg_data)
 		if len(unsigned_data) < 64:
@@ -1094,10 +1153,10 @@ class SMBConnection:
 		return SMB2Transform(hdr, enc_data)
 
 
-	def _compression_output_limit(self):
+	def _compression_output_limit(self) -> int:
 		return max(self.MaxTransactSize, self.MaxReadSize, self.MaxWriteSize) + 256 + 16
 
-	async def _run_compression_codec(self, func, *args):
+	async def _run_compression_codec(self, func: Callable[..., Any], *args: Any) -> Any:
 		async with self._compression_semaphore:
 			loop = asyncio.get_running_loop()
 			future = loop.run_in_executor(
@@ -1119,7 +1178,7 @@ class SMBConnection:
 					raise asyncio.CancelledError()
 				return result
 
-	def _compress_message_sync(self, msg, compression_offset = None):
+	def _compress_message_sync(self, msg: Any, compression_offset: Optional[int] = None) -> Optional[SMB2Compression]:
 		msg_data = msg.to_bytes()
 		if self.SupportsChainedCompression is True:
 			raise ValueError('Chained SMB compression is not supported')
@@ -1147,14 +1206,14 @@ class SMBConnection:
 		comp_hdr.Offset = len(uncompressed_prefix)
 		return SMB2Compression(comp_hdr, uncompressed_prefix + compressed_data)
 
-	async def compress_message(self, msg, compression_offset = None):
+	async def compress_message(self, msg: Any, compression_offset: Optional[int] = None) -> Optional[SMB2Compression]:
 		return await self._run_compression_codec(
 			self._compress_message_sync,
 			msg,
 			compression_offset,
 		)
 
-	async def _decompress_message(self, msg):
+	async def _decompress_message(self, msg: SMB2Compression) -> bytes:
 		allowed_algorithms = tuple(self.CompressionIds or ())
 		total_output_size = msg.header.validate(
 			payload_length = len(msg.data),
@@ -1180,7 +1239,7 @@ class SMBConnection:
 			raise ValueError('Decompressed transport payload is not an SMB2 message')
 		return decompressed
 
-	def _should_compress_io(self, tree_id, override):
+	def _should_compress_io(self, tree_id: int, override: Optional[bool]) -> bool:
 		tree = self.TreeConnectTable_id.get(tree_id)
 		requested = bool(self.CompressAllRequests or (tree is not None and tree.compress))
 		if override is not None:
@@ -1192,7 +1251,7 @@ class SMBConnection:
 			self.CompressionIds
 		)
 		
-	async def sendSMB(self, msg:SMB2Message, fh = None, compress = False, compression_offset = None):
+	async def sendSMB(self, msg: Any, fh: Optional[FileHandle] = None, compress: bool = False, compression_offset: Optional[int] = None) -> Tuple[Optional[int], Optional[Exception]]:
 		"""
 		Sends an SMB message to teh remote endpoint.
 		msg: SMB2Message or SMBMessage
@@ -1270,7 +1329,7 @@ class SMBConnection:
 			self._send_lock_owner = None
 
 		
-	async def tree_connect(self, share_name:str):
+	async def tree_connect(self, share_name:str) -> Tuple[Optional[TreeEntry], Optional[Exception]]:
 		"""
 		share_name MUST be in "\\\\server\\share" format! Server can be NetBIOS name OR IP4 OR IP6 OR FQDN
 		"""
@@ -1322,7 +1381,7 @@ class SMBConnection:
 		except Exception as e:
 			return None, e
 		
-	async def create(self, tree_id, file_path, desired_access, share_mode, create_options, create_disposition, file_attrs:FileAttributes, impresonation_level:ImpersonationLevel = ImpersonationLevel.Impersonation, oplock_level = OplockLevel.SMB2_OPLOCK_LEVEL_NONE, create_contexts = None, return_reply = False):
+	async def create(self, tree_id: int, file_path: str, desired_access: Any, share_mode: Any, create_options: Any, create_disposition: Any, file_attrs:FileAttributes, impresonation_level:ImpersonationLevel = ImpersonationLevel.Impersonation, oplock_level: Any = OplockLevel.SMB2_OPLOCK_LEVEL_NONE, create_contexts: Any = None, return_reply: bool = False) -> Tuple[Any, ...]:
 		try:
 			if self.session_closed == True or self.status == SMBConnectionStatus.CLOSED:
 				raise SMBConnectionTerminated()
@@ -1374,7 +1433,7 @@ class SMBConnection:
 				return None, None, e
 			return None, e
 	
-	async def read(self, tree_id, file_id, offset = 0, length = 0, compress = None):
+	async def read(self, tree_id: int, file_id: Any, offset: int = 0, length: int = 0, compress: Optional[bool] = None) -> Tuple[Optional[bytes], Optional[int], Optional[Exception]]:
 		"""
 		Will issue one read command only then waits for reply. To read a whole file you must use a filereader logic! 
 		returns the data bytes and the remaining data length
@@ -1441,7 +1500,7 @@ class SMBConnection:
 			return None, None, e
 			
 			
-	async def write(self, tree_id, file_id, data, offset = 0, compress = None):
+	async def write(self, tree_id: int, file_id: Any, data: bytes, offset: int = 0, compress: Optional[bool] = None) -> Tuple[Optional[int], Optional[Exception]]:
 		"""
 		This function will send one packet only! The data size can be larger than what one packet allows, but it will be truncated
 		to the maximum. 
@@ -1498,7 +1557,7 @@ class SMBConnection:
 		except Exception as e:
 			return None, e
 		
-	async def query_info(self, tree_id, file_id, info_type = QueryInfoType.FILE, information_class = FileInfoClass.FileStandardInformation, additional_information = 0, flags = 0, data_in = ''):
+	async def query_info(self, tree_id: int, file_id: Any, info_type: Any = QueryInfoType.FILE, information_class: Any = FileInfoClass.FileStandardInformation, additional_information: int = 0, flags: int = 0, data_in: Any = '') -> Tuple[Any, Optional[Exception]]:
 		"""
 		Queires the file or directory for specific information. The information returned is depending on the input parameters, check the documentation on msdn for a better understanding.
 		The resturned data can by raw bytes or an actual object, depending on wther your info is implemented in the library.
@@ -1566,7 +1625,7 @@ class SMBConnection:
 		except Exception as e:
 			return None, e
 		
-	async def query_directory(self, tree_id, file_id, search_pattern = '*', resume_index = 0, information_class = FileInfoClass.FileFullDirectoryInformation, maxBufferSize = None, flags = 0):
+	async def query_directory(self, tree_id: int, file_id: Any, search_pattern: str = '*', resume_index: int = 0, information_class: Any = FileInfoClass.FileFullDirectoryInformation, maxBufferSize: Optional[int] = None, flags: int = 0) -> Tuple[Any, Optional[Exception]]:
 		"""
 		
 		IMPORTANT: in case you are requesting big amounts of data, the result will arrive in chunks. You will need to invoke this function until None is returned to get the full data!!!
@@ -1618,7 +1677,7 @@ class SMBConnection:
 		except Exception as e:
 			return None, e
 
-	async def ioctl(self, tree_id, file_id, ctlcode, data = None, flags = IOCTLREQFlags.IS_IOCTL, MaxOutputResponse=65535):
+	async def ioctl(self, tree_id: int, file_id: Any, ctlcode: Any, data: Any = None, flags: Any = IOCTLREQFlags.IS_IOCTL, MaxOutputResponse: int = 65535) -> Tuple[Any, Optional[Exception]]:
 		try:
 			if self.session_closed == True or self.status == SMBConnectionStatus.CLOSED:
 				raise SMBConnectionTerminated()
@@ -1648,7 +1707,7 @@ class SMBConnection:
 		except Exception as e:
 			return None, e
 			
-	async def close(self, tree_id, file_id, flags = CloseFlag.NONE):
+	async def close(self, tree_id: int, file_id: Any, flags: Any = CloseFlag.NONE) -> Tuple[Optional[bool], Optional[Exception]]:
 		"""
 		Closes the file/directory/pipe/whatever based on file_id. It will automatically remove all traces of the file handle.
 		"""
@@ -1680,7 +1739,7 @@ class SMBConnection:
 		except Exception as e:
 			return None, e
 			
-	async def flush(self, tree_id, file_id):
+	async def flush(self, tree_id: int, file_id: Any) -> Tuple[Optional[bool], Optional[Exception]]:
 		"""
 		Flushes all cached data that may be on the server for the given file.
 		"""
@@ -1706,7 +1765,7 @@ class SMBConnection:
 		except Exception as e:
 			return None, e
 		
-	async def logoff(self):
+	async def logoff(self) -> Tuple[Optional[bool], Optional[Exception]]:
 		"""
 		Logs off from the server, effectively terminates the session. 
 		The underlying connection will still be active, so please either clean it up manually or dont touch this function
@@ -1732,7 +1791,7 @@ class SMBConnection:
 		except Exception as e:
 			return None, e
 	
-	async def echo(self):
+	async def echo(self) -> Tuple[Optional[bool], Optional[Exception]]:
 		"""
 		Issues an ECHO request to the server. Server will reply with and ECHO response, if it's still alive
 		"""
@@ -1759,7 +1818,7 @@ class SMBConnection:
 		except Exception as e:
 			return None, e
 		
-	async def tree_disconnect(self, tree_id):
+	async def tree_disconnect(self, tree_id: int) -> Tuple[Optional[bool], Optional[Exception]]:
 		"""
 		Disconnects from tree, removes all file entries associated to the tree
 		"""
@@ -1792,14 +1851,15 @@ class SMBConnection:
 					del self.FileHandleTable[file_id]
 				
 				del self.TreeConnectTable_id[tree_id]
-				del self.TreeConnectTable_share[share_name]
+				if share_name is not None:
+					del self.TreeConnectTable_share[share_name]
 
 			return True, None
 		except Exception as e:
 			return None, e
 
 		
-	async def cancel(self, message_id):
+	async def cancel(self, message_id: int) -> Tuple[Optional[bool], Optional[Exception]]:
 		"""
 		Issues a CANCEL command for the given message_id
 		"""
@@ -1812,11 +1872,11 @@ class SMBConnection:
 			header.Command  = SMB2Command.CANCEL
 			msg = SMB2Message(header, command)
 			msg.header.MessageId = message_id
-			message_id, err = await self.sendSMB(msg)
+			cancel_id, err = await self.sendSMB(msg)
 			if err is not None:
 				raise err
 			
-			rply, _, err = await self.recvSMB(message_id)
+			rply, _, err = await self.recvSMB(cancel_id)
 			if err is not None:
 				raise err
 
@@ -1824,7 +1884,7 @@ class SMBConnection:
 		except Exception as e:
 			return None, e
 		
-	async def terminate(self):
+	async def terminate(self) -> None:
 		"""
 		Use this function to properly terminate the SBM connection.
 		Terminates the connection. Closes all tree handles, logs off and disconnects the TCP connection.
@@ -1857,13 +1917,13 @@ class SMBConnection:
 			if self.connection_closed_evt is not None:
 				self.connection_closed_evt.set()
 	
-	async def ghosting(self):
+	async def ghosting(self) -> bool:
 		#self.encryption_required = False
 		self.supress_keepalive = True
-		def compress_callback(msg):
+		def compress_callback(msg: Any) -> SMB2Compression:
 			print('Callback is here!')
 			msg_data = msg.to_bytes()
-			compressed_data = lznt1_compress(msg_data)
+			compressed_data = lznt1_compress(msg_data)  # type: ignore[name-defined]
 			comp_hdr = SMB2Header_COMPRESSION_TRANSFORM()
 			comp_hdr.OriginalCompressedSegmentSize = len(msg_data)
 			comp_hdr.CompressionAlgorithm = SMB2CompressionType.LZNT1 #self.CompressionId
@@ -1889,7 +1949,7 @@ class SMBConnection:
 		header = SMB2Header_SYNC()
 		header.Command  = SMB2Command.ECHO
 		msg = SMB2Message(header, command)
-		message_id, err = await self.sendSMB(msg, compression_cb = compress_callback)
+		message_id, err = await self.sendSMB(msg, compression_cb = compress_callback)  # type: ignore[call-arg]
 		try:
 			rply = await asyncio.wait_for(self.recvSMB(message_id), timeout = 0.5)
 			return True
@@ -1897,7 +1957,7 @@ class SMBConnection:
 			return False
 
 
-async def ctest(cu):
+async def ctest(cu: Any) -> None:
 	conn = cu.get_connection()
 	await conn.login()
 

@@ -332,6 +332,44 @@ def test_create_request_name_and_fixed_fields_round_trip():
     assert message.command.CreateContextsLength == 0
 
 
+def test_create_request_empty_name_keeps_buffer_offset():
+    request = CREATE_REQ()
+    request.RequestedOplockLevel = OplockLevel.SMB2_OPLOCK_LEVEL_NONE
+    request.ImpersonationLevel = ImpersonationLevel.Impersonation
+    request.DesiredAccess = FileAccessMask.FILE_READ_DATA
+    request.FileAttributes = FileAttributes(0)
+    request.ShareAccess = ShareAccess.FILE_SHARE_READ
+    request.CreateDisposition = CreateDisposition.FILE_OPEN
+    request.CreateOptions = CreateOptions.FILE_DIRECTORY_FILE
+    request.Name = ""
+    request.CreateContext = []
+    golden = struct.pack(
+        "<HBBIQQIIIIIHHII",
+        57,
+        0,
+        OplockLevel.SMB2_OPLOCK_LEVEL_NONE.value,
+        ImpersonationLevel.Impersonation.value,
+        0,
+        0,
+        FileAccessMask.FILE_READ_DATA.value,
+        0,
+        ShareAccess.FILE_SHARE_READ.value,
+        CreateDisposition.FILE_OPEN.value,
+        CreateOptions.FILE_DIRECTORY_FILE.value,
+        120,
+        0,
+        0,
+        0,
+    ) + b"\x00"
+
+    body = request.to_bytes()
+
+    assert body == golden
+    assert request.NameOffset == 120
+    assert request.NameLength == 0
+    assert len(body) == 57
+
+
 def test_create_reply_fixed_fields_round_trip():
     reply = CREATE_REPLY()
     reply.OplockLevel = OplockLevel.SMB2_OPLOCK_LEVEL_NONE

@@ -134,6 +134,18 @@ def _create_request():
 	return request
 
 
+def test_empty_name_create_with_contexts_does_not_overlap_name_offset():
+	request = _create_request()
+	request.Name = ""
+	body = request.to_bytes()
+
+	assert request.NameOffset == 0
+	assert request.NameLength == 0
+	assert request.CreateContextsOffset == 120
+	assert request.CreateContextsOffset % 8 == 0
+	assert CREATE_REQ.from_bytes(body).CreateContext[0].Name == b"Unkn"
+
+
 def test_create_request_parses_unknown_context_records():
 	body = _create_request().to_bytes()
 	parsed = CREATE_REQ.from_bytes(body)

@@ -8,6 +8,8 @@ from pathlib import Path
 
 import pytest
 
+from aiosmb._version import __version__
+
 
 if sys.version_info < (3, 9):
     pytest.skip("blocked by KF-0107", allow_module_level=True)
@@ -31,10 +33,28 @@ def run_module(module, *arguments):
 @pytest.mark.parametrize(
     "module,description",
     [
-        ("aiosmb.examples.smbclient", "Interactive SMB client"),
-        ("aiosmb.examples.smbshareenum", "SMB Share enumerator"),
-        ("aiosmb.examples.smbgetfile", "SMB file downloader"),
-        ("aiosmb.examples.scanners.__main__", "SMB Scanner"),
+        (
+            "aiosmb.examples.smbclient",
+            "Connect to an SMB server interactively or run batch commands",
+        ),
+        (
+            "aiosmb.examples.smbshareenum",
+            "Enumerate SMB shares, directories, and files",
+        ),
+        ("aiosmb.examples.smbgetfile", "Download one file"),
+        (
+            "aiosmb.examples.smbcertreq",
+            "Request a certificate through the Microsoft ICPR RPC service",
+        ),
+        (
+            "aiosmb.examples.smbcainfo",
+            "Read the security configuration of an AD CS certificate authority",
+        ),
+        (
+            "aiosmb.examples.scanners.__main__",
+            "Run SMB discovery, access, and security checks",
+        ),
+        ("aiosmb.examples.smbserver", "Serve local directories"),
     ],
 )
 def test_console_module_help_exits_zero(module, description) -> None:
@@ -50,8 +70,67 @@ def test_console_module_help_exits_zero(module, description) -> None:
     "module",
     [
         "aiosmb.examples.smbclient",
+        "aiosmb.examples.smbshareenum",
         "aiosmb.examples.smbgetfile",
+        "aiosmb.examples.smbcertreq",
+        "aiosmb.examples.smbcainfo",
         "aiosmb.examples.scanners.__main__",
+        "aiosmb.examples.smbserver",
+    ],
+)
+def test_console_module_version_exits_zero(module) -> None:
+    completed = run_module(module, "--version")
+
+    assert completed.returncode == 0
+    assert completed.stdout.rstrip().endswith(__version__)
+    assert completed.stderr == ""
+
+
+@pytest.mark.parametrize(
+    "module",
+    [
+        "aiosmb.examples.smbclient",
+        "aiosmb.examples.smbshareenum",
+        "aiosmb.examples.smbgetfile",
+        "aiosmb.examples.smbcertreq",
+        "aiosmb.examples.smbcainfo",
+        "aiosmb.examples.scanners.__main__",
+    ],
+)
+def test_connection_url_help_exposes_nested_parameter_families(module) -> None:
+    completed = run_module(module, "--help-url")
+
+    assert completed.returncode == 0
+    assert "SMB CONNECTION URL" in completed.stdout
+    assert "NTLM query parameters" in completed.stdout
+    assert "Kerberos query parameters" in completed.stdout
+    assert "Proxy query parameters" in completed.stdout
+    assert "compress_algorithms" in completed.stdout
+    assert completed.stderr == ""
+
+
+def test_scanner_subcommand_accepts_connection_help_after_scan_type() -> None:
+    completed = run_module(
+        "aiosmb.examples.scanners.__main__",
+        "encryption",
+        "--help-url",
+    )
+
+    assert completed.returncode == 0
+    assert "SMB CONNECTION URL" in completed.stdout
+    assert completed.stderr == ""
+
+
+@pytest.mark.parametrize(
+    "module",
+    [
+        "aiosmb.examples.smbclient",
+        "aiosmb.examples.smbshareenum",
+        "aiosmb.examples.smbgetfile",
+        "aiosmb.examples.smbcertreq",
+        "aiosmb.examples.smbcainfo",
+        "aiosmb.examples.scanners.__main__",
+        "aiosmb.examples.smbserver",
     ],
 )
 def test_console_module_missing_required_arguments_exits_two(module) -> None:
@@ -67,7 +146,7 @@ def test_scanner_subcommand_help_is_offline_and_documents_targets() -> None:
 
     assert completed.returncode == 0
     assert "targets" in completed.stdout
-    assert "Hostname or IP address" in completed.stdout
+    assert "hostname, IP address, CIDR range" in completed.stdout
     assert completed.stderr == ""
 
 
@@ -80,7 +159,7 @@ def test_encryption_scanner_help_documents_authenticated_url_and_targets() -> No
 
     assert completed.returncode == 0
     assert "url" in completed.stdout
-    assert "Authenticated connection string" in completed.stdout
+    assert "base SMB connection URL" in completed.stdout
     assert "targets" in completed.stdout
     assert completed.stderr == ""
 
@@ -189,10 +268,6 @@ def test_getfile_main_dispatches_url_output_and_progress(monkeypatch) -> None:
     ]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="KF-0645: getfile CLI enables progress when the flag is absent",
-)
 def test_getfile_main_leaves_progress_disabled_by_default(monkeypatch) -> None:
     module = importlib.import_module("aiosmb.examples.smbgetfile")
     calls = []
@@ -282,10 +357,6 @@ async def test_smbgetfilezip_dispatches_the_parsed_url_without_network(
 
 
 @pytest.mark.asyncio
-@pytest.mark.xfail(
-    strict=True,
-    reason="KF-0648: scanner no-progress flag is passed with inverted meaning",
-)
 async def test_scanner_progress_is_enabled_by_default(monkeypatch) -> None:
     module = importlib.import_module("aiosmb.examples.scanners.__main__")
     targetgen_module = importlib.import_module(

@@ -99,7 +99,8 @@ class SMBTarget(UniTarget):
 						compression:bool = False,
 						fragment:int = None,
 						compression_min_size:int = 4096,
-						compression_algorithms = None):
+						compression_algorithms = None,
+						advertise_compression:bool = False):
 		UniTarget.__init__(self, ip, port, protocol, timeout, hostname = hostname, proxies = proxies, domain = domain, dc_ip = dc_ip, dns=dns)
 		
 		self.path:str = path #for holding remote file path
@@ -120,6 +121,11 @@ class SMBTarget(UniTarget):
 		self.compression:bool = compression
 		self.compression_min_size:int = compression_min_size
 		self.compression_algorithms = compression_algorithms
+		# Offer the SMB compression negotiate context even when no local
+		# compression backend is available and without compressing requests.
+		# Used to elicit the server's compression capabilities (e.g. SMBGhost
+		# detection). Requires the SMB 3.1.1 dialect.
+		self.advertise_compression:bool = advertise_compression
 		if self.compression_min_size < 1:
 			raise ValueError('compression_min_size must be positive')
 		
@@ -186,6 +192,7 @@ class SMBTarget(UniTarget):
 			fragment = self.fragment,
 			compression_min_size = self.compression_min_size,
 			compression_algorithms = self.compression_algorithms,
+			advertise_compression = self.advertise_compression,
 		)
 
 		t.MaxTransactSize = self.MaxTransactSize

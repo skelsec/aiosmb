@@ -81,9 +81,9 @@ known_failures:
 
   - id: KF-0002
     title: asmbcertreq imports an undeclared runtime dependency
-    status: confirmed
+    status: resolved
     classification: production_defect
-    canonical_test: tests/unit/test_foundation_smoke.py::test_asmbcertreq_declares_msldap_runtime_dependency
+    canonical_test: tests/unit/test_foundation_smoke.py::test_asmbcertreq_has_no_undeclared_msldap_dependency
     affected_profiles:
       dialects: []
       operating_systems: [all]
@@ -99,7 +99,7 @@ known_failures:
         - setup.py:41
     blocked_by: []
     blocks: []
-    notes: Isolated as a strict xfail; production packaging was not changed.
+    notes: "Resolved by removing the optional friendly-name import; EKUs render as stable OIDs."
 
   - id: KF-0100
     title: Connection parameter configuration imports a missing module
@@ -353,7 +353,7 @@ known_failures:
 
   - id: KF-0302
     title: DTYP GENERIC WRITE uses the wrong access-mask bit
-    status: confirmed
+    status: resolved
     classification: production_defect
     canonical_test: tests/unit/wintypes/test_access_flags.py::test_dtyp_generic_write_uses_standard_high_bit
     affected_profiles:
@@ -369,6 +369,7 @@ known_failures:
         - tests/unit/wintypes/test_access_flags.py:57
     blocked_by: []
     blocks: []
+    notes: "Resolved by setting GENERIC_WRITE to 0x40000000 in wintypes/dtyp/constrcuted_security/access_mask.py and dcerpc/v5/dtypes.py."
 
   - id: KF-0303
     title: Object ACE parser references an undefined GUID symbol
@@ -1310,7 +1311,7 @@ known_failures:
 
   - id: KF-0645
     title: Getfile ignores its progress flag
-    status: confirmed
+    status: resolved
     classification: production_defect
     canonical_test: tests/component/scanners_cli/test_cli_contracts.py::test_getfile_main_leaves_progress_disabled_by_default
     affected_profiles:
@@ -1328,6 +1329,7 @@ known_failures:
         - aiosmb/examples/smbgetfile.py:62
     blocked_by: []
     blocks: []
+    notes: "Resolved by forwarding the parsed --progress value to amain."
 
   - id: KF-0646
     title: smbget reads an undefined argparse field
@@ -1373,7 +1375,7 @@ known_failures:
 
   - id: KF-0648
     title: Scanner inverts the progress option
-    status: confirmed
+    status: resolved
     classification: production_defect
     canonical_test: tests/component/scanners_cli/test_cli_contracts.py::test_scanner_progress_is_enabled_by_default
     affected_profiles:
@@ -1391,6 +1393,7 @@ known_failures:
         - aiosmb/examples/scanners/__main__.py:108
     blocked_by: []
     blocks: []
+    notes: "Resolved by making --no-progress a positive disable flag."
 
   - id: KF-0660
     title: Connection factory string exposes credentials

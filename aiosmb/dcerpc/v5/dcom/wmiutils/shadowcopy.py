@@ -1,3 +1,6 @@
+from typing import Optional, Tuple, Union
+
+
 async def wmi_create_shadow_copy(iWbemServices, volume: str):
     """Create a shadow copy and return (shadow_id, device_object)"""
     result, err = await iWbemServices.GetObject('Win32_ShadowCopy')
@@ -49,7 +52,7 @@ async def wmi_create_shadow_copy(iWbemServices, volume: str):
     except Exception as e:
         return None, None, e
 
-async def wmi_delete_shadow_copy(iWbemServices, shadow_id: str) -> bool:
+async def wmi_delete_shadow_copy(iWbemServices, shadow_id: str) -> Tuple[Optional[bool], Union[Exception, None]]:
     """Delete a shadow copy by ID using IWbemServices.DeleteInstance"""
     try:
         object_path = f'Win32_ShadowCopy.ID="{shadow_id}"'
