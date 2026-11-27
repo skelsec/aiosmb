@@ -28,7 +28,7 @@ def reply(status, token):
     return (
         SimpleNamespace(
             header=SimpleNamespace(Status=status, SessionId=1),
-            command=SimpleNamespace(Buffer=token),
+            command=SimpleNamespace(Buffer=token, SessionFlags=0),
         ),
         b'synthetic SMB reply',
         None,

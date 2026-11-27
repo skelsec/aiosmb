@@ -109,14 +109,23 @@ class WRITE_REPLY:
 	def __init__(self):
 		self.StructureSize = 17
 		self.Reserved = 0
-		self.Count = None
-		self.Remaining = None
+		self.Count = 0
+		self.Remaining = 0
 		self.WriteChannelInfoOffset = 0
 		self.WriteChannelInfoLength = 0
 
 	def to_bytes(self):
-		#todo
-		pass
+		t  = self.StructureSize.to_bytes(2, byteorder='little', signed=False)
+		t += self.Reserved.to_bytes(2, byteorder='little', signed=False)
+		t += self.Count.to_bytes(4, byteorder='little', signed=False)
+		t += self.Remaining.to_bytes(4, byteorder='little', signed=False)
+		t += self.WriteChannelInfoOffset.to_bytes(
+			2, byteorder='little', signed=False
+		)
+		t += self.WriteChannelInfoLength.to_bytes(
+			2, byteorder='little', signed=False
+		)
+		return t
 
 	@staticmethod
 	def from_bytes(bbuff):

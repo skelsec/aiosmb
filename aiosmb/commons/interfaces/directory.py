@@ -279,11 +279,15 @@ class SMBDirectory:
 			return
 		depth -= 1
 		ctr = 0
+		# directory names are case-insensitive on the server; normalized once, the
+		# frozenset is handed down the recursion as-is
+		if not isinstance(exclude_dir, frozenset):
+			exclude_dir = frozenset(str(x).strip().lower() for x in (exclude_dir or []) if str(x).strip() != '')
 
 		try:
 			async for obj, otype, err in self.list_gen(connection):
 				await asyncio.sleep(0)
-				if otype == 'dir' and fetch_dir_sd is True and obj.name not in exclude_dir:
+				if otype == 'dir' and fetch_dir_sd is True and obj.name.lower() not in exclude_dir:
 					obj.tree_id = self.tree_id
 					_, err = await obj.get_security_descriptor(connection)
 					#if err is not None:
@@ -305,7 +309,7 @@ class SMBDirectory:
 					yield self, 'maxed', None
 					break
 				
-				if otype == 'dir' and obj.name not in exclude_dir:
+				if otype == 'dir' and obj.name.lower() not in exclude_dir:
 					if filter_cb is not None:
 						res = await filter_cb('dir', obj)
 						if res is False:

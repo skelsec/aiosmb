@@ -24,10 +24,21 @@ class SMBConnectionFactory:
 		target = SMBTarget.create_dummy(proxies)
 		if authtype == 'NTLM':
 			from asyauth.common.credentials.ntlm import NTLMCredential
-			credential = NTLMCredential.create_guest()
+			credential = NTLMCredential.create_anonymous()
 		else:
 			raise Exception('Unknown authtype: %s' % authtype)
 		return SMBConnectionFactory(credential, target)
+
+	@staticmethod
+	def create_anonymous(target:SMBTarget):
+		"""Creates a factory for an explicit native NTLM null session."""
+		if not isinstance(target, SMBTarget):
+			raise TypeError('target must be an SMBTarget')
+		from asyauth.common.credentials.ntlm import NTLMCredential
+		return SMBConnectionFactory(
+			NTLMCredential.create_anonymous(),
+			target,
+		)
 	
 	@staticmethod
 	def from_url(connection_url):
@@ -42,16 +53,21 @@ class SMBConnectionFactory:
 		"""This is useful when you have a connection object, but you need to create a new connection with the same credentials"""
 		return SMBConnectionFactory(smbconnection.gssapi.get_copy(), copy.deepcopy(smbconnection.target))
 
-	def get_connection(self, nosign:bool=False):
+	def get_connection(self, nosign:bool=False, advertise_encryption:bool=True):
 		"""Creates a new SMBConnection object"""
 		spneg = self.get_credential()
 		target = self.get_target()
 		if nosign is None:
 			nosign = False
 		
-		return SMBConnection(spneg, target, nosign=nosign)
+		return SMBConnection(
+			spneg,
+			target,
+			nosign=nosign,
+			advertise_encryption=advertise_encryption,
+		)
 
-	def create_connection_newtarget(self, ip_or_hostname):
+	def create_connection_newtarget(self, ip_or_hostname, advertise_encryption:bool=True):
 		"""Creates a new SMBConnection object with a new target. 
 		Credentials are copied from the original connection factory
 		Target parameters will remain the same as the original, 
@@ -68,7 +84,11 @@ class SMBConnectionFactory:
 			target.hostname = ip_or_hostname
 			target.ip = ip_or_hostname
 		
-		return SMBConnection(spneg, target)
+		return SMBConnection(
+			spneg,
+			target,
+			advertise_encryption=advertise_encryption,
+		)
 
 	def get_file(self):
 		"""Creates a new SMBFile object using the path from the URL string, or the Target object"""

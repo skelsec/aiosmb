@@ -18,6 +18,12 @@ from aiosmb import logger
 from aiosmb._version import __banner__
 from aiosmb.commons.connection.factory import SMBConnectionFactory
 from aiosmb.connection import SMBConnection
+from aiosmb.examples._cli import (
+	CONNECTION_EPILOG,
+	add_url_help,
+	add_verbosity,
+	make_parser,
+)
 from aiosmb.commons.interfaces.machine import SMBMachine
 from aiosmb.commons.interfaces.share import SMBShare
 from aiosmb.commons.interfaces.file import SMBFile
@@ -134,7 +140,10 @@ class SMBClient(aiocmd.PromptToolkitCmd):
 			_, err = await self.connection.login()
 			if err is not None:
 				raise err
-			self.is_anon = self.connection.gssapi.is_guest()
+			self.is_anon = (
+				self.connection.is_anonymous
+				or self.connection.is_guest
+			)
 			self.machine = SMBMachine(self.connection)
 			if self.no_dce is False:
 				# listing shares for better user experience
@@ -1671,23 +1680,69 @@ async def amain(smb_url:str, commands:List[str] = [], silent:bool = False, conti
 		finally:
 			await client.do_logout()
 
-def main():
-	import argparse
+def build_parser(prog=None):
+	parser = make_parser(
+		'Connect to an SMB server interactively or run batch commands',
+		prog=prog,
+		epilog=CONNECTION_EPILOG,
+	)
+	add_url_help(parser)
+
+	connection = parser.add_argument_group('connection')
+	connection.add_argument(
+		'--no-signing',
+		'--nosig',
+		dest='nosig',
+		action='store_true',
+		help='do not require SMB signing; use only when the target permits it',
+	)
+
+	execution = parser.add_argument_group('execution')
+	execution.add_argument(
+		'-s',
+		'--silent',
+		action='store_true',
+		help='do not print the startup banner',
+	)
+	execution.add_argument(
+		'-n',
+		'--no-interactive',
+		action='store_true',
+		help='exit after the supplied batch commands instead of opening a prompt',
+	)
+	execution.add_argument(
+		'-c',
+		'--continue-on-error',
+		action='store_true',
+		help='continue running later batch commands after a command fails',
+	)
+	add_verbosity(execution)
+
+	parser.add_argument(
+		'smb_url',
+		metavar='URL',
+		help='SMB connection URL; use --help-url for the complete format',
+	)
+	parser.add_argument(
+		'commands',
+		metavar='COMMAND',
+		nargs='*',
+		help=(
+			'batch command to execute after connecting; quote each command '
+			'that contains spaces'
+		),
+	)
+	return parser
+
+
+def main(argv=None):
 	import platform
 	import logging
 	from asysocks import logger as asylogger
 	from asyauth import logger as asyauthlogger
 	
-	parser = argparse.ArgumentParser(description='Interactive SMB client')
-	parser.add_argument('-v', '--verbose', action='count', default=0)
-	parser.add_argument('-s', '--silent', action='store_true', help='do not print banner')
-	parser.add_argument('-n', '--no-interactive', action='store_true')
-	parser.add_argument('-c', '--continue-on-error', action='store_true', help='When in batch execution mode, execute all commands even if one fails')
-	parser.add_argument('--nosig', action='store_true', help='Disable SMB signing (SMB2 only)')
-	parser.add_argument('smb_url', help = 'Connection string that describes the authentication and target. Example: smb+ntlm-password://TEST\\Administrator:password@10.10.10.2')
-	parser.add_argument('commands', nargs='*')
-	
-	args = parser.parse_args()
+	parser = build_parser()
+	args = parser.parse_args(argv)
 	if args.silent is False:
 		print(__banner__)
 

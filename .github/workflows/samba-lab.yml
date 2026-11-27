@@ -1,0 +1,72 @@
+name: Interop - pinned Samba lab
+
+on:
+  schedule:
+    - cron: "17 3 * * 2"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pinned-samba-lab
+  cancel-in-progress: false
+
+jobs:
+  samba:
+    name: Disposable Samba interoperability
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up current Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install package and test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .
+          python -m pip install -r requirements-test.txt
+
+      - name: Confirm container runtime
+        run: docker compose version
+
+      - name: Run pinned disposable lab
+        env:
+          PYTHONHASHSEED: "0"
+        run: |
+          mkdir -p reports test-results/samba
+          tests/interop/samba/run-lab.sh \
+            --junitxml=test-results/samba/junit.xml \
+            --cov=aiosmb \
+            --cov-branch \
+            --cov-report=term-missing \
+            --cov-report=xml:reports/samba-coverage.xml
+
+      - name: Build sanitized test report
+        if: always()
+        run: |
+          python tests/support/reporting.py \
+            --junit test-results/samba/junit.xml \
+            --registry tests/known_failures.yml \
+            --json-output reports/samba-summary.json \
+            --markdown-output reports/samba-summary.md
+          cat reports/samba-summary.md >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload sanitized Samba artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pinned-samba-report
+          path: |
+            reports/samba-coverage.xml
+            reports/samba-summary.json
+            reports/samba-summary.md
+            test-results/samba/junit.xml
+          if-no-files-found: warn
+          retention-days: 14

@@ -382,6 +382,7 @@ class SMB2CompressionType(enum.Enum):
 	LZ77 = 0x0002 #LZ77 compression algorithm
 	LZ77_Huffman = 0x0003 #LZ77+Huffman compression algorithm
 	Pattern_V1 = 0x0004 #Pattern Scanning algorithm
+	LZ4 = 0x0005 #LZ4 block compression algorithm
 
 class SMB2CompressionFlags(enum.Enum):
 	NONE = 0x00000000 #Chained compression is not supported.
@@ -404,12 +405,25 @@ class SMB2CompressionCapabilities:
 		cap.ContextType = SMB2ContextType(int.from_bytes(buff.read(2), byteorder = 'little', signed = False))
 		cap.DataLength  = int.from_bytes(buff.read(2), byteorder = 'little', signed = False)
 		cap.Reserved    = int.from_bytes(buff.read(4), byteorder = 'little', signed = False)
+		if cap.ContextType != SMB2ContextType.COMPRESSION_CAPABILITIES:
+			raise ValueError('Invalid compression negotiate context type')
+		if cap.DataLength < 8:
+			raise ValueError('Compression negotiate context is too short')
 		cap.CompressionAlgorithmCount = int.from_bytes(buff.read(2), byteorder='little', signed = False)
 		cap.Padding = int.from_bytes(buff.read(2), byteorder='little', signed = False)
 		cap.Flags = SMB2CompressionFlags(int.from_bytes(buff.read(4), byteorder='little', signed = False))
+		if cap.CompressionAlgorithmCount == 0:
+			raise ValueError('Compression negotiate context has no algorithms')
+		if cap.DataLength != 8 + (cap.CompressionAlgorithmCount * 2):
+			raise ValueError('Compression negotiate context length does not match its algorithm count')
 
 		for _ in range(cap.CompressionAlgorithmCount):
-			cap.CompressionAlgorithms.append(SMB2CompressionType(int.from_bytes(buff.read(2), byteorder='little', signed = False)))
+			algorithm = buff.read(2)
+			if len(algorithm) != 2:
+				raise ValueError('Truncated compression negotiate context')
+			cap.CompressionAlgorithms.append(SMB2CompressionType(int.from_bytes(algorithm, byteorder='little', signed = False)))
+		if len(set(cap.CompressionAlgorithms)) != len(cap.CompressionAlgorithms):
+			raise ValueError('Compression negotiate context contains duplicate algorithms')
 
 		return cap
 
@@ -417,6 +431,12 @@ class SMB2CompressionCapabilities:
 	def from_comp_list(supp_comp_list, is_chained = False):
 		#supp_comp_list > a list of SMB2CompressionType enums
 		# flags > bool, will be converted to SMB2CompressionFlags 
+		if not supp_comp_list:
+			raise ValueError('At least one compression algorithm must be supplied')
+		if any(not isinstance(algorithm, SMB2CompressionType) for algorithm in supp_comp_list):
+			raise TypeError('Compression algorithms must be SMB2CompressionType values')
+		if len(set(supp_comp_list)) != len(supp_comp_list):
+			raise ValueError('Compression algorithms must be unique')
 		s = SMB2CompressionCapabilities()
 		s.Flags = SMB2CompressionFlags.NONE
 		if is_chained is True:
@@ -426,11 +446,14 @@ class SMB2CompressionCapabilities:
 		return s
 
 	def to_bytes(self):
-		
+		if not self.CompressionAlgorithms:
+			raise ValueError('At least one compression algorithm must be supplied')
+		if len(set(self.CompressionAlgorithms)) != len(self.CompressionAlgorithms):
+			raise ValueError('Compression algorithms must be unique')
+		self.CompressionAlgorithmCount = len(self.CompressionAlgorithms)
 		data  = self.CompressionAlgorithmCount.to_bytes(2, byteorder = 'little', signed=False)
 		data += self.Padding.to_bytes(2, byteorder = 'little', signed=False)
-		data += self.Flags.value.to_bytes(2, byteorder = 'little', signed=False)
-		data += self.CompressionAlgorithmCount.to_bytes(2, byteorder = 'little', signed=False)
+		data += self.Flags.value.to_bytes(4, byteorder = 'little', signed=False)
 		for compalgo in self.CompressionAlgorithms:
 			data += compalgo.value.to_bytes(2, byteorder = 'little', signed=False)
 		

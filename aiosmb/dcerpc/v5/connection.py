@@ -78,6 +78,17 @@ class DCERPC5Connection:
 		self.netlogon_domain = domain_name
 		self.netlogon_aes = aes
 
+	def _ntlm_rpc_flags(self):
+		"""ISC_REQ flags for the NTLM handshake during an RPC bind. Confidentiality,
+		session-key and integrity are only requested when the chosen auth level
+		actually signs/seals the traffic (INTEGRITY/PRIVACY). At CONNECT level we
+		leave them off so a relayed NTLM context - which has no session key and
+		cannot derive signing/sealing keys - can complete the handshake."""
+		flags = ISC_REQ.REPLAY_DETECT | ISC_REQ.SEQUENCE_DETECT | ISC_REQ.CONNECTION
+		if self.auth_level in (RPC_C_AUTHN_LEVEL_PKT_INTEGRITY, RPC_C_AUTHN_LEVEL_PKT_PRIVACY):
+			flags |= ISC_REQ.CONFIDENTIALITY | ISC_REQ.USE_SESSION_KEY | ISC_REQ.INTEGRITY
+		return flags
+
 	def set_auth_level(self, auth_level):
 		self.auth_level = auth_level
 
@@ -113,9 +124,35 @@ class DCERPC5Connection:
 
 			return True, None
 		except Exception as e:
+			# If the transport was (partially) created but setup failed, make sure we
+			# don't leak the underlying socket. Without this the TCP connection stays
+			# half-open until GC reaps it.
+			await self._safe_transport_disconnect()
 			return None, e
 
+	async def _safe_transport_disconnect(self):
+		"""Best-effort transport teardown that never raises. Used on failure paths
+		so a dead/unusable connection never leaks its socket."""
+		try:
+			if self.transport is not None:
+				await self.transport.disconnect()
+		except Exception:
+			pass
+
 	async def bind(self, iface_uuid, alter = 0, bogus_binds = 0, transfer_syntax = ('8a885d04-1ceb-11c9-9fe8-08002b104860', '2.0')):
+		"""
+		Performs the bind operation. On a failed *initial* bind the transport is torn
+		down automatically so callers that simply return the error (the common case
+		in mass scanning: BINDNAK / FAULT / access-denied / server EOF) don't leak the
+		socket. Alter-context binds (alter != 0) run on an already-live connection, so
+		their failure is left for the caller to handle.
+		"""
+		result, err = await self._bind(iface_uuid, alter=alter, bogus_binds=bogus_binds, transfer_syntax=transfer_syntax)
+		if err is not None and not alter:
+			await self._safe_transport_disconnect()
+		return result, err
+
+	async def _bind(self, iface_uuid, alter = 0, bogus_binds = 0, transfer_syntax = ('8a885d04-1ceb-11c9-9fe8-08002b104860', '2.0')):
 		"""
 		Performs bind operation. Does authentication and sets up the keys for further communication
 		"""
@@ -175,18 +212,17 @@ class DCERPC5Connection:
 			if self.auth_level != RPC_C_AUTHN_LEVEL_NONE and not alter:
 				#authentication required
 				if self.auth_type == RPC_C_AUTHN_WINNT:
-					
-					#seal flag MUST be turned on in the handshake flags!!!!!!!
-					#it is "signaled via the is_rpc variable"0
+
+					# seal flag MUST be turned on in the handshake flags for RPC; this is
+					# signalled via is_rpc=True (the SSP toggles the relevant flags itself).
+					# At CONNECT level there is no signing/sealing, so we don't demand the
+					# confidentiality/session-key/integrity flags. A relayed NTLM context
+					# ignores these flags entirely (it replays the client's own messages).
 					auth, res, err = await self.gssapi.ntlm.authenticate(
-						None, 
+						None,
 						spn=self.target.to_target_string(),
-						flags =  ISC_REQ.REPLAY_DETECT |\
-									ISC_REQ.CONFIDENTIALITY|\
-									ISC_REQ.USE_SESSION_KEY|\
-									ISC_REQ.INTEGRITY|\
-									ISC_REQ.SEQUENCE_DETECT|\
-									ISC_REQ.CONNECTION
+						flags = self._ntlm_rpc_flags(),
+						is_rpc = True
 					)
 					if err is not None:
 						return None, err
@@ -285,18 +321,14 @@ class DCERPC5Connection:
 			if self.auth_level != RPC_C_AUTHN_LEVEL_NONE and not alter:
 				if self.auth_type == RPC_C_AUTHN_WINNT:
 					response, res, err = await self.gssapi.ntlm.authenticate(
-						bindResp['auth_data'], 
+						bindResp['auth_data'],
 						spn=self.target.to_target_string(),
-						flags =  ISC_REQ.REPLAY_DETECT |\
-									ISC_REQ.CONFIDENTIALITY|\
-									ISC_REQ.USE_SESSION_KEY|\
-									ISC_REQ.INTEGRITY|\
-									ISC_REQ.SEQUENCE_DETECT|\
-									ISC_REQ.CONNECTION
+						flags = self._ntlm_rpc_flags(),
+						is_rpc = True
 					)
 					if err is not None:
 						return None, err
-					
+
 					self.__sessionKey = self.gssapi.ntlm.get_session_key()
 
 				elif self.auth_type == RPC_C_AUTHN_NETLOGON:
@@ -320,7 +352,10 @@ class DCERPC5Connection:
 
 				self.__sequence = 0
 
-				if self.auth_level in (RPC_C_AUTHN_LEVEL_CONNECT, RPC_C_AUTHN_LEVEL_PKT_INTEGRITY, RPC_C_AUTHN_LEVEL_PKT_PRIVACY):
+				# Key derivation only makes sense when the traffic is actually signed
+				# or sealed. At CONNECT level (and for a relayed context that has no
+				# real session key) we skip it entirely - the stubs go out unsigned.
+				if self.auth_level in (RPC_C_AUTHN_LEVEL_PKT_INTEGRITY, RPC_C_AUTHN_LEVEL_PKT_PRIVACY):
 					if self.auth_type == RPC_C_AUTHN_WINNT:
 						if self.gssapi.ntlm.is_extended_security() == True:
 							self.__clientSigningKey = self.gssapi.ntlm.get_signkey() 

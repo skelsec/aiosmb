@@ -1,0 +1,9 @@
+schema_version: 1
+profile: samba-4.17-disposable
+reserved_id_range: KF-0700..KF-0749
+generated_on: "2026-08-14"
+notes:
+  - Only confirmed aiosmb production defects belong in this report.
+  - Lab, Docker, host-network, and unsupported-profile failures are skips.
+  - Every listed defect must have a canonical strict-xfail test in this directory.
+known_failures: []

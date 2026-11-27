@@ -19,6 +19,15 @@ from aiosmb.dcerpc.v5.rpcrt import RPC_C_AUTHN_LEVEL_NONE,\
 
 from contextlib import asynccontextmanager
 
+# Account-type filter for SamrEnumerateUsersInDomain that covers every account
+# that holds secrets replicable via DRSGetNCChanges: regular users, machine
+# (workstation/server trust) accounts and interdomain trust accounts. Needed so
+# dcsync does not silently skip computer and trust accounts.
+SAMR_ALL_ACCOUNT_TYPES = samr.USER_NORMAL_ACCOUNT | \
+	samr.USER_WORKSTATION_TRUST_ACCOUNT | \
+	samr.USER_SERVER_TRUST_ACCOUNT | \
+	samr.USER_INTERDOMAIN_TRUST_ACCOUNT
+
 @asynccontextmanager
 async def samrrpc_from_smb(connection, auth_level=None, open=True, perform_dummy=False):
     instance, err = await SAMRRPC.from_smbconnection(connection, auth_level=auth_level, open=open, perform_dummy=perform_dummy)
@@ -275,9 +284,8 @@ class SAMRRPC:
 			return None, e
 
 
-	async def list_domain_users(self, domain_handle):
+	async def list_domain_users(self, domain_handle, user_type = samr.USER_NORMAL_ACCOUNT):
 		try:
-			user_type = samr.USER_NORMAL_ACCOUNT
 			status = NTStatus.MORE_ENTRIES
 			enumerationContext = 0
 			while status == NTStatus.MORE_ENTRIES:

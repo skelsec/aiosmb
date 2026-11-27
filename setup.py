@@ -40,7 +40,7 @@ setup(
 	python_requires='>=3.7',
 	install_requires=[
 		'unicrypto>=0.0.12',
-		'asyauth>=0.0.23',
+		'asyauth>=0.0.24',
 		'asysocks>=0.2.18',
 		'prompt-toolkit>=3.0.2',
 		'winacl>=0.1.9',
@@ -51,6 +51,9 @@ setup(
 		'wcwidth',
         'cryptography',
 	],
+	extras_require={
+		'compression': ['aiosmb-compression'],
+	},
 	
 	classifiers=[
 		"Programming Language :: Python :: 3.7",
@@ -58,11 +61,20 @@ setup(
 	],
 	entry_points={
 		'console_scripts': [
+			# Canonical command names
+			'aiosmb-server = aiosmb.examples.smbserver:main',
+			'aiosmb-client = aiosmb.examples.smbclient:main',
+			'aiosmb-shareenum = aiosmb.examples.smbshareenum:main',
+			'aiosmb-getfile = aiosmb.examples.smbgetfile:main',
+			'aiosmb-certreq = aiosmb.examples.smbcertreq:main',
+			'aiosmb-cainfo = aiosmb.examples.smbcainfo:main',
+			'aiosmb-scanner = aiosmb.examples.scanners.__main__:main',
+			# Backward-compatible command names
 			'asmbclient = aiosmb.examples.smbclient:main',
 			'asmbshareenum = aiosmb.examples.smbshareenum:main',
 			'asmbgetfile = aiosmb.examples.smbgetfile:main',
 			'asmbcertreq = aiosmb.examples.smbcertreq:main',
-			'asmbscanner = aiosmb.examples.scanners.__main__:main'
+			'asmbscanner = aiosmb.examples.scanners.__main__:main',
 		],
 
 	}

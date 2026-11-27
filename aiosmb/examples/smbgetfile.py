@@ -4,6 +4,12 @@ import logging
 
 from aiosmb.commons.connection.factory import SMBConnectionFactory
 from aiosmb import logger
+from aiosmb.examples._cli import (
+	CONNECTION_EPILOG,
+	add_url_help,
+	add_verbosity,
+	make_parser,
+)
 
 import tqdm
 
@@ -37,17 +43,42 @@ async def amain(url, outfilename, progress = True):
 				if progress is True:
 					pbar.update(len(data))
 
-def main():
-	import argparse
+def build_parser(prog=None):
+	parser = make_parser(
+		'Download one file from an SMB share',
+		prog=prog,
+		epilog=CONNECTION_EPILOG,
+	)
+	add_url_help(parser)
 
-	parser = argparse.ArgumentParser(description='SMB file downloader')
-	parser.add_argument('-v', '--verbose', action='count', default=0)
-	#parser.add_argument('-r', '--recursive', action='store_true', help='Recirsively donwload all files from the remote folder')
-	parser.add_argument('--progress', action='store_true', help='Show progress')
-	parser.add_argument('-o', '--out-file', help='Output file name. Optional.')
-	parser.add_argument('url', help='SMB URL with full file path. Example: smb2+ntlm-password://TEST\\Administrator:pw@10.10.10.1/C$/test.txt')
-	
-	args = parser.parse_args()
+	output = parser.add_argument_group('output')
+	output.add_argument(
+		'-o',
+		'--out-file',
+		metavar='PATH',
+		help='local output path; defaults to the remote file name',
+	)
+	output.add_argument(
+		'--progress',
+		action='store_true',
+		help='show a byte progress bar',
+	)
+	add_verbosity(output)
+
+	parser.add_argument(
+		'url',
+		metavar='URL',
+		help=(
+			'SMB connection URL including /share/path/to/file; '
+			'use --help-url for the complete format'
+		),
+	)
+	return parser
+
+
+def main(argv=None):
+	parser = build_parser()
+	args = parser.parse_args(argv)
 
 	if args.verbose >=1:
 		logger.setLevel(logging.DEBUG)
@@ -59,7 +90,7 @@ def main():
 		logging.basicConfig(level=logging.DEBUG)
 
 	
-	asyncio.run(amain(args.url, args.out_file))
+	asyncio.run(amain(args.url, args.out_file, args.progress))
 
 if __name__ == '__main__':
 	main()

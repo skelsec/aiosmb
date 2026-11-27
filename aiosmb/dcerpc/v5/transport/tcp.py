@@ -49,13 +49,27 @@ class DCERPCTCPTransport:
 		self.packets = asyncio.Queue()
 	
 	async def disconnect(self):
+		# Idempotent teardown: cancel the reader first (so it stops touching the
+		# connection), then close the socket. Both references are cleared so a
+		# second disconnect() call is a safe no-op. This MUST be reachable on
+		# every error path, otherwise the socket is left half-closed when the
+		# remote sends EOF and only gets reaped much later by GC.
 		try:
-			if self.connection is not None:
-				await self.connection.close()
-
 			if self.reader_task is not None:
 				self.reader_task.cancel()
-						
+				try:
+					await self.reader_task
+				except asyncio.CancelledError:
+					pass
+				except Exception:
+					pass
+				self.reader_task = None
+
+			if self.connection is not None:
+				await self.connection.close()
+				self.connection = None
+
+			return None, None
 		except Exception as e:
 			return None, e
 
