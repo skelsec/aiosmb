@@ -840,6 +840,18 @@ class SMBConnection:
 				return False, None, None
 			return False, e
 
+	def _get_authentication_spn(self) -> str:
+		ntlm = 'NTLMSSP - Microsoft NTLM Security Support Provider'
+		mechanism = getattr(self.gssapi, 'selected_authentication_context_name', None)
+		if mechanism is None:
+			contexts = getattr(self.gssapi, 'authentication_contexts', {})
+			if len(contexts) == 1:
+				mechanism = next(iter(contexts))
+		if mechanism == ntlm:
+			# NTLM target names omit the realm required by the Kerberos SPN parser.
+			return 'cifs/%s' % self.target.get_hostname_or_ip()
+		return self.target.to_target_string()
+
 	async def session_setup(self, fake_auth: bool = False) -> Tuple[bool, Optional[Exception]]:
 		try:
 			authdata = None
@@ -848,7 +860,7 @@ class SMBConnection:
 			while status == NTStatus.MORE_PROCESSING_REQUIRED and maxiter > 0:
 				command = SESSION_SETUP_REQ()
 				try:
-					command.Buffer, res, err  = await self.gssapi.authenticate(authdata, spn=self.target.to_target_string(), target=self.target)
+					command.Buffer, res, err  = await self.gssapi.authenticate(authdata, spn=self._get_authentication_spn(), target=self.target)
 					if err is not None:
 						raise err
 					if fake_auth == True:
@@ -898,7 +910,7 @@ class SMBConnection:
 				maxiter -= 1
 			
 			if rply.header.Status == NTStatus.SUCCESS:
-				command.Buffer, res, err  = await self.gssapi.authenticate(authdata, spn=self.target.to_target_string())
+				command.Buffer, res, err  = await self.gssapi.authenticate(authdata, spn=self._get_authentication_spn())
 				if err is not None:
 					raise err
 
