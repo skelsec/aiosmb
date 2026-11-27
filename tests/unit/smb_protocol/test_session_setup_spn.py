@@ -15,6 +15,7 @@ from asyauth.protocols.spnego.messages.asn1_structs import NegotiationToken
 from minikerberos.common.spn import KerberosSPN
 
 from aiosmb.commons.connection.target import SMBTarget
+from aiosmb.commons.exceptions import SMBAuthenticationFailed
 from aiosmb.connection import SMBConnection
 from aiosmb.protocol.common import NegotiateDialects
 from aiosmb.wintypes.ntstatus import NTStatus
@@ -179,3 +180,31 @@ def test_custom_authentication_context_keeps_legacy_spn():
     target = SMBTarget(hostname='server.example.test', domain='EXAMPLE')
     connection = SMBConnection(object(), target)
     assert connection._get_authentication_spn() == target.to_target_string()
+
+
+@pytest.mark.parametrize('mechanism', [KERBEROS, 'KRB5 - Kerberos 5'])
+def test_kerberos_without_hostname_raises_clear_error(mechanism):
+    async def run():
+        context = SimpleNamespace(
+            selected_authentication_context_name=mechanism,
+            authentication_contexts={mechanism: object()},
+            authenticate=AsyncMock(),
+        )
+        target = SMBTarget(ip='192.0.2.10', domain='EXAMPLE')
+        connection = SMBConnection(context, target)
+        success, error = await connection.session_setup()
+        assert not success
+        assert isinstance(error, SMBAuthenticationFailed)
+        assert 'serverip' in str(error)
+        context.authenticate.assert_not_called()
+
+    asyncio.run(run())
+
+
+def test_ntlm_without_hostname_still_uses_ip():
+    context = SimpleNamespace(
+        selected_authentication_context_name=None,
+        authentication_contexts={NTLM: object()},
+    )
+    connection = SMBConnection(context, SMBTarget(ip='192.0.2.10', domain='EXAMPLE'))
+    assert connection._get_authentication_spn() == 'cifs/192.0.2.10'
