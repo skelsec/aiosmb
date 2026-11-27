@@ -20,8 +20,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - python: "3.8"
-            artifact: py38
           - python: "3.12"
             artifact: py312
 
