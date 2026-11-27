@@ -1,0 +1,32 @@
+[build-system]
+requires = ["maturin>=1.14,<2"]
+build-backend = "maturin"
+
+[project]
+name = "aiosmb-compression"
+version = "0.2.0"
+description = "Safe Rust SMB compression codecs"
+readme = "README.md"
+requires-python = ">=3.9"
+license = "Apache-1.1"
+authors = [{ name = "aiosmb contributors" }]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Rust",
+    "Topic :: System :: Networking",
+    "Topic :: System :: Archiving :: Compression",
+]
+
+[tool.maturin]
+features = ["extension-module"]
+module-name = "aiosmb_compression"
+bindings = "pyo3"
+strip = true

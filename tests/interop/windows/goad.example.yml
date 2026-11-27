@@ -1,0 +1,198 @@
+# Public inventory for the standard five-host GOAD lab. This file contains no
+# credentials and is intentionally inactive. Copy it to profile.local.yml,
+# set active: true, and keep all identity material in the named environment
+# variables.
+schema_version: 1
+name: goad-standard-five-host
+active: false
+lab_kind: vulnerable_integration
+
+probe_ports:
+  endpoint_mapper: 135
+  directory_service: 389
+  smb: 445
+
+credential_tiers:
+  user:
+    mechanism: ntlm-password
+    username_environment: AIOSMB_WINDOWS_USER_USERNAME
+    password_environment: AIOSMB_WINDOWS_USER_PASSWORD
+  admin:
+    mechanism: ntlm-password
+    username_environment: AIOSMB_WINDOWS_ADMIN_USERNAME
+    password_environment: AIOSMB_WINDOWS_ADMIN_PASSWORD
+  domain_admin:
+    mechanism: ntlm-password
+    username_environment: AIOSMB_WINDOWS_DOMAIN_ADMIN_USERNAME
+    password_environment: AIOSMB_WINDOWS_DOMAIN_ADMIN_PASSWORD
+  machine:
+    mechanism: ntlm-password
+    username_environment: AIOSMB_WINDOWS_MACHINE_USERNAME
+    password_environment: AIOSMB_WINDOWS_MACHINE_PASSWORD
+  certificate:
+    mechanism: kerberos-pfx
+    principal_environment: AIOSMB_WINDOWS_CERT_PRINCIPAL
+    pfx_environment: AIOSMB_WINDOWS_CERT_PFX
+    pfx_password_environment: AIOSMB_WINDOWS_CERT_PFX_PASSWORD
+
+safety:
+  allow_destructive: false
+  destructive_allowlist: []
+  snapshot_environment: AIOSMB_WINDOWS_SNAPSHOT_CHECKPOINT
+
+targets:
+  - id: kingslanding
+    host: 192.168.56.10
+    port: 445
+    dc_host: 192.168.56.10
+    preferred_dialect: SMB311
+    expected:
+      computer_name: KINGSLANDING
+      fqdn: kingslanding.sevenkingdoms.local
+      dns_domain: sevenkingdoms.local
+      netbios_domain: SEVENKINGDOMS
+      role: domain_controller
+      build: 17763
+      server_label: Windows Server 2019
+      modern_dialects: [SMB202, SMB210, SMB300, SMB302, SMB311]
+      signing_required: true
+    capabilities:
+      - authenticated_smb
+      - share_enumeration
+      - srvsvc_read
+      - samr_read
+      - lsa_read
+      - dc_samr_read
+      - service_read
+      - registry_read
+      - dc_registry_read
+      - machine_auth
+      - certificate_auth
+    safe_reads: []
+    destructive:
+      disposable: false
+      operations: {}
+
+  - id: winterfell
+    host: 192.168.56.11
+    port: 445
+    dc_host: 192.168.56.11
+    preferred_dialect: SMB311
+    expected:
+      computer_name: WINTERFELL
+      fqdn: winterfell.north.sevenkingdoms.local
+      dns_domain: north.sevenkingdoms.local
+      netbios_domain: NORTH
+      role: domain_controller
+      build: 17763
+      server_label: Windows Server 2019
+      modern_dialects: [SMB202, SMB210, SMB300, SMB302, SMB311]
+      signing_required: true
+    capabilities:
+      - authenticated_smb
+      - share_enumeration
+      - srvsvc_read
+      - samr_read
+      - lsa_read
+      - dc_samr_read
+      - service_read
+      - registry_read
+      - dc_registry_read
+      - machine_auth
+      - certificate_auth
+    safe_reads: []
+    destructive:
+      disposable: false
+      operations: {}
+
+  - id: meereen
+    host: 192.168.56.12
+    port: 445
+    dc_host: 192.168.56.12
+    preferred_dialect: SMB311
+    expected:
+      computer_name: MEEREEN
+      fqdn: meereen.essos.local
+      dns_domain: essos.local
+      netbios_domain: ESSOS
+      role: domain_controller
+      build: 14393
+      server_label: Windows Server 2016
+      modern_dialects: [SMB202, SMB210, SMB300, SMB302, SMB311]
+      signing_required: true
+    capabilities:
+      - authenticated_smb
+      - share_enumeration
+      - srvsvc_read
+      - samr_read
+      - lsa_read
+      - dc_samr_read
+      - service_read
+      - registry_read
+      - dc_registry_read
+      - machine_auth
+      - certificate_auth
+    safe_reads: []
+    destructive:
+      disposable: false
+      operations: {}
+
+  - id: castelblack
+    host: 192.168.56.22
+    port: 445
+    dc_host: 192.168.56.11
+    preferred_dialect: SMB311
+    expected:
+      computer_name: CASTELBLACK
+      fqdn: castelblack.north.sevenkingdoms.local
+      dns_domain: north.sevenkingdoms.local
+      netbios_domain: NORTH
+      role: member_server
+      build: 17763
+      server_label: Windows Server 2019
+      modern_dialects: [SMB202, SMB210, SMB300, SMB302, SMB311]
+      signing_required: false
+    capabilities:
+      - authenticated_smb
+      - share_enumeration
+      - srvsvc_read
+      - samr_read
+      - lsa_read
+      - service_read
+      - registry_read
+      - machine_auth
+      - certificate_auth
+    safe_reads: []
+    destructive:
+      disposable: false
+      operations: {}
+
+  - id: braavos
+    host: 192.168.56.23
+    port: 445
+    dc_host: 192.168.56.12
+    preferred_dialect: SMB311
+    expected:
+      computer_name: BRAAVOS
+      fqdn: braavos.essos.local
+      dns_domain: essos.local
+      netbios_domain: ESSOS
+      role: member_server
+      build: 14393
+      server_label: Windows Server 2016
+      modern_dialects: [SMB202, SMB210, SMB300, SMB302, SMB311]
+      signing_required: false
+    capabilities:
+      - authenticated_smb
+      - share_enumeration
+      - srvsvc_read
+      - samr_read
+      - lsa_read
+      - service_read
+      - registry_read
+      - machine_auth
+      - certificate_auth
+    safe_reads: []
+    destructive:
+      disposable: false
+      operations: {}

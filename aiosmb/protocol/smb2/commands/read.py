@@ -103,46 +103,68 @@ class READ_REQ:
 class READ_REPLY:
 	def __init__(self):
 		self.StructureSize = 17
-		self.DataOffset = None
+		self.DataOffset = 0
 		self.Reserved = 0
-		self.DataLength = None
-		self.DataRemaining = None
+		self.DataLength = 0
+		self.DataRemaining = 0
 		self.Reserved2 = 0
-		self.Buffer  = None
+		self.Buffer  = b''
 
 	def to_bytes(self):
-		#todo
-		pass
+		data = self.Buffer if self.Buffer is not None else b''
+		if not isinstance(data, (bytes, bytearray, memoryview)):
+			raise TypeError('READ reply Buffer must be bytes-like')
+		data = bytes(data)
+
+		self.DataLength = len(data)
+		# DataOffset is relative to the SMB2 header. The fixed READ response
+		# body is 16 bytes, so response data starts at 64 + 16.
+		self.DataOffset = 80 if data else 0
+
+		reserved = self.Reserved
+		if isinstance(reserved, (bytes, bytearray, memoryview)):
+			reserved = int.from_bytes(bytes(reserved), byteorder='little')
+		reserved2 = self.Reserved2
+		if isinstance(reserved2, (bytes, bytearray, memoryview)):
+			reserved2 = int.from_bytes(bytes(reserved2), byteorder='little')
+
+		t  = self.StructureSize.to_bytes(2, byteorder='little', signed=False)
+		t += self.DataOffset.to_bytes(1, byteorder='little', signed=False)
+		t += reserved.to_bytes(1, byteorder='little', signed=False)
+		t += self.DataLength.to_bytes(4, byteorder='little', signed=False)
+		t += (self.DataRemaining or 0).to_bytes(4, byteorder='little', signed=False)
+		t += reserved2.to_bytes(4, byteorder='little', signed=False)
+		t += data
+		return t
 
 	@staticmethod
 	def from_bytes(bbuff):
-		#return READ_REPLY.from_buffer(io.BytesIO(bbuff))
-
-		msg = READ_REPLY()
-		msg.StructureSize   = int.from_bytes(bbuff[:2], byteorder='little')
-		msg.DataOffset = int.from_bytes(bbuff[2:3], byteorder='little')
-		msg.Reserved  = bbuff[3:4]
-		msg.DataLength = int.from_bytes(bbuff[4:8], byteorder = 'little')
-		msg.DataRemaining = int.from_bytes(bbuff[8:12], byteorder = 'little')
-		msg.Reserved2 = bbuff[12:16]
-		
-		#buff.seek(msg.DataOffset, io.SEEK_SET)
-		msg.Buffer= bbuff[msg.DataOffset-64:msg.DataOffset+ msg.DataLength -64]
-		return msg
+		return READ_REPLY.from_buffer(io.BytesIO(bbuff))
 
 	@staticmethod
 	def from_buffer(buff):
 		msg = READ_REPLY()
+		command_start = buff.tell()
 		msg.StructureSize   = int.from_bytes(buff.read(2), byteorder='little')
-		#assert msg.StructureSize == 17
+		if msg.StructureSize != 17:
+			raise ValueError('Invalid SMB2 READ response StructureSize')
 		msg.DataOffset = int.from_bytes(buff.read(1), byteorder='little')
-		msg.Reserved  = buff.read(1) #int.from_bytes(buff.read(1), byteorder='little')
+		msg.Reserved  = int.from_bytes(buff.read(1), byteorder='little')
 		msg.DataLength = int.from_bytes(buff.read(4), byteorder = 'little')
 		msg.DataRemaining = int.from_bytes(buff.read(4), byteorder = 'little')
-		msg.Reserved2 = buff.read(4) #int.from_bytes(buff.read(4), byteorder = 'little')
-		
-		buff.seek(msg.DataOffset, io.SEEK_SET)
-		msg.Buffer= buff.read(msg.DataLength)
+		msg.Reserved2 = int.from_bytes(buff.read(4), byteorder = 'little')
+
+		if msg.DataLength:
+			if msg.DataOffset < 80:
+				raise ValueError('Invalid SMB2 READ response DataOffset')
+			# Offsets are relative to the SMB2 header. from_buffer is also
+			# useful on a command body, where command_start is zero.
+			buff.seek(command_start - 64 + msg.DataOffset, io.SEEK_SET)
+			msg.Buffer = buff.read(msg.DataLength)
+			if len(msg.Buffer) != msg.DataLength:
+				raise ValueError('Truncated SMB2 READ response data')
+		else:
+			msg.Buffer = b''
 		return msg
 
 	def __repr__(self):

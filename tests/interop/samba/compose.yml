@@ -1,0 +1,24 @@
+name: aiosmb-samba-interop
+
+services:
+  samba:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        DEBIAN_SNAPSHOT: "20250811T000000Z"
+        SAMBA_PACKAGE_VERSION: "2:4.17.12+dfsg-0+deb12u2"
+    environment:
+      AIOSMB_SAMBA_USERNAME: "${AIOSMB_SAMBA_USERNAME:-aiosmbtest}"
+      AIOSMB_SAMBA_PASSWORD: "${AIOSMB_SAMBA_PASSWORD:-Aiosmb-Test-Only-1!}"
+      AIOSMB_SAMBA_WORKGROUP: "${AIOSMB_SAMBA_WORKGROUP:-AIOSMB}"
+      AIOSMB_SAMBA_SHARE: "${AIOSMB_SAMBA_SHARE:-interop}"
+    ports:
+      - "${AIOSMB_SAMBA_PORT:-1445}:445"
+    healthcheck:
+      test: ["CMD", "smbcontrol", "smbd", "ping"]
+      interval: 2s
+      timeout: 2s
+      start_period: 5s
+      retries: 30
+    restart: "no"

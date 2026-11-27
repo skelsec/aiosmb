@@ -225,6 +225,57 @@ class DRSUAPIRPC:
 		except Exception as e:
 			return None, e
 	
+	def _netbios_domain_candidates(self):
+		# Best-effort list of NetBIOS (flat) domain names to use when qualifying a
+		# bare account name. In the dcsync flow self.domainname is already the flat
+		# name (as returned by SAMR, e.g. 'SEVENKINGDOMS'); when it is a DNS/FQDN
+		# (e.g. 'sevenkingdoms.local') we derive the first label as a best guess,
+		# because DS_NT4_ACCOUNT_NAME requires the flat name, not the FQDN.
+		candidates = []
+		if self.domainname:
+			dn = str(self.domainname)
+			if '.' in dn:
+				candidates.append(dn.split('.')[0])
+			else:
+				candidates.append(dn)
+		return candidates
+
+	def _build_crackname_candidates(self, username):
+		# Builds an ordered list of (DS_NAME_FORMAT, name) tuples to try when
+		# resolving an account to its object GUID via DRSCrackNames.
+		username = str(username)
+		uname_upper = username.upper()
+
+		if uname_upper.find('CN=') != -1:
+			return [(drsuapi.DS_NAME_FORMAT.DS_FQDN_1779_NAME, username)]
+		if uname_upper.find('S-1-5-') != -1:
+			return [(drsuapi.DS_NAME_FORMAT.DS_SID_OR_SID_HISTORY_NAME, username)]
+		if username.find('@') != -1:
+			return [
+				(drsuapi.DS_NAME_FORMAT.DS_USER_PRINCIPAL_NAME, username),
+				(drsuapi.DS_NAME_FORMAT.DS_SERVICE_PRINCIPAL_NAME, username),
+			]
+
+		candidates = []
+		if username.find('\\') != -1 or username.find('/') != -1:
+			# Caller already supplied a domain-qualified NT4-style name (DOMAIN\user).
+			# DS_NT4_ACCOUNT_NAME expects the NetBIOS (flat) domain name here.
+			nt4name = username.replace('/', '\\')
+			candidates.append((drsuapi.DS_NAME_FORMAT.DS_NT4_ACCOUNT_NAME, nt4name))
+			candidates.append((drsuapi.DS_NAME_FORMAT.DS_UNKNOWN_NAME, nt4name))
+		else:
+			# Bare sAMAccountName. Qualify it with the (NetBIOS) domain name so the
+			# lookup is unambiguous: an unqualified name can match the same account
+			# in multiple domains of a forest (e.g. 'krbtgt' or a regular user),
+			# which the DC reports as NOT_UNIQUE. DS_NT4_ACCOUNT_NAME_SANS_DOMAIN
+			# only reliably resolves accounts whose name is unique forest-wide
+			# (e.g. machine accounts), so it is kept only as a fallback.
+			for netbios in self._netbios_domain_candidates():
+				candidates.append((drsuapi.DS_NAME_FORMAT.DS_NT4_ACCOUNT_NAME, '%s\\%s' % (netbios, username)))
+			candidates.append((drsuapi.DS_NT4_ACCOUNT_NAME_SANS_DOMAIN, username))
+			candidates.append((drsuapi.DS_NAME_FORMAT.DS_UNKNOWN_NAME, username))
+		return candidates
+
 	async def get_user_secrets(self, username, formatOffered = None): #drsuapi.DS_NT4_ACCOUNT_NAME_SANS_DOMAIN
 		# formatoffered https://learn.microsoft.com/en-us/windows/win32/api/ntdsapi/ne-ntdsapi-ds_name_format
 		try:
@@ -242,40 +293,35 @@ class DRSUAPIRPC:
 			}
 
 			username = str(username)
-			
+
 			if formatOffered is None:
-				if username.upper().find('CN=') != -1:
-					formatOffered_list = [drsuapi.DS_NAME_FORMAT.DS_FQDN_1779_NAME]
-				elif username.upper().find('S-1-5-') != -1:
-					formatOffered_list = [drsuapi.DS_NAME_FORMAT.DS_SID_OR_SID_HISTORY_NAME]
-				elif username.find('@') != -1:
-					formatOffered_list = [drsuapi.DS_NAME_FORMAT.DS_USER_PRINCIPAL_NAME, drsuapi.DS_NAME_FORMAT.DS_SERVICE_PRINCIPAL_NAME]
-				else:
-					formatOffered_list = [drsuapi.DS_NT4_ACCOUNT_NAME_SANS_DOMAIN, drsuapi.DS_NAME_FORMAT.DS_UNKNOWN_NAME]
+				# List of (formatOffered, name) candidates to try, in order.
+				candidates = self._build_crackname_candidates(username)
 			else:
-				formatOffered_list = [formatOffered]
-			
+				candidates = [(formatOffered, username)]
+
 			rstatus = 'UNKNOWN'
 			guid = None
-			for formatOffered in formatOffered_list:
+			for crackFormat, crackName in candidates:
 				crackedName, err = await self.DRSCrackNames(
-						formatOffered,
+						crackFormat,
 						drsuapi.DS_NAME_FORMAT.DS_UNIQUE_ID_NAME,
-						name=username
+						name=crackName
 					)
 				if err is not None:
 					raise err
-				
-				
-				###### TODO: CHECKS HERE
+
 				# https://learn.microsoft.com/en-us/windows/win32/api/ntdsapi/ne-ntdsapi-ds_name_error
 				rstatus = crackedName['pmsgOut']['V1']['pResult']['rItems'][0]['status']
 				if rstatus != 0:
+					# This candidate didn't resolve (e.g. NOT_FOUND / NOT_UNIQUE for an
+					# unqualified name in a multi-domain forest); try the next one.
 					try:
 						s = DS_NAME_ERROR(rstatus)
 						rstatus = '%s - %s' % (rstatus, s.name)
 					except:
 						rstatus = '%s - %s' % (rstatus, 'UNKNOWN')
+					continue
 				#guid = GUID.from_string(crackedName['pmsgOut']['V1']['pResult']['rItems'][0]['pName'][:-1][1:-1])
 				guid = crackedName['pmsgOut']['V1']['pResult']['rItems'][0]['pName'][:-1][1:-1]
 				if len(guid) == 0:

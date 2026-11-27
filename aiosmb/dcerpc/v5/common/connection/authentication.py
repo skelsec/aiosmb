@@ -63,6 +63,21 @@ class DCERPCAuth:
 		return auth
 
 	@staticmethod
+	def from_relay(spnego_relay):
+		"""Builds a DCERPCAuth from an asyauth SPNEGO relay object.
+
+		Unlike from_smb_gssapi, this deliberately does NOT copy the relay. The relay
+		coordinates the client-side (the victim authenticating against our server) and
+		the server-side (this RPC connection) token exchange through a shared asyncio
+		queue and events. Calling get_copy() would fork that state and break the
+		coordination, so we wire the relay in directly. The raw NTLM relay context is
+		exposed as .ntlm (RPC_C_AUTHN_WINNT replays raw NTLMSSP tokens, not SPNEGO)."""
+		auth = DCERPCAuth()
+		auth.gssapi = spnego_relay
+		auth.ntlm = spnego_relay.get_ntlm()
+		return auth
+
+	@staticmethod
 	def from_unicredential(credential:KerberosCredential | NTLMCredential):
 		auth = DCERPCAuth()
 		auth.__original_credential = copy.deepcopy(credential)

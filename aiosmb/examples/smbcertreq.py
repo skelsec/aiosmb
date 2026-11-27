@@ -15,8 +15,13 @@ from aiosmb.dcerpc.v5.interfaces.icprmgr import ICPRRPC
 from aiosmb.dcerpc.v5.connection import DCERPC5Connection
 from aiosmb.dcerpc.v5.common.connection.authentication import DCERPCAuth
 from aiosmb.dcerpc.v5.interfaces.endpointmgr import EPM
+from aiosmb.examples._cli import (
+	CONNECTION_EPILOG,
+	add_url_help,
+	add_verbosity,
+	make_parser,
+)
 
-from msldap.ldap_objects.adcertificatetemplate import EKUS_NAMES
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.serialization import Encoding, pkcs7, pkcs12, BestAvailableEncryption, load_pem_private_key
@@ -115,7 +120,7 @@ async def amain(url, service, template, altname, onbehalf, cn = None, pfx_file =
 		try:
 			ext = cert.extensions.get_extension_for_oid(ExtensionOID.EXTENDED_KEY_USAGE)
 			for oid in ext.value:
-				print("[*]   Cert Extended Key Usage: {}".format(EKUS_NAMES.get(oid.dotted_string, oid.dotted_string)))
+				print("[*]   Cert Extended Key Usage: {}".format(oid.dotted_string))
 		except:
 			print('[-]   Could not verify extended key usage')
 
@@ -151,25 +156,81 @@ async def amain(url, service, template, altname, onbehalf, cn = None, pfx_file =
 		return False, e
 
 
-def main():
-	import argparse
+def build_parser(prog=None):
+	parser = make_parser(
+		'Request a certificate through the Microsoft ICPR RPC service',
+		prog=prog,
+		epilog=CONNECTION_EPILOG,
+	)
+	add_url_help(parser)
 
-	parser = argparse.ArgumentParser(description='Request certificate via ICPR-RPC service')
-	parser.add_argument('-v', '--verbose', action='count', default=0)
-	parser.add_argument('--pfx-file', help = 'Output PFX file name. Default is cert_<rand>.pfx')
-	parser.add_argument('--pfx-pass', default = 'admin', help = 'Ouput PFX file password')
-	parser.add_argument('--alt-name', help = 'Alternate username. Preferable username@FQDN format')
-	parser.add_argument('--cn', help = 'CN (common name). In case you want to set it to something custom. Preferable username@FQDN format')
+	output = parser.add_argument_group('certificate output')
+	output.add_argument(
+		'--pfx-file',
+		metavar='PATH',
+		help='output PFX path; defaults to cert_<random>.pfx',
+	)
+	output.add_argument(
+		'--pfx-pass',
+		default='admin',
+		metavar='PASSWORD',
+		help='password used to encrypt the output PFX',
+	)
+
+	subject = parser.add_argument_group('certificate subject')
+	subject.add_argument(
+		'--alt-name',
+		metavar='PRINCIPAL',
+		help='UPN placed in the subject alternative name, usually user@domain',
+	)
+	subject.add_argument(
+		'--cn',
+		metavar='NAME',
+		help='common name; defaults to the authenticated user principal',
+	)
+
 	agentenroll = parser.add_argument_group('Agent enrollment parameters')
-	agentenroll.add_argument('--on-behalf', help = 'On behalf username')
-	agentenroll.add_argument('--enroll-cert', help = 'Agent enrollment PFX file')
-	agentenroll.add_argument('--enroll-pass', help = 'Agent enrollment PFX file password')
+	agentenroll.add_argument(
+		'--on-behalf',
+		metavar='PRINCIPAL',
+		help='request the certificate on behalf of this principal',
+	)
+	agentenroll.add_argument(
+		'--enroll-cert',
+		metavar='PATH',
+		help='enrollment-agent PFX used to sign the request',
+	)
+	agentenroll.add_argument(
+		'--enroll-pass',
+		metavar='PASSWORD',
+		help='password for the enrollment-agent PFX',
+	)
 
-	parser.add_argument('smb_url', help = 'Connection string that describes the authentication and target. Example: smb+ntlm-password://TEST\\Administrator:password@10.10.10.2')
-	parser.add_argument('service', help = 'Enrollment service endpoint')
-	parser.add_argument('template', help = 'Certificate template name to use')
+	diagnostics = parser.add_argument_group('diagnostics')
+	add_verbosity(diagnostics)
+
+	parser.add_argument(
+		'smb_url',
+		metavar='URL',
+		help='SMB connection URL for the certificate server; use --help-url',
+	)
+	parser.add_argument(
+		'service',
+		metavar='CA',
+		help='certificate authority name passed to the ICPR service',
+	)
+	parser.add_argument(
+		'template',
+		metavar='TEMPLATE',
+		help='certificate template name',
+	)
+	return parser
+
+
+def main(argv=None):
+	parser = build_parser()
 	
-	args = parser.parse_args()
+	args = parser.parse_args(argv)
 	print(__banner__)
 
 	if args.verbose >=1:

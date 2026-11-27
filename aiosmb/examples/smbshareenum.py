@@ -11,6 +11,12 @@ from aiosmb.examples.scancommons.utils import *
 from aiosmb.commons.connection.factory import SMBConnectionFactory
 from aiosmb.commons.interfaces.machine import SMBMachine
 from aiosmb.commons.utils.univeraljson import UniversalEncoder
+from aiosmb.examples._cli import (
+	CONNECTION_EPILOG,
+	add_url_help,
+	add_verbosity,
+	make_parser,
+)
 
 
 from tqdm import tqdm
@@ -375,41 +381,149 @@ class SMBFileEnum:
 			if self.ext_result_q is not None:
 				await self.ext_result_q.put(EnumResultFinal(None, 'finished', None, None, None))
 
-async def amain():
-	import argparse
-	import sys
+def build_parser(prog=None):
+	epilog = CONNECTION_EPILOG + """
 
-	epilog = """
 Output legend:
-    [S] Share
-    [D] Dictionary
-    [F] File
-    [E] Error
-    [M] Maxed (max items limit reached for directory)
-    [P] Progress (current/total)
+  [S] share   [D] directory   [F] file   [E] error
+  [M] directory item limit reached      [P] progress
 """
+	parser = make_parser(
+		'Enumerate SMB shares, directories, and files across one or more hosts',
+		prog=prog,
+		epilog=epilog,
+	)
+	add_url_help(parser)
 
-	parser = argparse.ArgumentParser(description='SMB Share enumerator', formatter_class=argparse.RawDescriptionHelpFormatter, epilog=epilog)
-	parser.add_argument('-v', '--verbose', action='count', default=0)
-	parser.add_argument('--depth', type=int, default=3, help='Recursion depth, -1 means infinite')
-	parser.add_argument('-w', '--smb-worker-count', type=int, default=100, help='Parallell count')
-	parser.add_argument('-o', '--out-file', help='Output file path.')
-	parser.add_argument('-s', '--stdin', action='store_true', help='Read targets from stdin')
-	parser.add_argument('--max-items', type = int, default=None, help='Stop enumeration of a directory after N items were discovered.')
-	parser.add_argument('--max-runtime', type = int, default=None, help='Stop enumeration of a host after N seconds')
-	parser.add_argument('--url', help='Connection URL base, target can be set to anything. Owerrides all parameter based connection settings! Example: "smb2+ntlm-password://TEST\\victim@test"')
-	parser.add_argument('--progress', action='store_true', help='Show progress bar')
-	parser.add_argument('--sharesd', action='store_true', help='Fetch share security descriptor')
-	parser.add_argument('--dirsd', action='store_true', help='Fetch directory security descriptor')
-	parser.add_argument('--filesd', action='store_true', help='Fetch file security descriptor')
-	parser.add_argument('--json', action='store_true', help='Output in JSON format')
-	parser.add_argument('--tsv', action='store_true', help='Output in TSV format. (TAB Separated Values)')
-	parser.add_argument('--es', '--exclude-share', action='append', help = 'Exclude shares with name specified')
-	parser.add_argument('--ed', '--exclude-dir', action='append', help = 'Exclude directories with name specified')
-	parser.add_argument('--connection-timeout', type = int, default=5, help='Connection timeout')
-	parser.add_argument('targets', nargs='*', help = 'Hostname or IP address or file with a list of targets')
+	connection = parser.add_argument_group('connection and targets')
+	connection.add_argument(
+		'--url',
+		required=True,
+		metavar='URL',
+		help=(
+			'base SMB connection URL; its hostname is scanned when no target '
+			'is supplied, otherwise each target replaces it'
+		),
+	)
+	connection.add_argument(
+		'--connection-timeout',
+		type=int,
+		default=5,
+		metavar='SECONDS',
+		help='timeout applied to each SMB login',
+	)
+	connection.add_argument(
+		'-s',
+		'--stdin',
+		action='store_true',
+		help='read newline-separated targets from standard input',
+	)
+	connection.add_argument(
+		'targets',
+		nargs='*',
+		metavar='TARGET',
+		help='hostname, IP address, or path to a file containing targets',
+	)
 
-	args = parser.parse_args()
+	scope = parser.add_argument_group('enumeration scope')
+	scope.add_argument(
+		'--depth',
+		type=int,
+		default=3,
+		metavar='N',
+		help='directory recursion depth; -1 means unlimited',
+	)
+	scope.add_argument(
+		'-w',
+		'--workers',
+		'--smb-worker-count',
+		dest='smb_worker_count',
+		type=int,
+		default=100,
+		metavar='N',
+		help='maximum concurrent SMB workers',
+	)
+	scope.add_argument(
+		'--max-items',
+		type=int,
+		metavar='N',
+		help='stop a directory after discovering this many items',
+	)
+	scope.add_argument(
+		'--max-runtime',
+		type=int,
+		metavar='SECONDS',
+		help='stop processing a host after this many seconds',
+	)
+	scope.add_argument(
+		'--share-security',
+		'--sharesd',
+		dest='sharesd',
+		action='store_true',
+		help='fetch share security descriptors',
+	)
+	scope.add_argument(
+		'--directory-security',
+		'--dirsd',
+		dest='dirsd',
+		action='store_true',
+		help='fetch directory security descriptors',
+	)
+	scope.add_argument(
+		'--file-security',
+		'--filesd',
+		dest='filesd',
+		action='store_true',
+		help='fetch file security descriptors',
+	)
+	scope.add_argument(
+		'--exclude-share',
+		'--es',
+		dest='exclude_share',
+		action='append',
+		metavar='NAME',
+		help='exclude a share name; repeat for multiple names',
+	)
+	scope.add_argument(
+		'--exclude-dir',
+		'--ed',
+		dest='exclude_dir',
+		action='append',
+		metavar='NAME',
+		help='exclude a directory name; repeat for multiple names',
+	)
+
+	output = parser.add_argument_group('output')
+	output.add_argument(
+		'-o',
+		'--out-file',
+		metavar='PATH',
+		help='write results to this file instead of standard output',
+	)
+	output.add_argument(
+		'--progress',
+		action='store_true',
+		help='show a progress bar',
+	)
+	formats = output.add_mutually_exclusive_group()
+	formats.add_argument(
+		'--json',
+		action='store_true',
+		help='write one JSON object per result',
+	)
+	formats.add_argument(
+		'--tsv',
+		action='store_true',
+		help='write tab-separated result rows',
+	)
+	add_verbosity(output)
+	return parser
+
+
+async def amain(argv=None):
+	import sys
+	parser = build_parser()
+	args = parser.parse_args(argv)
 
 	if args.verbose >=1:
 		logger.setLevel(logging.DEBUG)
@@ -429,12 +543,12 @@ Output legend:
 	smb_url = args.url
 
 	exclude_share = []
-	if args.es is not None:
-		exclude_share = args.es
+	if args.exclude_share is not None:
+		exclude_share = args.exclude_share
 	
 	exclude_dir = []
-	if args.ed is not None:
-		exclude_dir = args.ed
+	if args.exclude_dir is not None:
+		exclude_dir = args.exclude_dir
 	
 
 	enumerator = SMBFileEnum(
@@ -474,8 +588,8 @@ Output legend:
 
 	await enumerator.run()
 
-def main():
-	asyncio.run(amain())
+def main(argv=None):
+	asyncio.run(amain(argv))
 
 if __name__ == '__main__':
 	main()

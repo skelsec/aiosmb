@@ -1,9 +1,11 @@
 
 import asyncio
+import fnmatch
 import ntpath
 import os
 from datetime import datetime, timezone, timedelta
-from typing import Callable, Awaitable, List, Dict, AsyncGenerator, Tuple, Union
+from typing import Any, AsyncIterator, Awaitable, Callable, Dict, List, Optional, Tuple, Union
+from typing import AsyncGenerator
 
 from aiosmb import logger
 from aiosmb.commons.interfaces.share import SMBShare
@@ -13,7 +15,7 @@ from aiosmb.commons.interfaces.directory import SMBDirectory
 from aiosmb.commons.utils.cpasswd import find_cpasswd
 
 from aiosmb.dcerpc.v5.interfaces.srvsmgr import SRVSRPC, srvsrpc_from_smb
-from aiosmb.dcerpc.v5.interfaces.samrmgr import SAMRRPC, samrrpc_from_smb
+from aiosmb.dcerpc.v5.interfaces.samrmgr import SAMRRPC, samrrpc_from_smb, SAMR_ALL_ACCOUNT_TYPES
 from aiosmb.dcerpc.v5.interfaces.lsatmgr import LSADRPC, lsadrpc_from_smb
 from aiosmb.dcerpc.v5.interfaces.drsuapimgr import drsuapirpc_from_smb
 from aiosmb.dcerpc.v5.interfaces.servicemanager import REMSVCRPC, remsvcrpc_from_smb
@@ -36,6 +38,7 @@ from aiosmb.dcerpc.v5.dcom.mmc import MMC20Application, CLSID_MMC20, IID_IDispat
 from aiosmb.dcerpc.v5.dcom.shellwindows import ShellWindows, CLSID_ShellWindows, ShellBrowserWindow, CLSID_ShellBrowserWindow, CLSID_ShellWindows
 from aiosmb.dcerpc.v5.dcom.certreq import ICertRequestD, CLSID_ICertRequest, IID_ICertRequestD
 from aiosmb.dcerpc.v5.interfaces.icprmgr import ICPRRPC
+from aiosmb.dcerpc.v5.interfaces.icertadminmgr import ICertAdminRPC
 
 from aiosmb.dcerpc.v5 import tsch, scmr
 
@@ -46,26 +49,31 @@ from contextlib import asynccontextmanager
 
 
 class SMBMachine:
-	def __init__(self, connection, print_cb = None, force_rpc_auth = None):
-		self.connection:SMBConnection = connection
-		self.print_cb = print_cb
-		self.force_rpc_auth = force_rpc_auth
-		self.sessions = []
+	def __init__(
+		self,
+		connection: SMBConnection,
+		print_cb: Optional[Callable[[str], Awaitable[Any]]] = None,
+		force_rpc_auth: Optional[int] = None,
+	):
+		self.connection: SMBConnection = connection
+		self.print_cb: Optional[Callable[[str], Awaitable[Any]]] = print_cb
+		self.force_rpc_auth: Optional[int] = force_rpc_auth
+		self.sessions: List[SMBUserSession] = []
 
-	async def __aenter__(self):
+	async def __aenter__(self) -> "SMBMachine":
 		return self
 		
-	async def __aexit__(self, exc_type, exc, traceback):
+	async def __aexit__(self, exc_type: Any, exc: Any, traceback: Any) -> None:
 		try:
 			await asyncio.wait_for(self.close(), timeout = 5)
 		except:
 			pass
 
-	async def close(self):
+	async def close(self) -> None:
 		return
 
 	@asynccontextmanager
-	async def connect_rpc(self, servce_obj, auth_level=None, open=True, perform_dummy=False):
+	async def connect_rpc(self, servce_obj: Any, auth_level: Optional[int] = None, open: bool = True, perform_dummy: bool = False) -> AsyncIterator[Any]:
 		instance, err = await servce_obj.from_smbconnection(self.connection, auth_level, open, perform_dummy)
 		if err:
 			raise err
@@ -74,22 +82,22 @@ class SMBMachine:
 		finally:
 			await instance.close()
 	
-	async def list_pipes(self) -> AsyncGenerator[Tuple[str, Union[Exception, None]], None]:
+	async def list_pipes(self) -> AsyncGenerator[Tuple[Optional[str], Union[Exception, None]], None]:
 		try:
 			async for share, err in self.list_shares():
 				if err is not None:
 					pass
-				if share.name.upper() == 'IPC$':
-					_, err = await share.connect(self.connection)
+				if share.name.upper() == 'IPC$':  # type: ignore[union-attr]  # KF-0613: missing error handling drops the enumeration error
+					_, err = await share.connect(self.connection)  # type: ignore[union-attr]  # KF-0613
 					if err is not None:
 						raise err
-					async for entry, entrytype, err in share.subdirs[''].list_r(self.connection, depth = 1, maxentries = 100):
+					async for entry, entrytype, err in share.subdirs[''].list_r(self.connection, depth = 1, maxentries = 100):  # type: ignore[union-attr]  # KF-0613
 						if entrytype == 'file':
 							yield entry.name, None
 		except Exception as e:
 			yield None, e
 	
-	async def list_shares(self, fetch_share_sd:bool = False) -> AsyncGenerator[Tuple[SMBShare, Union[Exception, None]], None]:
+	async def list_shares(self, fetch_share_sd:bool = False) -> AsyncGenerator[Tuple[Optional[SMBShare], Union[Exception, None]], None]:
 		try:
 			async with srvsrpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as rpc:
 				async for name, share_type, remark, err in rpc.list_shares():
@@ -109,7 +117,7 @@ class SMBMachine:
 		except Exception as e:
 			yield None, e
 
-	async def list_sessions(self, level:int = 10) -> AsyncGenerator[Tuple[SMBUserSession, Union[Exception, None]], None]:
+	async def list_sessions(self, level:int = 10) -> AsyncGenerator[Tuple[Optional[SMBUserSession], Union[Exception, None]], None]:
 		try:
 			async with srvsrpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as rpc:
 				async for username, ip_addr, err in rpc.list_sessions(level = level):
@@ -122,7 +130,7 @@ class SMBMachine:
 		except Exception as e:
 			yield None, e
 
-	async def wkstlist_sessions(self, level:int = 1) -> AsyncGenerator[Tuple[SMBUserSession, Union[Exception, None]], None]:
+	async def wkstlist_sessions(self, level:int = 1) -> AsyncGenerator[Tuple[Optional[SMBUserSession], Union[Exception, None]], None]:
 		try:
 			async with wkstrpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as rpc:
 				async for username, ip_addr, err in rpc.list_sessions(level = level):
@@ -135,7 +143,7 @@ class SMBMachine:
 		except Exception as e:
 			yield None, e
 
-	async def list_domains(self) -> AsyncGenerator[Tuple[str, Union[Exception, None]], None]:
+	async def list_domains(self) -> AsyncGenerator[Tuple[Optional[str], Union[Exception, None]], None]:
 		try:
 			async with samrrpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as rpc:
 				async for domain, err in rpc.list_domains():
@@ -143,14 +151,14 @@ class SMBMachine:
 		except Exception as e:
 			yield None, e
 	
-	async def list_localgroups(self) -> AsyncGenerator[Tuple[str, str, Union[Exception, None]], None]:
+	async def list_localgroups(self) -> AsyncGenerator[Tuple[Optional[str], Optional[str], Union[Exception, None]], None]:
 		try:
 			async for name, sid, err in self.list_groups('Builtin'):
 				yield name, sid, err
 		except Exception as e:
 			yield None, None, e
 
-	async def list_groups(self, domain_name:str, ret_sid:bool = True) -> AsyncGenerator[Tuple[str, str, Union[Exception, None]], None]:
+	async def list_groups(self, domain_name:str, ret_sid:bool = True) -> AsyncGenerator[Tuple[Optional[str], Optional[str], Union[Exception, None]], None]:
 		"""
 		Lists all groups in a given domain.
 		domain_name: string
@@ -172,7 +180,7 @@ class SMBMachine:
 		except Exception as e:
 			yield None, None, e
 
-	async def list_group_members(self, domain_name:str, group_name:str) -> AsyncGenerator[Tuple[str, str, str, Union[Exception, None]], None]:
+	async def list_group_members(self, domain_name:str, group_name:str) -> AsyncGenerator[Tuple[Optional[str], Optional[str], Optional[str], Union[Exception, None]], None]:
 		try:
 			async with samrrpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as samrpc:
 				async with lsadrpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as lsadrpc:
@@ -212,7 +220,7 @@ class SMBMachine:
 		except Exception as e:
 			yield None, None, None, e
 
-	async def add_new_user(self, domain_name:str, user_name:str, password:str):
+	async def add_new_user(self, domain_name:str, user_name:str, password:str) -> Tuple[Optional[bool], Union[Exception, None]]:
 		try:
 			async with samrrpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as samrpc:
 				if domain_name is None or domain_name == '' or domain_name == 'Builtin':
@@ -230,7 +238,7 @@ class SMBMachine:
 		except Exception as e:
 			return None, e
 	
-	async def enable_user(self, domain_name:str, user_name:str) -> Awaitable[Tuple[str, Union[Exception, None]]]:
+	async def enable_user(self, domain_name:str, user_name:str) -> Tuple[Optional[str], Union[Exception, None]]:
 		try:
 			async with samrrpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as samrpc:
 				async with samrpc.get_user_handle(domain_name, user_name) as uhandle:
@@ -241,7 +249,7 @@ class SMBMachine:
 			traceback.print_exc()
 			return None, e
 
-	async def disable_user(self, domain_name:str, user_name:str) -> Awaitable[Tuple[str, Union[Exception, None]]]:
+	async def disable_user(self, domain_name:str, user_name:str) -> Tuple[Optional[str], Union[Exception, None]]:
 		try:
 			async with samrrpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as samrpc:
 				async with samrpc.get_user_handle(domain_name, user_name) as uhandle:
@@ -249,7 +257,7 @@ class SMBMachine:
 		except Exception as e:
 			return None, e
 	
-	async def delete_user(self, domain_name:str, user_name:str) -> Awaitable[Tuple[str, Union[Exception, None]]]:
+	async def delete_user(self, domain_name:str, user_name:str) -> Tuple[Optional[str], Union[Exception, None]]:
 		try:
 			async with samrrpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as samrpc:
 				async with samrpc.get_user_handle(domain_name, user_name) as uhandle:
@@ -258,7 +266,7 @@ class SMBMachine:
 		except Exception as e:
 			return None, e
 
-	async def change_user_password(self, domain_name:str, user_name:str, old_password:str, new_password:str) -> Awaitable[Tuple[str, Union[Exception, None]]]:
+	async def change_user_password(self, domain_name:str, user_name:str, old_password:str, new_password:str) -> Tuple[Optional[str], Union[Exception, None]]:
 		try:
 			async with samrrpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as samrpc:
 				async with samrpc.get_user_handle(domain_name, user_name) as uhandle:
@@ -267,7 +275,7 @@ class SMBMachine:
 		except Exception as e:
 			return None, e
 
-	async def change_user_password_nt(self, domain_name:str, user_name:str, old_pw_hash:str, new_password:str) -> Awaitable[Tuple[str, Union[Exception, None]]]:
+	async def change_user_password_nt(self, domain_name:str, user_name:str, old_pw_hash:str, new_password:str) -> Tuple[Optional[str], Union[Exception, None]]:
 		try:
 			async with samrrpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as samrpc:
 				async with samrpc.get_user_handle(domain_name, user_name) as uhandle:
@@ -276,7 +284,7 @@ class SMBMachine:
 		except Exception as e:
 			return None, e
 	
-	async def change_user_password_new(self, domain_name:str, user_name:str, new_password:str) -> Awaitable[Tuple[str, Union[Exception, None]]]:
+	async def change_user_password_new(self, domain_name:str, user_name:str, new_password:str) -> Tuple[Optional[str], Union[Exception, None]]:
 		try:
 			async with samrrpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as samrpc:
 				async with samrpc.get_user_handle(domain_name, user_name) as uhandle:
@@ -286,7 +294,7 @@ class SMBMachine:
 			return None, e
 
 
-	async def change_user_password_internal(self, domain_name:str, user_name:str, new_password:str) -> Awaitable[Tuple[str, Union[Exception, None]]]:
+	async def change_user_password_internal(self, domain_name:str, user_name:str, new_password:str) -> Tuple[Optional[str], Union[Exception, None]]:
 		try:
 			async with samrrpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as samrpc:
 				async with samrpc.get_user_handle(domain_name, user_name) as uhandle:
@@ -295,7 +303,7 @@ class SMBMachine:
 		except Exception as e:
 			return None, e
 	
-	async def list_users_allowed_to_replicate(self, domain_name:str):
+	async def list_users_allowed_to_replicate(self, domain_name:str) -> AsyncGenerator[Tuple[Optional[str], Optional[str], Optional[int], Union[Exception, None]], None]:
 		try:
 			async with samrrpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as samrpc:
 				async for name, sid, rid, err in samrpc.list_users_allowed_to_replicate(domain_name):
@@ -304,7 +312,7 @@ class SMBMachine:
 			yield None, None, None, err
 			
 
-	async def add_sid_to_group(self, domain_name:str, group_name:str, sid:str) -> Awaitable[Tuple[bool, Union[Exception, None]]]:
+	async def add_sid_to_group(self, domain_name:str, group_name:str, sid:str) -> Tuple[Optional[bool], Union[Exception, None]]:
 		try:
 			async with samrrpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as samrpc:
 				async with lsadrpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as lsadrpc:
@@ -341,7 +349,7 @@ class SMBMachine:
 		except Exception as e:
 			return False, e		
 
-	async def list_directory(self, directory:SMBDirectory) -> AsyncGenerator[Tuple[str, Union[Exception, None]], None]:
+	async def list_directory(self, directory:SMBDirectory) -> AsyncGenerator[Tuple[Optional[str], Union[Exception, None]], None]:
 		_, err = await directory.list(self.connection)
 		if err is not None:
 			yield None, err
@@ -350,7 +358,7 @@ class SMBMachine:
 		for entry in directory.get_console_output():
 			yield entry, None
 
-	async def enum_all_recursively(self, depth:int = 3, maxentries:int = None, exclude_share:List[str]=['print$', 'PRINT$'], exclude_dir:List[str]=[], fetch_share_sd:bool = False, fetch_dir_sd:bool = False, fetch_file_sd:bool = False) -> AsyncGenerator[Tuple[Union[SMBShare, SMBDirectory, SMBFile], str, Union[Exception, None]], None]:
+	async def enum_all_recursively(self, depth:int = 3, maxentries:Optional[int] = None, exclude_share:Optional[List[str]]=['print$', 'PRINT$'], exclude_dir:Optional[List[str]]=[], fetch_share_sd:bool = False, fetch_dir_sd:bool = False, fetch_file_sd:bool = False) -> AsyncGenerator[Tuple[Union[SMBShare, SMBDirectory, SMBFile], str, Union[Exception, None]], None]:
 		if exclude_share is None:
 			exclude_share = []
 		if exclude_dir is None:
@@ -360,13 +368,17 @@ class SMBMachine:
 		async for share, err in self.list_shares(fetch_share_sd):
 			if err is not None:
 				raise err
+			if share is None:
+				continue
 			if share.name.upper() == 'IPC$':
 				continue
 			shares[share.name] = share
 			yield share, 'share', None
 
+		# share names are case-insensitive on the server; patterns may use fnmatch wildcards (eg. SMSPKG*)
+		exclude_patterns = [str(x).strip().lower() for x in exclude_share if str(x).strip() != '']
 		for share_name in shares:
-			if share_name in exclude_share:
+			if any(fnmatch.fnmatchcase(share_name.lower(), pattern) for pattern in exclude_patterns):
 				continue
 
 			_, err = await shares[share_name].connect(self.connection)
@@ -378,11 +390,13 @@ class SMBMachine:
 				yield entry
 				await asyncio.sleep(0)
 	
-	async def enum_files_with_filter(self, filter_cb:Callable[[str, str], Awaitable[bool]], depth:int = 1000, maxentries:int = -1) -> AsyncGenerator[Tuple[Union[SMBShare, SMBDirectory, SMBFile], str, Union[Exception, None]], None]:
+	async def enum_files_with_filter(self, filter_cb:Callable[[str, Any], Awaitable[bool]], depth:int = 1000, maxentries:int = -1) -> AsyncGenerator[Tuple[Union[SMBShare, SMBDirectory, SMBFile], str, Union[Exception, None]], None]:
 		shares:Dict[str, SMBShare] = {}
 		async for share, err in self.list_shares():
 			if err is not None:
 				raise err
+			if share is None:
+				continue
 			shares[share.name] = share
 			yield share, 'share', None
 
@@ -403,7 +417,7 @@ class SMBMachine:
 				yield entry
 				await asyncio.sleep(0)
 
-	async def put_file(self, local_path:str, remote_path: str) -> Awaitable[Tuple[int, Union[Exception, None]]]:
+	async def put_file(self, local_path:str, remote_path: str) -> Tuple[Optional[int], Union[Exception, None]]:
 		"""
 		remote_path must be a full UNC path with the file name included!
 
@@ -422,8 +436,7 @@ class SMBMachine:
 		except Exception as e:
 			return False, e
 
-	async def get_file(self, out_path:str, file_obj:SMBFile):
-		# TODO: add typehint
+	async def get_file(self, out_path:str, file_obj:SMBFile) -> None:
 		with open(out_path, 'wb') as f:
 			try:
 				await file_obj.open(self.connection, 'r')
@@ -435,7 +448,7 @@ class SMBMachine:
 			finally:
 				await file_obj.close()
 	
-	async def get_directory(self, out_path:str, dir_obj:SMBDirectory):
+	async def get_directory(self, out_path:str, dir_obj:SMBDirectory) -> None:
 		async for entry in dir_obj.list_r(self.connection, depth = 1000, maxentries = -1):
 			if entry.is_directory is True:
 				# normalize entry.name os independent way
@@ -444,7 +457,7 @@ class SMBMachine:
 				await self.get_directory(os.path.join(out_path, dirname), entry)
 			await self.get_file(os.path.join(out_path, entry.name), entry)
 
-	async def get_file_data(self, file_obj:SMBFile) -> AsyncGenerator[Tuple[bytes, Union[Exception, None]], None]:
+	async def get_file_data(self, file_obj:SMBFile) -> AsyncGenerator[Tuple[Optional[bytes], Union[Exception, None]], None]:
 		_, err = await file_obj.open(self.connection, 'r')
 		if err is not None:
 			yield None, err
@@ -452,17 +465,17 @@ class SMBMachine:
 		async for data, err in file_obj.read_chunked():
 			yield data, err
 
-	async def del_file(self, file_path:str) -> Awaitable[Tuple[bool, Union[Exception, None]]]:
+	async def del_file(self, file_path:str) -> Tuple[Optional[bool], Union[Exception, None]]:
 		return await SMBFile.delete_rempath(self.connection, file_path)
 	
-	async def del_directory_path(self, dir_path:str) -> Awaitable[Tuple[bool, Union[Exception, None]]]:
+	async def del_directory_path(self, dir_path:str) -> Tuple[Optional[bool], Union[Exception, None]]:
 		return await SMBDirectory.delete_unc(self.connection, dir_path)
 
-	async def create_subdirectory(self, directory_name:str, parent_directory_obj:SMBDirectory) -> Awaitable[Tuple[bool, Union[Exception, None]]]:
+	async def create_subdirectory(self, directory_name:str, parent_directory_obj:SMBDirectory) -> Tuple[Optional[bool], Union[Exception, None]]:
 		return await parent_directory_obj.create_subdir(directory_name, self.connection)
 		
 
-	async def list_services(self, with_config:bool = False) -> AsyncGenerator[Tuple[SMBService, Union[Exception, None]], None]:
+	async def list_services(self, with_config:bool = False) -> AsyncGenerator[Tuple[Optional[SMBService], Union[Exception, None]], None]:
 		try:
 			async with remsvcrpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as rpc:	
 				async for service, err in rpc.list(with_config=with_config):
@@ -473,14 +486,7 @@ class SMBMachine:
 		except Exception as e:
 			yield None, e
 
-	async def get_service_config(self, service_name:str) -> Awaitable[Tuple[ServiceStatus, Union[Exception, None]]]:
-		try:
-			async with remsvcrpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as rpc:
-				return await rpc.get_config(service_name)
-		except Exception as e:
-			return None, e
-
-	async def enable_service(self, service_name:str) -> Awaitable[Tuple[bool, Union[Exception, None]]]:
+	async def enable_service(self, service_name:str) -> Tuple[Optional[bool], Union[Exception, None]]:
 		try:
 			async with remsvcrpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as rpc:
 				res, exc = await rpc.enable_service(service_name)
@@ -488,7 +494,7 @@ class SMBMachine:
 		except Exception as e:
 			return None, e
 
-	async def list_domain_users(self, target_domain:str = None) -> AsyncGenerator[Tuple[str,str, Union[Exception, None]], None]:
+	async def list_domain_users(self, target_domain:Optional[str] = None) -> AsyncGenerator[Tuple[Optional[str], Optional[str], Union[Exception, None]], None]:
 		try:
 			async with samrrpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as rpc:
 				if target_domain is None:
@@ -519,7 +525,7 @@ class SMBMachine:
 		except Exception as e:
 			yield None, None, e
 
-	async def dcsync(self, target_domain:str = None, target_users:List[str] = []) -> AsyncGenerator[Tuple[SMBUserSecrets, Union[Exception, None]], None]:
+	async def dcsync(self, target_domain:Optional[str] = None, target_users:List[str] = []) -> AsyncGenerator[Tuple[Optional[SMBUserSecrets], Union[Exception, None]], None]:
 		try:
 			if isinstance(target_users, str):
 				target_users = [target_users]
@@ -567,7 +573,9 @@ class SMBMachine:
 						domain_handle, err = await samrpc.open_domain(domain_sid)
 						if err is not None:
 							raise err
-						async for username, user_sid, err in samrpc.list_domain_users(domain_handle):
+						# Enumerate every account type (users, machine/trust accounts), otherwise
+						# computer and trust accounts are silently skipped by dcsync.
+						async for username, user_sid, err in samrpc.list_domain_users(domain_handle, user_type=SAMR_ALL_ACCOUNT_TYPES):
 							if err is not None:
 								yield None, err
 								return
@@ -585,7 +593,7 @@ class SMBMachine:
 			return
 
 	
-	async def get_regapi(self) -> Awaitable[Tuple[RRPRPC, Union[Exception, None]]]:
+	async def get_regapi(self) -> Tuple[Optional[RRPRPC], Union[Exception, None]]:
 		try:
 			instance, err = await RRPRPC.from_smbconnection(self.connection, auth_level=self.force_rpc_auth)
 			if err is not None:
@@ -594,7 +602,7 @@ class SMBMachine:
 		except Exception as e:
 			return None, e
 
-	async def save_registry_hive(self, hive_name:str, remote_path:str) -> Awaitable[Tuple[bool, Union[Exception, None]]]:
+	async def save_registry_hive(self, hive_name:str, remote_path:str) -> Tuple[Optional[bool], Union[Exception, None]]:
 		try:
 			async with rrprpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as rpc:
 				key_handle, err = await rpc.OpenRegPath(hive_name)
@@ -605,7 +613,7 @@ class SMBMachine:
 		except Exception as e:
 			return None, e
 
-	async def reg_list_users(self) -> Awaitable[Tuple[List[str], Union[Exception, None]]]:
+	async def reg_list_users(self) -> Tuple[Optional[List[str]], Union[Exception, None]]:
 		"""
 		Lists user SIDs available in the HKLM\\USERS hive
 		"""
@@ -619,7 +627,7 @@ class SMBMachine:
 			return None, e
 		
 	
-	async def service_dump_lsass(self, lsass_file_name:str = None, silent:bool = False) -> Awaitable[Tuple[bool, Union[Exception, None]]]:
+	async def service_dump_lsass(self, lsass_file_name:Optional[str] = None, silent:bool = False) -> Tuple[Optional[bool], Union[Exception, None]]:
 		service_name = None
 		try:
 			async with remsvcrpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as rpc:
@@ -668,7 +676,7 @@ class SMBMachine:
 			return None, e
 		finally:
 			if service_name is None:
-				return
+				return None, None
 			_, err = await self.stop_service(service_name)
 			_, err = await self.delete_service(service_name)
 			if err is not None:
@@ -686,7 +694,7 @@ class SMBMachine:
 						print('[%s] Removed service: %s' % (self.connection.target.get_hostname_or_ip(), service_name))
 
 	
-	async def service_cmd_exec(self, command:str, display_name:str = None, service_name:str = None, result_wait_timeout:int = 1) -> AsyncGenerator[Tuple[bytes, Union[Exception, None]], None]:
+	async def service_cmd_exec(self, command:str, display_name:Optional[str] = None, service_name:Optional[str] = None, result_wait_timeout:int = 1) -> AsyncGenerator[Tuple[Optional[bytes], Union[Exception, None]], None]:
 		"""
 		Creates a service and starts it.
 		Does not create files! there is a separate command for that!
@@ -762,7 +770,7 @@ class SMBMachine:
 		except Exception as e:
 			yield None, e
 	
-	async def create_service(self, service_name:str, command:str, display_name:str = None, starttype:int = scmr.SERVICE_AUTO_START) -> Awaitable[Tuple[bool, Union[Exception, None]]]:
+	async def create_service(self, service_name:str, command:str, display_name:Optional[str] = None, starttype:int = scmr.SERVICE_AUTO_START) -> Tuple[Optional[bool], Union[Exception, None]]:
 		"""
 		Creates a service and starts it.
 		Does not create files! there is a separate command for that!
@@ -776,7 +784,7 @@ class SMBMachine:
 		except Exception as e:
 			return None, e
 
-	async def start_service(self, service_name:str) -> Awaitable[Tuple[bool, Union[Exception, None]]]:
+	async def start_service(self, service_name:str) -> Tuple[Optional[bool], Union[Exception, None]]:
 		"""
 		Creates a service and starts it.
 		Does not create files! there is a separate command for that!
@@ -787,7 +795,7 @@ class SMBMachine:
 		except Exception as e:
 			return None, e
 	
-	async def stop_service(self, service_name:str) -> Awaitable[Tuple[bool, Union[Exception, None]]]:
+	async def stop_service(self, service_name:str) -> Tuple[Optional[bool], Union[Exception, None]]:
 		"""
 		Creates a service and starts it.
 		Does not create files! there is a separate command for that!
@@ -798,7 +806,7 @@ class SMBMachine:
 		except Exception as e:
 			return None, e
 	
-	async def delete_service(self, service_name:str) -> Awaitable[Tuple[bool, Union[Exception, None]]]:
+	async def delete_service(self, service_name:str) -> Tuple[Optional[bool], Union[Exception, None]]:
 		"""
 		Creates a service and starts it.
 		Does not create files! there is a separate command for that!
@@ -809,7 +817,7 @@ class SMBMachine:
 		except Exception as e:
 			return None, e
 	
-	async def get_service_config(self, service_name:str) -> Awaitable[Tuple[SMBService, Union[Exception, None]]]:
+	async def get_service_config(self, service_name:str) -> Tuple[Optional[SMBService], Union[Exception, None]]:
 		"""
 		Creates a service and starts it.
 		Does not create files! there is a separate command for that!
@@ -821,7 +829,7 @@ class SMBMachine:
 			return None, e
 
 
-	async def deploy_service(self, path_to_executable:str, remote_path:str = None, service_name:str = None) -> Awaitable[Tuple[bool, Union[Exception, None]]]:
+	async def deploy_service(self, path_to_executable:str, remote_path:Optional[str] = None, service_name:Optional[str] = None) -> Tuple[Optional[bool], Union[Exception, None]]:
 		"""
 
 		remote path must be UNC
@@ -846,7 +854,7 @@ class SMBMachine:
 			return None, e
 	
 
-	async def tasks_list(self) -> AsyncGenerator[Tuple[str, Union[Exception, None]], None]:
+	async def tasks_list(self) -> AsyncGenerator[Tuple[Optional[str], Union[Exception, None]], None]:
 		"""
 		Lists scheduled tasks
 		"""
@@ -857,7 +865,7 @@ class SMBMachine:
 		except Exception as e:
 			yield None, e
 	
-	async def get_task(self, task_name:str) -> Awaitable[Tuple[str, Union[Exception, None]]]:
+	async def get_task(self, task_name:str) -> Tuple[Optional[str], Union[Exception, None]]:
 		"""
 		Returns task XML
 		"""
@@ -867,7 +875,7 @@ class SMBMachine:
 		except Exception as e:
 			return None, e
 	
-	async def list_task_folders(self, path = '\\') -> AsyncGenerator[Tuple[str, Union[Exception, None]], None]:
+	async def list_task_folders(self, path:str = '\\') -> AsyncGenerator[Tuple[Optional[str], Union[Exception, None]], None]:
 		"""
 		Lists task folders
 		"""
@@ -878,7 +886,7 @@ class SMBMachine:
 		except Exception as e:
 			yield None, e
 
-	async def tasks_register(self, template:str, task_name:str = None, flags:int = tsch.TASK_CREATE, sddl:str = None, logon_type:int = tsch.TASK_LOGON_NONE) -> Awaitable[Tuple[bool, Union[Exception, None]]]:
+	async def tasks_register(self, template:str, task_name:Optional[str] = None, flags:int = tsch.TASK_CREATE, sddl:Optional[str] = None, logon_type:int = tsch.TASK_LOGON_NONE) -> Tuple[Optional[bool], Union[Exception, None]]:
 		"""
 		Registers a new task
 		"""
@@ -889,14 +897,14 @@ class SMBMachine:
 			return None, e
 
 
-	async def tasks_execute_commands(self, commands) -> Awaitable[Tuple[bool, Union[Exception, None]]]:
+	async def tasks_execute_commands(self, commands:List[str]) -> Tuple[Optional[bool], Union[Exception, None]]:
 		try:
 			async with tschrpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as rpc:
 				return await rpc.run_commands(commands)
 		except Exception as e:
 			return None, e
 	
-	async def tasks_cmd_exec(self, command:str, result_wait_timeout:int = 1) -> AsyncGenerator[Tuple[bytes, Union[Exception, None]], None]:
+	async def tasks_cmd_exec(self, command:str, result_wait_timeout:int = 1) -> AsyncGenerator[Tuple[Optional[bytes], Union[Exception, None]], None]:
 		try:
 			async with tschrpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as rpc:
 
@@ -958,7 +966,7 @@ class SMBMachine:
 		except Exception as e:
 			yield None, e
 
-	async def tasks_delete(self, task_name:str) -> Awaitable[Tuple[bool, Union[Exception, None]]]:
+	async def tasks_delete(self, task_name:str) -> Tuple[Optional[bool], Union[Exception, None]]:
 		try:
 			async with tschrpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as rpc:
 				return await rpc.delete_task(task_name)
@@ -966,7 +974,7 @@ class SMBMachine:
 			return None, e
 
 	
-	async def task_dump_lsass(self, lsass_file_name:str = None, silent:bool = False) -> Awaitable[Tuple[bool, Union[Exception, None]]]:
+	async def task_dump_lsass(self, lsass_file_name:Optional[str] = None, silent:bool = False) -> Tuple[Optional[bool], Union[Exception, None]]:
 		try:
 			if lsass_file_name is None:
 				lsass_file_name = os.urandom(4).hex() + '.arj'
@@ -1001,7 +1009,7 @@ class SMBMachine:
 		except Exception as e:
 			return None, e
 
-	async def printerbug(self, attacker_host:str) -> Awaitable[Tuple[bool, Union[Exception, None]]]:
+	async def printerbug(self, attacker_host:str) -> Tuple[Optional[bool], Union[Exception, None]]:
 		"""
 		Creates a service and starts it.
 		Does not create files! there is a separate command for that!
@@ -1028,28 +1036,28 @@ class SMBMachine:
 			return None, e
 	
 	
-	async def enum_printer_drivers(self, environments:str = "Windows x64", level:int = 2, name:str = '') -> Awaitable[Tuple[List[str], Union[Exception, None]]]:
+	async def enum_printer_drivers(self, environments:str = "Windows x64", level:int = 2, name:str = '') -> Tuple[Optional[List[str]], Union[Exception, None]]:
 		try:
 			async with rprnrpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as rpc:
 				return await rpc.enum_drivers(environments, level = level, name = name)
 		except Exception as e:
 			return None, e
 
-	async def printnightmare(self, share:str, driverpath:str, environments:str = "Windows x64", silent:bool = False):
+	async def printnightmare(self, share:str, driverpath:str, environments:str = "Windows x64", silent:bool = False) -> Tuple[Any, Union[Exception, None]]:
 		try:
 			async with rprnrpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as rpc:
 				return await rpc.printnightmare(share, driverpath = driverpath, environments = environments, silent = silent)
 		except Exception as e:
 			return None, e
 
-	async def par_printnightmare(self, share:str, driverpath:str, environments:str = "Windows x64", silent:bool = False):
+	async def par_printnightmare(self, share:str, driverpath:str, environments:str = "Windows x64", silent:bool = False) -> Tuple[Any, Union[Exception, None]]:
 		try:
 			async with parrpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as rpc:
 				return await rpc.printnightmare(share, driverpath = driverpath, environments = environments, silent = silent)
 		except Exception as e:
 			return None, e
 
-	async def list_interfaces(self) -> Awaitable[Tuple[List[Dict[str, Union[int, str]]], Union[Exception, None]]]:
+	async def list_interfaces(self) -> Tuple[Optional[List[Dict[str, Union[int, str]]]], Union[Exception, None]]:
 		try:
 			interfaces = []
 			ipc_file = SMBFile.from_uncpath('\\\\%s\\IPC$' % self.connection.target.get_hostname_or_ip())
@@ -1076,63 +1084,65 @@ class SMBMachine:
 		finally:
 			await ipc_file.close()
 	
-	async def check_service_status(self, service_name:str) -> Awaitable[Tuple[ServiceStatus, Union[Exception, None]]]:
+	async def check_service_status(self, service_name:str) -> Tuple[Optional[ServiceStatus], Union[Exception, None]]:
 		try:
 			async with remsvcrpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as rpc:
 				return await rpc.check_service_status(service_name)
 		except Exception as e:
 			return None, e
 	
-	async def get_service_sd(self, service_name:str) -> Awaitable[Tuple[str, Union[Exception, None]]]:
+	async def get_service_sd(self, service_name:str) -> Tuple[Optional[str], Union[Exception, None]]:
 		try:
 			async with remsvcrpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as rpc:
 				return await rpc.get_service_sd(service_name)
 		except Exception as e:
 			return None, e
 	
-	async def get_backupkeys(self) -> Awaitable[Tuple[Dict[str, bytes], Union[Exception, None]]]:
+	async def get_backupkeys(self) -> Tuple[Optional[Dict[str, bytes]], Union[Exception, None]]:
 		try:
 			async with lsadrpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as rpc:
 				return await rpc.get_backupkeys()
 		except Exception as e:
 			return None, e
 	
-	async def get_cpasswd(self, depth:int = 5):
+	async def get_cpasswd(self, depth:int = 5) -> AsyncGenerator[Tuple[Optional[str], Optional[str], Optional[str], Optional[str], Union[Exception, None]], None]:
 		async for filename, username, cpassword, xmltype, err in find_cpasswd(self.connection, depth = depth):
 			yield filename, username, cpassword, xmltype, err
 		
-	async def at_add_job(self, atinfo, server_name:str = None):
+	async def at_add_job(self, atinfo:Any, server_name:Optional[str] = None) -> Tuple[Any, Union[Exception, None]]:
 		try:
 			async with atsvcrpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as rpc:
 				return await rpc.add_job(atinfo, servername = server_name)
 		except Exception as e:
 			return None, e
 	
-	async def at_enum(self, server_name:str = None):
+	async def at_enum(self, server_name:Optional[str] = None) -> Tuple[Any, Union[Exception, None]]:
 		try:
 			async with atsvcrpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as rpc:
 				return await rpc.enum_jobs(servername = server_name)
 		except Exception as e:
 			return None, e
 	
-	async def at_del_job(self, job_id:int, server_name:str = None):
+	async def at_del_job(self, job_id:int, server_name:Optional[str] = None) -> Tuple[Any, Union[Exception, None]]:
 		try:
 			async with atsvcrpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as rpc:
 				return await rpc.del_job(job_id, servername = server_name)
 		except Exception as e:
 			return None, e
 	
-	async def at_get_info(self, job_id:int, server_name:str = None):
+	async def at_get_info(self, job_id:int, server_name:Optional[str] = None) -> Tuple[Any, Union[Exception, None]]:
 		try:
 			async with atsvcrpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as rpc:
 				return await rpc.get_job(job_id, servername = server_name)
 		except Exception as e:
 			return None, e
 	
-	async def share_write_test(self, fetch_share_sd:bool = False):
+	async def share_write_test(self, fetch_share_sd:bool = False) -> AsyncGenerator[Tuple[Optional[SMBShare], Optional[bool], Union[Exception, None]], None]:
 		try:
 			async for share, err in self.list_shares(fetch_share_sd = fetch_share_sd):
 				if err is not None:
+					continue
+				if share is None:
 					continue
 				if share.name in ['IPC$', 'C$', 'ADMIN$', 'PRINT$', 'D$', 'E$', 'F$', 'G$', 'H$', 'I$', 'J$', 'K$', 'L$', 'M$', 'N$', 'O$', 'P$', 'Q$', 'R$', 'S$', 'T$', 'U$', 'V$', 'W$', 'X$', 'Y$', 'Z$']:
 					yield share, False, None
@@ -1159,7 +1169,7 @@ class SMBMachine:
 		except Exception as e:
 			yield None, None, e
 	
-	async def resolve_sid(self, sid:str):
+	async def resolve_sid(self, sid:str) -> Tuple[Optional[str], Union[Exception, None]]:
 		try:
 			sid = str(sid)
 			sidsplit = sid.split('-')
@@ -1192,7 +1202,7 @@ class SMBMachine:
 		except Exception as e:
 			return None, e
 	
-	async def whoami(self) -> Awaitable[Tuple[str, Union[Exception, None]]]:
+	async def whoami(self) -> Tuple[Optional[str], Optional[str], Optional[str], Optional[List[Any]], Union[Exception, None]]:
 		try:
 			groups = []
 			async with samrrpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as samrpc:
@@ -1233,7 +1243,7 @@ class SMBMachine:
 		except Exception as e:
 			return None, None, None, None, e
 	
-	async def reg_get_system_drive_letter(self):
+	async def reg_get_system_drive_letter(self) -> Tuple[Optional[str], Union[Exception, None]]:
 		try:
 			async with rrprpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as rpc:
 				drive, err = await rpc.get_system_drive_letter()
@@ -1243,7 +1253,7 @@ class SMBMachine:
 		except Exception as e:
 			return None, e
 
-	async def reg_get_user_home_directory_base_path(self):
+	async def reg_get_user_home_directory_base_path(self) -> Tuple[Optional[str], Union[Exception, None]]:
 		try:
 			async with rrprpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as rpc:
 				user_home_directory_base_path, err = await rpc.get_user_home_directory_base_path()
@@ -1253,7 +1263,7 @@ class SMBMachine:
 		except Exception as e:
 			return None, e
 
-	async def reg_get_ntds_file_path(self):
+	async def reg_get_ntds_file_path(self) -> Tuple[Optional[str], Union[Exception, None]]:
 		try:
 			async with rrprpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as rpc:
 				ntds_file_path, err = await rpc.get_ntds_file_path()
@@ -1264,7 +1274,7 @@ class SMBMachine:
 			return None, e
 
 	
-	async def reg_get_windows_directory_path(self):
+	async def reg_get_windows_directory_path(self) -> Tuple[Optional[str], Union[Exception, None]]:
 		try:
 			async with rrprpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as rpc:
 				windows_directory_path, err = await rpc.get_windows_directory_path()
@@ -1274,7 +1284,7 @@ class SMBMachine:
 		except Exception as e:
 			return None, e
 	
-	async def wmi_query(self, query:str, as_dict:bool = True):
+	async def wmi_query(self, query:str, as_dict:bool = True) -> AsyncGenerator[Tuple[Any, Union[Exception, None]], None]:
 		try:
 			async with DCOMConnection.from_smbconnection(self.connection) as dcom:
 				iInterface, err = await dcom.CoCreateInstanceEx(CLSID_WbemLevel1Login, IID_IWbemLevel1Login)
@@ -1297,7 +1307,7 @@ class SMBMachine:
 		except Exception as e:
 			yield None, e
 
-	async def wmi_shadowcopy_list(self):
+	async def wmi_shadowcopy_list(self) -> Tuple[Optional[List[Dict[str, Any]]], Union[Exception, None]]:
 		try:
 			shadow_copies = []
 			async for item, err in self.wmi_query('SELECT * FROM Win32_ShadowCopy', as_dict=False):
@@ -1340,7 +1350,7 @@ class SMBMachine:
 		except Exception as e:
 			return None, e
 	
-	async def wmi_shadowcopy_create(self, volume: str):
+	async def wmi_shadowcopy_create(self, volume: str) -> Tuple[Optional[str], Optional[str], Union[Exception, None]]:
 		try:
 			async with DCOMConnection.from_smbconnection(self.connection) as dcom:
 				iInterface, err = await dcom.CoCreateInstanceEx(CLSID_WbemLevel1Login, IID_IWbemLevel1Login)
@@ -1358,7 +1368,7 @@ class SMBMachine:
 		except Exception as e:
 			return None, None, e
 
-	async def wmi_shadowcopy_delete(self, shadow_id: str):
+	async def wmi_shadowcopy_delete(self, shadow_id: str) -> Tuple[Optional[bool], Union[Exception, None]]:
 		try:
 			async with DCOMConnection.from_smbconnection(self.connection) as dcom:
 				iInterface, err = await dcom.CoCreateInstanceEx(CLSID_WbemLevel1Login, IID_IWbemLevel1Login)
@@ -1377,7 +1387,7 @@ class SMBMachine:
 			return None, e
 
 	
-	async def wmi_cmd_exec(self, command:str) -> Awaitable[Tuple[int, int, Union[Exception, None]]]:
+	async def wmi_cmd_exec(self, command:str) -> Tuple[Optional[int], Optional[int], Union[Exception, None]]:
 		try:
 			async with DCOMConnection.from_smbconnection(self.connection) as dcom:
 				iInterface, err = await dcom.CoCreateInstanceEx(CLSID_WbemLevel1Login, IID_IWbemLevel1Login)
@@ -1395,7 +1405,7 @@ class SMBMachine:
 		except Exception as e:
 			return None, None, e
 
-	async def mmc20_cmd_exec(self, command:str) -> Awaitable[Tuple[bool, Union[Exception, None]]]:
+	async def mmc20_cmd_exec(self, command:str) -> Tuple[Optional[bool], Union[Exception, None]]:
 		try:
 			parts = command.split(' ', 1)
 			exe = parts[0]
@@ -1417,7 +1427,7 @@ class SMBMachine:
 		except Exception as e:
 			return None, e
 	
-	async def shellwindows_cmd_exec(self, command:str) -> Awaitable[Tuple[bool, Union[Exception, None]]]:
+	async def shellwindows_cmd_exec(self, command:str) -> Tuple[Optional[bool], Union[Exception, None]]:
 		try:
 			async with DCOMConnection.from_smbconnection(self.connection) as dcom:
 				iInterface, err = await dcom.CoCreateInstanceEx(CLSID_ShellWindows, IID_IDispatch)
@@ -1428,7 +1438,7 @@ class SMBMachine:
 		except Exception as e:
 			return None, e
 	
-	async def shellbrowserwindow_cmd_exec(self, command:str) -> Awaitable[Tuple[bool, Union[Exception, None]]]:
+	async def shellbrowserwindow_cmd_exec(self, command:str) -> Tuple[Optional[bool], Union[Exception, None]]:
 		try:
 			async with DCOMConnection.from_smbconnection(self.connection) as dcom:
 				iInterface, err = await dcom.CoCreateInstanceEx(CLSID_ShellBrowserWindow, IID_IDispatch)
@@ -1439,20 +1449,20 @@ class SMBMachine:
 		except Exception as e:
 			return None, e
 	
-	async def tasks_execute_command_as(self, run_as_sid:str, command:str, arguments:str = '', cleanup:bool = True) -> Awaitable[Tuple[bool, Union[Exception, None]]]:
+	async def tasks_execute_command_as(self, run_as_sid:str, command:str, arguments:str = '', cleanup:bool = True) -> Tuple[Optional[bool], Union[Exception, None]]:
 		try:
 			if run_as_sid.startswith('S-1-') is False:
-				run_as_sid, domain_name, err = await self.resolve_username_to_sid(run_as_sid)
+				resolved_sid, domain_name, err = await self.resolve_username_to_sid(run_as_sid)
 				if err is not None:
 					raise err
-				run_as_sid = str(run_as_sid)
+				run_as_sid = str(resolved_sid)
 
 			async with tschrpc_from_smb(self.connection, auth_level=self.force_rpc_auth) as rpc:
 				return await rpc.run_command_as(run_as_sid, command, arguments=arguments, cleanup=cleanup)
 		except Exception as e:
 			return None, e
 	
-	async def resolve_username_to_sid(self, username:str) -> Awaitable[Tuple[str, str, Union[Exception, None]]]:
+	async def resolve_username_to_sid(self, username:str) -> Tuple[Optional[str], Optional[str], Union[Exception, None]]:
 		"""
 		Resolves a username to a SID using LSA LookupNames.
 		This works for both local and domain users.
@@ -1482,7 +1492,7 @@ class SMBMachine:
 		except Exception as e:
 			return None, None, e
 
-	async def resolve_sid_to_username(self, sid:str) -> Awaitable[Tuple[str, str, Union[Exception, None]]]:
+	async def resolve_sid_to_username(self, sid:str) -> Tuple[Optional[str], Optional[str], Union[Exception, None]]:
 		"""
 		Resolves a SID to a username using LSA LookupSids.
 		This works for both local and domain users/groups.
@@ -1512,7 +1522,7 @@ class SMBMachine:
 		except Exception as e:
 			return None, None, e
 
-	async def get_ca_cert_dcom(self, ca_name: str, get_chain: bool = False) -> Tuple[bytes, Union[Exception, None]]:
+	async def get_ca_cert_dcom(self, ca_name: str, get_chain: bool = False) -> Tuple[Optional[bytes], Union[Exception, None]]:
 		"""
 		Retrieve a CA certificate via DCOM (ICertRequestD interface).
 		
@@ -1538,8 +1548,8 @@ class SMBMachine:
 		self,
 		ca_name: str,
 		csr_der: bytes,
-		attributes: List[str] = None
-	) -> Tuple[Dict, Union[Exception, None]]:
+		attributes: Optional[List[str]] = None
+	) -> Tuple[Optional[Dict], Union[Exception, None]]:
 		"""
 		Submit a certificate request to a CA via DCOM (ICertRequestD interface).
 		
@@ -1564,7 +1574,7 @@ class SMBMachine:
 				if err is not None:
 					raise err
 				async with ICertRequestD(iInterface) as cert_request:
-					return await cert_request.request(ca_name, csr_der, attributes=attributes)
+					return await cert_request.request_certificate(ca_name, csr_der, attributes=attributes)
 		except Exception as e:
 			return None, e
 
@@ -1572,7 +1582,7 @@ class SMBMachine:
 		self,
 		ca_name: str,
 		request_id: int
-	) -> Tuple[Dict, Union[Exception, None]]:
+	) -> Tuple[Optional[Dict], Union[Exception, None]]:
 		"""
 		Retrieve a pending certificate by request ID via DCOM (ICertRequestD interface).
 		
@@ -1600,12 +1610,50 @@ class SMBMachine:
 		except Exception as e:
 			return None, e
 
+	async def get_ca_config_dcom(self, ca_name: Optional[str] = None) -> Tuple[Optional[Dict], Union[Exception, None]]:
+		"""
+		Read the security relevant configuration of a CA via DCOM (ICertAdminD2 interface).
+		Requires administrative rights on the CA, nothing is modified.
+		
+		Args:
+			ca_name: CA name without the hostname (e.g., "MyCA").
+				If not given, the CA active on the server is used.
+		
+		Returns:
+			(result_dict, None) on success where result_dict contains:
+				- 'ca_name': Name of the CA
+				- 'edit_flags': EditFlags of the policy module (certadmin.EditFlags)
+				- 'interface_flags': InterfaceFlags of the CA (certadmin.InterfaceFlags)
+				- 'disable_extension_list': List of extension OIDs the CA doesn't issue
+				- 'security_descriptor': CA security descriptor (winacl SECURITY_DESCRIPTOR),
+					the access masks are certadmin.CAAccessMask values
+			(None, Exception) on failure
+		"""
+		try:
+			service, err = await ICertAdminRPC.from_smbconnection(self.connection, ca_name=ca_name)
+			if err is not None:
+				raise err
+			async with service:
+				result = {'ca_name': service.ca_name}
+				for name, getter in [
+					('edit_flags', service.get_edit_flags),
+					('interface_flags', service.get_interface_flags),
+					('disable_extension_list', service.get_disable_extension_list),
+					('security_descriptor', service.get_ca_security),
+				]:
+					result[name], err = await getter()
+					if err is not None:
+						raise err
+				return result, None
+		except Exception as e:
+			return None, e
+
 	async def request_certificate_rpc(
 		self,
 		ca_name: str,
 		csr_der: bytes,
-		attributes: List[str] = None
-	) -> Tuple[Dict, Union[Exception, None]]:
+		attributes: Optional[List[str]] = None
+	) -> Tuple[Optional[Dict], Union[Exception, None]]:
 		"""
 		Submit a certificate request to a CA via RPC (MS-ICPR).
 		
@@ -1639,7 +1687,7 @@ class SMBMachine:
 		self,
 		ca_name: str,
 		request_id: int
-	) -> Tuple[Dict, Union[Exception, None]]:
+	) -> Tuple[Optional[Dict], Union[Exception, None]]:
 		"""
 		Retrieve a pending certificate by request ID via RPC (MS-ICPR).
 		
@@ -1668,11 +1716,12 @@ class SMBMachine:
 		except Exception as e:
 			return None, e
 
-	async def iter_user_homes(self, include_system_accounts:bool = False):
+	async def iter_user_homes(self, include_system_accounts:bool = False) -> AsyncGenerator[Tuple[Optional[SMBDirectory], Union[Exception, None]], None]:
 		try:
 			user_base_win, err = await self.reg_get_user_home_directory_base_path()
 			if err is not None:
 				raise err
+			assert user_base_win is not None
 			user_base_unc = user_base_win.replace(':\\', '$\\')
 			user_base_unc = '\\%s' % user_base_unc
 
@@ -1688,6 +1737,7 @@ class SMBMachine:
 				systemroot_win, err = await self.reg_get_windows_directory_path()
 				if err is not None:
 					raise err
+				assert systemroot_win is not None
 				systemroot_unc = systemroot_win.replace(':\\', '$\\')
 				user_base_paths_system = [
 					'\\%s\\ServiceProfiles\\LocalService' % systemroot_unc,

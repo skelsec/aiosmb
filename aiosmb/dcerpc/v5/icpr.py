@@ -112,16 +112,26 @@ async def hCertServerRequest(dce, service, csr, dwFlags = 0, pdwRequestId = 1, p
 	request['pwszAuthority'] = checkNullString(service)
 	request['pdwRequestId'] = pdwRequestId
 
-	pctbAttribs = checkNullString(pctbAttribs)
-	pctbAttribs = pctbAttribs.encode('utf-16-le')
+	# Empty blobs must be sent with a NULL pointer. The CA takes a non-NULL
+	# request pointer as a new request and a non-NULL attribute pointer as a
+	# serial number, which breaks retrieving a certificate by request id.
 	attribsblob = CERTTRANSBLOB()
-	attribsblob['cbData'] = len(pctbAttribs)
-	attribsblob['pbData'] = pctbAttribs
+	if pctbAttribs in (None, NULL, ''):
+		attribsblob['cbData'] = 0
+		attribsblob['pbData'] = NULL
+	else:
+		pctbAttribs = checkNullString(pctbAttribs).encode('utf-16-le')
+		attribsblob['cbData'] = len(pctbAttribs)
+		attribsblob['pbData'] = pctbAttribs
 	request['pctbAttribs'] = attribsblob
 	
 	csr_request = CERTTRANSBLOB()
-	csr_request['cbData'] = len(csr)
-	csr_request['pbData'] = csr
+	if csr is None or len(csr) == 0:
+		csr_request['cbData'] = 0
+		csr_request['pbData'] = NULL
+	else:
+		csr_request['cbData'] = len(csr)
+		csr_request['pbData'] = csr
 	request['pctbRequest'] = csr_request
 
 	return await dce.request(request)

@@ -46,6 +46,15 @@ coverage.xml
 *.cover
 .hypothesis/
 .pytest_cache/
+/reports/
+/test-results/
+/tests/artifacts/
+/junit*.xml
+
+# Local interoperability inventories and secrets
+/tests/interop/**/profile.local.yml
+/tests/interop/**/profiles.local/
+/tests/interop/windows/artifacts.local/
 
 # Translations
 *.mo
