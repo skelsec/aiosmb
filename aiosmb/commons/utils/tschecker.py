@@ -1,10 +1,11 @@
 import re
+from typing import Optional, Tuple
 
 pattern = re.compile(
     r'^(?P<basename>.+)\@(?P<gmt>GMT-\d{4}\.\d{2}\.\d{2}-\d{2}\.\d{2}\.\d{2})$'
 )
 
-def tssplit(path: str) -> tuple[str, str]:
+def tssplit(path: str) -> Tuple[str, Optional[str]]:
     filename = path
     vstimestamp = None
     match = pattern.match(path)

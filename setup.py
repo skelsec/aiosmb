@@ -37,7 +37,7 @@ setup(
 	description="Asynchronous SMB protocol implementation",
 
 	# long_description=open("README.txt").read(),
-	python_requires='>=3.7',
+	python_requires='>=3.8',
 	install_requires=[
 		'unicrypto>=0.0.12',
 		'asyauth>=0.0.24',
@@ -56,7 +56,7 @@ setup(
 	},
 	
 	classifiers=[
-		"Programming Language :: Python :: 3.7",
+		"Programming Language :: Python :: 3.8",
 		"Operating System :: OS Independent",
 	],
 	entry_points={

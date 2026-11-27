@@ -12,7 +12,7 @@
 #
 # TODO: netlogon implementation (needs to be implemented in connection.py as well!)
 # TODO: GSS over NTLM (but I'm not sure if the protocol allows that)
-from typing import List
+from typing import List, Union
 import copy
 from asyauth.common.credentials.spnego import SPNEGOCredential
 from asyauth.common.credentials import UniCredential
@@ -78,7 +78,7 @@ class DCERPCAuth:
 		return auth
 
 	@staticmethod
-	def from_unicredential(credential:KerberosCredential | NTLMCredential):
+	def from_unicredential(credential:Union[KerberosCredential, NTLMCredential]):
 		auth = DCERPCAuth()
 		auth.__original_credential = copy.deepcopy(credential)
 		if isinstance(auth.__original_credential, NTLMCredential):
